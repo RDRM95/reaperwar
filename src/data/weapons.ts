@@ -1,0 +1,301 @@
+import { canon, estimate, inferred } from '@/core/provenance';
+import type { DamageType, WeaponDef } from './types';
+
+/**
+ * Weapon catalogue. All damage/range/speed numbers are SIMULATION_ESTIMATES in
+ * a compressed battlespace (tens of km instead of tens of thousands) so that an
+ * engagement is watchable. Relative strengths follow canon statements; the
+ * provenance field on each weapon explains what is established.
+ *
+ * Damage unit: 1 "dreadnought main-gun slug" ≈ 1000 points. Canon states an
+ * Everest-class slug yields ~38 kt of TNT; a Reaper capital ship weapon yields
+ * 132–454 kt per shot. Everything is scaled around those two anchors.
+ */
+
+/** How effective kinetic barriers are per damage type (1 = fully effective). */
+export const BARRIER_EFFICIENCY: Record<DamageType, number> = {
+  kinetic: 1.0, // Barriers exist to stop high-velocity slugs. (CANON_CONFIRMED)
+  thanix_stream: 0.45, // Molten stream largely overwhelms barriers. (SIMULATION_ESTIMATE)
+  reaper_beam: 0.4, // Reaper weapon shreds barriers in-cinematic. (CANON_INFERRED)
+  laser: 0.0, // Barriers do not stop directed energy. (CANON_CONFIRMED)
+  warhead: 0.25, // Disruptor torpedoes travel slowly to bypass barriers. (CANON_CONFIRMED)
+};
+
+export const WEAPONS: Record<string, WeaponDef> = {
+  // ---------------------------------------------------------------- ALLIANCE
+  alliance_dn_main: {
+    id: 'alliance_dn_main',
+    name: 'Dreadnought spinal mass accelerator',
+    kind: 'mass_accelerator',
+    damageType: 'kinetic',
+    damage: 1000,
+    cooldown: 4.0,
+    range: 42,
+    projectileSpeed: 30,
+    accuracy: 0.72,
+    penetration: 0.85,
+    heat: 18,
+    antiSmall: false,
+    antiCapital: true,
+    arc: 12,
+    provenance: canon(
+      'Everest-class main gun: 20 kg slug at 4,025 km/s, ~38 kt per round, firing every two seconds.',
+      'Codex: Ships and Vehicles — Dreadnought. Battlespace speed/range compressed for play (SIMULATION_ESTIMATE).',
+    ),
+  },
+  alliance_broadside: {
+    id: 'alliance_broadside',
+    name: 'Broadside mass accelerator battery',
+    kind: 'mass_accelerator',
+    damageType: 'kinetic',
+    damage: 140,
+    cooldown: 1.6,
+    range: 28,
+    projectileSpeed: 24,
+    accuracy: 0.62,
+    penetration: 0.5,
+    heat: 6,
+    antiSmall: false,
+    antiCapital: false,
+    arc: 120,
+    provenance: inferred(
+      'Dreadnoughts and cruisers mount secondary broadside batteries.',
+      'Codex describes broadside guns; yields are not stated (SIMULATION_ESTIMATE).',
+    ),
+  },
+  alliance_cruiser_main: {
+    id: 'alliance_cruiser_main',
+    name: 'Cruiser spinal mass accelerator',
+    kind: 'mass_accelerator',
+    damageType: 'kinetic',
+    damage: 320,
+    cooldown: 3.0,
+    range: 36,
+    projectileSpeed: 26,
+    accuracy: 0.68,
+    penetration: 0.7,
+    heat: 14,
+    antiSmall: false,
+    antiCapital: true,
+    arc: 15,
+    provenance: inferred(
+      'Cruisers carry a spinal gun smaller than a dreadnought’s.',
+      'Yield not established; scaled to ~1/3 of a dreadnought round (SIMULATION_ESTIMATE).',
+    ),
+  },
+  alliance_frigate_main: {
+    id: 'alliance_frigate_main',
+    name: 'Frigate mass accelerator',
+    kind: 'mass_accelerator',
+    damageType: 'kinetic',
+    damage: 70,
+    cooldown: 1.5,
+    range: 24,
+    projectileSpeed: 22,
+    accuracy: 0.7,
+    penetration: 0.45,
+    heat: 7,
+    antiSmall: false,
+    antiCapital: false,
+    arc: 30,
+    provenance: inferred(
+      'Frigates carry light mass accelerators for screening work.',
+      'SIMULATION_ESTIMATE yield.',
+    ),
+  },
+  disruptor_torpedo: {
+    id: 'disruptor_torpedo',
+    name: 'Disruptor torpedo',
+    kind: 'disruptor_torpedo',
+    damageType: 'warhead',
+    damage: 260,
+    cooldown: 9.0,
+    range: 18,
+    projectileSpeed: 2.2,
+    accuracy: 0.9,
+    penetration: 0.9,
+    missileHp: 12,
+    heat: 4,
+    antiSmall: false,
+    antiCapital: true,
+    arc: 180,
+    provenance: canon(
+      'Disruptor torpedoes are fired slowly to pass through kinetic barriers; the warhead generates shearing mass effect fields.',
+      'Codex: Weapons — Disruptor Torpedoes. Damage figures are SIMULATION_ESTIMATE.',
+    ),
+  },
+  gardian: {
+    id: 'gardian',
+    name: 'GARDIAN point-defence laser',
+    kind: 'gardian',
+    damageType: 'laser',
+    damage: 14,
+    cooldown: 0.35,
+    range: 6,
+    projectileSpeed: Infinity,
+    accuracy: 0.55,
+    penetration: 0.2,
+    heat: 2,
+    antiSmall: true,
+    antiCapital: false,
+    arc: 360,
+    provenance: canon(
+      'General ARea Defensive Integration Anti-spacecraft Network: infrared lasers for fighter and missile interception; heat-limited.',
+      'Codex: Weapons — GARDIAN. Rates of fire are SIMULATION_ESTIMATE.',
+    ),
+  },
+  alliance_thanix: {
+    id: 'alliance_thanix',
+    name: 'Thanix cannon',
+    kind: 'thanix',
+    damageType: 'thanix_stream',
+    damage: 420,
+    cooldown: 6.0,
+    range: 26,
+    projectileSpeed: Infinity,
+    accuracy: 0.8,
+    penetration: 0.9,
+    beamDuration: 1.6,
+    heat: 20,
+    antiSmall: false,
+    antiCapital: true,
+    arc: 20,
+    provenance: canon(
+      'Turian reverse-engineering of Sovereign’s weapon: a stream of molten iron-uranium-tungsten alloy magnetically accelerated to a fraction of light speed. Gives frigates cruiser-grade striking power.',
+      'Codex: Weapons — Thanix Cannon (ME2). Damage scaled to ~1.3 cruiser rounds (SIMULATION_ESTIMATE).',
+    ),
+  },
+  fighter_gun: {
+    id: 'fighter_gun',
+    name: 'Fighter mass accelerator cannon',
+    kind: 'mass_accelerator',
+    damageType: 'kinetic',
+    damage: 6,
+    cooldown: 0.25,
+    range: 4,
+    projectileSpeed: 14,
+    accuracy: 0.5,
+    penetration: 0.2,
+    heat: 1,
+    antiSmall: true,
+    antiCapital: false,
+    arc: 20,
+    provenance: estimate('Light fighter cannon.', 'Not established in canon.'),
+  },
+  fighter_torpedo: {
+    id: 'fighter_torpedo',
+    name: 'Fighter disruptor torpedo',
+    kind: 'disruptor_torpedo',
+    damageType: 'warhead',
+    damage: 120,
+    cooldown: 14.0,
+    range: 9,
+    projectileSpeed: 2.0,
+    accuracy: 0.85,
+    penetration: 0.9,
+    missileHp: 8,
+    heat: 3,
+    antiSmall: false,
+    antiCapital: true,
+    arc: 60,
+    provenance: canon(
+      'Fighters and interceptors deliver disruptor torpedoes against capital ships, forcing fleets to carry GARDIAN screens.',
+      'Codex: Space Combat. Damage SIMULATION_ESTIMATE.',
+    ),
+  },
+
+  // ----------------------------------------------------------------- REAPERS
+  reaper_capital_beam: {
+    id: 'reaper_capital_beam',
+    name: 'Reaper capital magnetohydrodynamic weapon',
+    kind: 'reaper_beam',
+    damageType: 'reaper_beam',
+    damage: 1900, // per second while the burst lasts
+    cooldown: 7.5,
+    range: 44,
+    projectileSpeed: Infinity,
+    accuracy: 0.93,
+    penetration: 1.0,
+    beamDuration: 2.8,
+    heat: 0,
+    antiSmall: false,
+    antiCapital: true,
+    arc: 70,
+    provenance: canon(
+      'Reaper capital ships fire a magnetohydrodynamic stream of molten metal at a fraction of light speed, yielding 132–454 kilotons per shot; capable of destroying a dreadnought.',
+      'Codex: Reaper Capital Ship (ME3). Burst model is SIMULATION_ESTIMATE.',
+    ),
+  },
+  reaper_destroyer_beam: {
+    id: 'reaper_destroyer_beam',
+    name: 'Reaper destroyer primary beam',
+    kind: 'reaper_beam',
+    damageType: 'reaper_beam',
+    damage: 520,
+    cooldown: 6.5,
+    range: 30,
+    projectileSpeed: Infinity,
+    accuracy: 0.9,
+    penetration: 1.0,
+    beamDuration: 2.4,
+    heat: 0,
+    antiSmall: false,
+    antiCapital: true,
+    arc: 80,
+    provenance: inferred(
+      'Destroyers (~160 m) carry a smaller version of the capital weapon that still cuts through frigates and cruisers.',
+      'Codex: Reaper Destroyer; ME3 Earth/Rannoch cinematics. Figures SIMULATION_ESTIMATE.',
+    ),
+  },
+  reaper_point_defence: {
+    id: 'reaper_point_defence',
+    name: 'Reaper anti-fighter emitters',
+    kind: 'gardian',
+    damageType: 'laser',
+    damage: 18,
+    cooldown: 0.4,
+    range: 6.5,
+    projectileSpeed: Infinity,
+    accuracy: 0.42,
+    penetration: 0.3,
+    heat: 0,
+    antiSmall: true,
+    antiCapital: false,
+    arc: 360,
+    provenance: estimate(
+      'Reapers are shown engaging fighters and small craft; a point-defence capability is assumed.',
+      'Original simulation assumption.',
+    ),
+  },
+
+  // ------------------------------------------------- PRIME/APEX AU WEAPONS
+  apex_hyper_ma: {
+    id: 'apex_hyper_ma',
+    name: 'Hyper-mass accelerator (HADES rounds)',
+    kind: 'mass_accelerator',
+    damageType: 'kinetic',
+    damage: 3200,
+    cooldown: 4.5,
+    range: 44,
+    projectileSpeed: 48,
+    accuracy: 0.78,
+    penetration: 1.4,
+    heat: 24,
+    antiSmall: false,
+    antiCapital: true,
+    arc: 12,
+    provenance: {
+      value:
+        'Alternate-universe weapon. Advanced spinal accelerator firing dense HADES penetrator rounds designed to breach Reaper plating. Not part of the Mass Effect trilogy.',
+      provenance: 'AU_MODIFIED',
+      note: 'Prime/Apex timeline only.',
+    },
+  },
+};
+
+export const WEAPON_LIST: WeaponDef[] = Object.values(WEAPONS);
+export const getWeapon = (id: string): WeaponDef => {
+  const w = WEAPONS[id];
+  if (!w) throw new Error(`Unknown weapon ${id}`);
+  return w;
+};
