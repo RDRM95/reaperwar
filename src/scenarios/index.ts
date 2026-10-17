@@ -66,6 +66,9 @@ const NAMES: Record<string, string[]> = {
   asari_dreadnought: ASARI_DN_NAMES,
   asari_cruiser: ASARI_CRUISER_NAMES,
   destiny_ascension: ['Destiny Ascension'],
+  salarian_dreadnought: ['Sur’Kesh', 'Mannovai', 'Jaëto', 'Erinle'],
+  salarian_cruiser: ['Talat', 'Nasurn', 'Aegohr', 'Halegeuse', 'Gorot', 'Heshtok', 'Dagnes', 'Senoquol', 'Tuchanka Watch', 'Kirrahe', 'Virmire', 'Solus'],
+  salarian_frigate: ['STG Scalpel', 'STG Needle', 'STG Lancet', 'STG Quill', 'STG Thorn', 'STG Barb', 'STG Sliver', 'STG Spine', 'STG Awl', 'STG Stylus'],
   cerberus_cruiser: CERBERUS_NAMES,
   cerberus_dreadnought: ['Black Fleet Flagship Prometheus'],
   harbinger: ['Harbinger'],
@@ -281,6 +284,43 @@ export const SCENARIOS: ScenarioDef[] = [
       ]),
   },
   {
+    id: 'defence_of_surkesh',
+    name: 'Defence of Sur’Kesh',
+    subtitle: 'Annos Basin, 2186 — a Reaper raid reaches the salarian homeworld',
+    environment: 'surkesh_orbit',
+    description:
+      'In the game’s timeframe Sur’Kesh is spared a full assault; this engagement is a simulation estimate of a Reaper raiding group reaching the Annos Basin. The Union’s Third Fleet fights the way salarians fight: on sensors, electronic warfare and precise fire, with STG stealth frigates pressing torpedo runs from outside the Reapers’ targeting envelope.',
+    recommendedRules: ['canon_me3', 'prepared_galaxy', 'prime_apex'],
+    objective: 'Repel the raid before it reaches low orbit.',
+    maxDuration: 420,
+    worldState: [
+      {
+        id: 'stg_warning',
+        label: 'STG early warning',
+        kind: 'extrapolation',
+        description: 'How much notice the Special Tasks Group gives the fleet.',
+        choices: [
+          { id: 'early', label: 'Early warning', description: 'The fleet is deployed in depth; the Reaper flanking group arrives late.' },
+          { id: 'late', label: 'Late warning', description: 'The flanking group arrives almost at once, from the flank.' },
+        ],
+        default: 'early',
+      },
+    ],
+    briefing: [
+      'STG reconnaissance has tracked a Reaper raiding group through the relay. The Third Fleet holds high orbit.',
+      'Union doctrine: fight at range on sensor data, kill the identified threat first, withdraw hulls before they are lost.',
+      'The scenario is not a canon event; it is labelled a simulation estimate.',
+    ],
+    build: (rules, seed, ws) => {
+      const early = (ws.stg_warning ?? 'early') === 'early';
+      return base('defence_of_surkesh', 'Defence of Sur’Kesh', 'defence_of_surkesh', seed, rules, 'surkesh_orbit', 420, 'Repel the raid before it reaches low orbit.', ws, [
+        fleet('union-third', 'salarian', rules, { counts: { salarian_dreadnought: 2, salarian_cruiser: 10, salarian_frigate: 16 }, name: 'Salarian Third Fleet', formation: early ? 'line_abreast' : 'defensive_screen', position: v3(0, 0, -34), ws }),
+        reaperFleet('reaper-annos', rules, { capitals: 3, destroyers: 8, position: v3(0, 0, 44), ws }),
+        reaperFleet('reaper-annos-2', rules, { capitals: 1, destroyers: 4, position: early ? v3(-40, 0, 70) : v3(50, 0, 20), heading: early ? v3(0.3, 0, -1) : v3(-1, 0, -0.3), arrivalTime: early ? 90 : 25, name: 'Reaper flanking group', ws }),
+      ]);
+    },
+  },
+  {
     id: 'cerberus_intervention',
     name: 'Cerberus Intervention',
     subtitle: 'Horsehead Nebula, 2186 — Cerberus fleet meets an Alliance task force',
@@ -423,6 +463,17 @@ export const SCENARIOS: ScenarioDef[] = [
         ],
         default: 'campaign',
       },
+      {
+        id: 'genophage',
+        label: 'Genophage cure',
+        kind: 'player_dependent',
+        description: 'In canon the Dalatrass commits the Salarian First Fleet only if Shepard sabotages the cure.',
+        choices: [
+          { id: 'cured', label: 'Cure deployed', description: 'No salarian fleet joins Sword (krogan ground forces instead, not modelled here).' },
+          { id: 'sabotaged', label: 'Cure sabotaged', description: 'The Salarian First Fleet joins the default combined fleet.' },
+        ],
+        default: 'cured',
+      },
     ],
     briefing: ['Sword fleet engages the Reapers in orbit while Hammer lands.', 'Harbinger commands the blockade in person.', 'Campaign-linked: fleet strengths follow the saved war when one exists.'],
     build: (rules, seed, ws) => {
@@ -438,6 +489,7 @@ export const SCENARIOS: ScenarioDef[] = [
         fleets.push(fleet('sword-asari', 'asari', rules, { counts: { destiny_ascension: ws.ascension === 'absent' ? 0 : 1, asari_dreadnought: 2, asari_cruiser: 8 }, fixedClasses: ['destiny_ascension'], name: 'Sword Fleet (Republics)', position: v3(0, 4, -48), formation: 'defensive_screen', ws }));
         fleets.push(fleet('sword-quarian', 'quarian', rules, { counts: { quarian_heavy: 3, quarian_cruiser: 10 }, name: 'Migrant Fleet detachment', position: v3(-40, 0, -46), formation: 'defensive_screen', ws }));
         fleets.push(fleet('sword-geth', 'geth', rules, { counts: { geth_dreadnought: 1, geth_cruiser: 8, geth_frigate: 12 }, fixedClasses: ['geth_dreadnought'], name: 'Geth fleet', position: v3(40, 0, -44), formation: 'strike_wedge', ws }));
+        if (ws.genophage === 'sabotaged') fleets.push(fleet('sword-salarian', 'salarian', rules, { counts: { salarian_dreadnought: 2, salarian_cruiser: 8, salarian_frigate: 12 }, name: 'Salarian First Fleet', position: v3(0, -6, -56), formation: 'line_abreast', ws }));
         fleets.push(reaperFleet('reaper-blockade', rules, { capitals: 6, destroyers: 14, harbinger: true, name: 'Reaper blockade', position: v3(0, 0, 46), ws }));
         fleets.push(reaperFleet('reaper-blockade-2', rules, { capitals: 3, destroyers: 8, name: 'Reaper reserve', position: v3(-50, 0, 76), heading: v3(0.4, 0, -1), arrivalTime: 90, ws }));
       }
@@ -558,7 +610,7 @@ export function buildScenario(scenarioId: string, rulesId: string, seed: number,
 
 // ------------------------------------------------------------ custom battles
 
-export type CustomFaction = Exclude<FactionId, 'salarian'>;
+export type CustomFaction = FactionId;
 
 export interface CustomFleetInput {
   faction: CustomFaction;

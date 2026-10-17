@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.0 — Salarian Union
+
+- Salarian Union hull family (original models): Union dreadnought, Union cruiser with a four-interceptor bay, STG stealth frigate (lowest signature of any organic hull), Union interceptor; three new weapons; pale green palette and lighting.
+- Defence of Sur'Kesh scenario (labelled simulation estimate) with an STG early-warning option, and a Sur'Kesh orbit environment.
+- Campaign: Salarian Third Fleet at the Annos Basin; the genophage world state decides whether the First Fleet joins (cure sabotaged) or the Union keeps its fleets at home (cooperation capped). Salarian production and orbital defence classes. Final Battle of Earth gains the same world-state option.
+- Custom battles and the fleet database include salarian fleets; codex entry for the Union.
+- Tests: hull family and provenance, Sur'Kesh under canon and Prime/Apex, salarian custom battles, genophage world state (65 unit tests).
+
 ## 0.4.0 — Post-war reconstruction and the Final Battle of Earth
 
 - Cerberus Ascendant post-war mode (2186–2206, alternate continuity): quarterly turns, twelve budget programmes, eleven tracked metrics, progressive Reaper dismantlement gated by conventional strength and Sol defence, Council and Alliance political events, victory/defeat outcomes, autosave and Load Game. Reachable from campaign setup or after a Cerberus Ascendant campaign victory.

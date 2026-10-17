@@ -50,6 +50,14 @@ export const PALETTES: Record<string, FactionPalette> = {
     windows: new THREE.MeshStandardMaterial({ color: 0xf0e8ff, emissive: 0xc8b0ff, emissiveIntensity: 1.6 }),
     glow: new THREE.MeshBasicMaterial({ color: 0xd0a8ff, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false }),
   },
+  salarian: {
+    hull: std(0xb9c8b4, { metalness: 0.42, roughness: 0.36 }),
+    hullDark: std(0x2d3b33, { metalness: 0.6, roughness: 0.45 }),
+    accent: std(0x3f8f5a, { metalness: 0.35, roughness: 0.4 }),
+    engine: new THREE.MeshStandardMaterial({ color: 0xb8ffa0, emissive: 0x8cff70, emissiveIntensity: 3, roughness: 0.3, metalness: 0 }),
+    windows: new THREE.MeshStandardMaterial({ color: 0xeaffe0, emissive: 0xb8ffa0, emissiveIntensity: 1.6 }),
+    glow: new THREE.MeshBasicMaterial({ color: 0xb8ffa0, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false }),
+  },
   geth: {
     hull: std(0xd8dde3, { metalness: 0.5, roughness: 0.35 }),
     hullDark: std(0x4a5260, { metalness: 0.7, roughness: 0.4 }),

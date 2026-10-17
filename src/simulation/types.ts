@@ -81,6 +81,7 @@ export type Environment =
   | 'palaven_orbit'
   | 'thessia_orbit'
   | 'rannoch_orbit'
+  | 'surkesh_orbit'
   | 'citadel'
   | 'deep_space'
   | 'relay';

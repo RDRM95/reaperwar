@@ -68,6 +68,8 @@ export const PLANET_STYLES: Record<string, PlanetStyle> = {
   palaven: { ocean: [40, 70, 95], land: [150, 135, 100], landHigh: [200, 190, 160], ice: [230, 230, 220], atmosphere: 0xa0c8ff, cloudiness: 0.35, seaLevel: 0.46, seed: 19 },
   thessia: { ocean: [30, 60, 120], land: [90, 110, 120], landHigh: [170, 170, 190], ice: [235, 235, 245], atmosphere: 0x9fb0ff, cloudiness: 0.5, seaLevel: 0.52, seed: 31 },
   rannoch: { ocean: [60, 70, 80], land: [160, 120, 80], landHigh: [210, 180, 130], ice: [220, 215, 200], atmosphere: 0xffc890, cloudiness: 0.2, seaLevel: 0.3, seed: 43 },
+  // Sur'Kesh: humid jungle world — shallow green seas, dense dark-green lowlands, misty highlands.
+  surkesh: { ocean: [18, 70, 80], land: [40, 90, 44], landHigh: [120, 140, 90], ice: [225, 235, 225], atmosphere: 0x6fc0a8, cloudiness: 0.4, seaLevel: 0.44, seed: 57 },
 };
 
 export function makePlanetTexture(style: PlanetStyle, size = 1024): THREE.CanvasTexture {
@@ -352,6 +354,9 @@ export function buildEnvironment(env: Environment): EnvironmentBuild {
       break;
     case 'rannoch_orbit':
       addPlanet(PLANET_STYLES.rannoch, 18_000, new THREE.Vector3(0, -21_500, 7_000), 'Rannoch orbit');
+      break;
+    case 'surkesh_orbit':
+      addPlanet(PLANET_STYLES.surkesh, 19_500, new THREE.Vector3(1_500, -23_000, 5_500), 'Sur’Kesh orbit', true);
       break;
     case 'citadel': {
       const citadel = makeCitadel();

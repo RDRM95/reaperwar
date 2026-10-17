@@ -27,6 +27,7 @@ const shots = [
   { scenario: 'Defence of Palaven', classes: ['turian_dreadnought', 'turian_cruiser', 'turian_frigate'] },
   { scenario: 'Fall of Thessia', classes: ['destiny_ascension', 'asari_dreadnought', 'asari_cruiser'] },
   { scenario: 'Cerberus Intervention', classes: ['alliance_cruiser'] },
+  { scenario: 'Sur’Kesh', classes: ['salarian_dreadnought', 'salarian_cruiser', 'salarian_frigate', 'salarian_fighter'], wide: true },
   { scenario: 'Rannoch Campaign', classes: ['quarian_liveship', 'quarian_heavy', 'quarian_cruiser'], enemies: ['geth_dreadnought', 'geth_cruiser', 'geth_frigate'] },
   { scenario: 'Battle of the Citadel', classes: ['turian_dreadnought'], wide: true },
 ];

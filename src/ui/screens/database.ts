@@ -78,7 +78,6 @@ export function renderDatabase(app: App): HTMLElement {
       } }, c.name));
     }
   }
-  nav.append(el('div', { class: 'cat' }, 'OTHER FACTIONS'), el('div', { class: 'dim', style: { fontSize: '11px', padding: '4px 10px' } }, 'Salarian hulls are scheduled for a later phase.'));
   renderEntry();
 
   return el('div', { class: 'screen' }, [

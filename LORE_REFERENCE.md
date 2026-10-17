@@ -35,7 +35,7 @@ Fleet sizes per scenario are compressed stand-ins for canon forces (the real Bat
 
 ## Player-dependent outcomes
 
-The simulator never fixes a single outcome for branching ME3 decisions. Scenarios expose world-state choices (currently: Normandy present, Alliance fleet commitment) labelled *player dependent* or *extrapolation*. Genophage, geth–quarian, Rachni, Council composition and Crucible progress are campaign-phase variables (see ROADMAP).
+The simulator never fixes a single outcome for branching ME3 decisions. Scenarios and the campaign expose world-state choices labelled *player dependent* or *extrapolation*: Normandy present, Alliance fleet commitment, Destiny Ascension saved or lost, geth–quarian war or peace, Reaper-upgraded geth, genophage cure deployed or sabotaged (Salarian First Fleet), Crucible built or refused. Rachni and Council composition are not yet modelled (see ROADMAP).
 
 ## Visual liberties (not simulation values)
 

@@ -418,7 +418,7 @@ export function renderCampaign(app: App, state: CampaignState): HTMLElement {
 export function renderCampaignSetup(app: App): HTMLElement {
   let timelineId = app.prefs.lastTimelineId;
   let seed = Math.floor(Math.random() * 100000);
-  const ws: Record<string, string> = { ascension: 'present', rannoch: 'war', crucible: 'use' };
+  const ws: Record<string, string> = { ascension: 'present', rannoch: 'war', crucible: 'use', genophage: 'cured' };
   const body = el('div', { class: 'screen-body' });
   const render = () => {
     const rules = app.getTimeline(timelineId);
@@ -444,6 +444,7 @@ export function renderCampaignSetup(app: App): HTMLElement {
           el('div', { class: 'panel-title' }, 'WORLD STATE (PLAYER-DEPENDENT ME3 OUTCOMES)'),
           el('label', { class: 'field' }, ['Destiny Ascension (2183)', el('select', { onchange: (e: Event) => (ws.ascension = (e.target as HTMLSelectElement).value) }, [el('option', { value: 'present', selected: ws.ascension === 'present' }, 'Saved: serves with the Republics fleet'), el('option', { value: 'absent', selected: ws.ascension === 'absent' }, 'Lost at the Citadel')])]),
           el('label', { class: 'field' }, ['Geth–quarian conflict', el('select', { onchange: (e: Event) => (ws.rannoch = (e.target as HTMLSelectElement).value) }, [el('option', { value: 'war', selected: ws.rannoch === 'war' }, 'At war: neither fleet joins the alliance'), el('option', { value: 'peace', selected: ws.rannoch === 'peace' }, 'Peace: both fleets join the war')])]),
+          el('label', { class: 'field' }, ['Genophage cure', el('select', { onchange: (e: Event) => (ws.genophage = (e.target as HTMLSelectElement).value) }, [el('option', { value: 'cured', selected: ws.genophage === 'cured' }, 'Cure deployed: the Union keeps its fleets at home'), el('option', { value: 'sabotaged', selected: ws.genophage === 'sabotaged' }, 'Cure sabotaged: the Salarian First Fleet joins the war')])]),
           rules.strategic.crucibleAvailable && rules.strategic.catalystOperational
             ? el('label', { class: 'field' }, ['The Crucible', el('select', { 'data-field': 'crucible', onchange: (e: Event) => (ws.crucible = (e.target as HTMLSelectElement).value) }, [el('option', { value: 'use', selected: ws.crucible === 'use' }, 'Build and use it: the war ends when it docks with the Citadel'), el('option', { value: 'refuse', selected: ws.crucible === 'refuse' }, 'Refuse it: victory only by destroying every Reaper (AU “Successful Refuse”)')]), el('small', {}, rules.strategic.conventionalVictoryPossible ? 'This timeline flags conventional victory as possible.' : 'This timeline does not consider conventional victory possible; refusing is a long shot.')])
             : el('p', { class: 'dim', style: { fontSize: '12px' } }, 'No Crucible in this timeline: the war can only be won conventionally.'),

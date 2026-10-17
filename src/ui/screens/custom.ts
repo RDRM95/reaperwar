@@ -11,6 +11,7 @@ const ENVIRONMENTS: { id: Environment; label: string }[] = [
   { id: 'palaven_orbit', label: 'Palaven orbit' },
   { id: 'thessia_orbit', label: 'Thessia orbit' },
   { id: 'rannoch_orbit', label: 'Rannoch orbit' },
+  { id: 'surkesh_orbit', label: 'Sur’Kesh orbit' },
   { id: 'deep_space', label: 'Deep space' },
 ];
 
@@ -19,12 +20,13 @@ export const FACTION_DEFAULTS: Record<CustomFaction, { name: string; formation: 
   alliance: { name: 'Alliance Task Force', formation: 'line_abreast', counts: { alliance_dreadnought: 8, alliance_carrier: 1, alliance_cruiser: 16, alliance_frigate: 30, alliance_frigate_thanix: 1 } },
   turian: { name: 'Hierarchy battle group', formation: 'line_abreast', counts: { turian_dreadnought: 8, turian_cruiser: 16, turian_frigate: 28 } },
   asari: { name: 'Republics fleet', formation: 'defensive_screen', counts: { destiny_ascension: 1, asari_dreadnought: 3, asari_cruiser: 14 } },
+  salarian: { name: 'Union Third Fleet', formation: 'line_abreast', counts: { salarian_dreadnought: 2, salarian_cruiser: 10, salarian_frigate: 16 } },
   cerberus: { name: 'Cerberus strike fleet', formation: 'strike_wedge', counts: { cerberus_dreadnought: 0, cerberus_cruiser: 10, cerberus_frigate: 16 } },
   geth: { name: 'Geth Consensus fleet', formation: 'strike_wedge', counts: { geth_dreadnought: 1, geth_cruiser: 10, geth_frigate: 16 } },
   quarian: { name: 'Migrant Fleet', formation: 'defensive_screen', counts: { quarian_liveship: 1, quarian_heavy: 4, quarian_cruiser: 16 } },
   reaper: { name: 'Reaper harvest group', formation: 'strike_wedge', counts: { reaper_capital: 4, reaper_destroyer: 8, harbinger: 0 } },
 };
-const CUSTOM_FACTIONS: CustomFaction[] = ['alliance', 'turian', 'asari', 'cerberus', 'geth', 'quarian', 'reaper'];
+const CUSTOM_FACTIONS: CustomFaction[] = ['alliance', 'turian', 'asari', 'salarian', 'cerberus', 'geth', 'quarian', 'reaper'];
 
 const DEFAULT_INPUT: CustomBattleInput = {
   seed: 42,

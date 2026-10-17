@@ -37,6 +37,11 @@ const PRODUCTION: Partial<Record<FactionId, { classId: string; weight: number }[
     { classId: 'asari_cruiser', weight: 5 },
     { classId: 'asari_dreadnought', weight: 1 },
   ],
+  salarian: [
+    { classId: 'salarian_frigate', weight: 6 },
+    { classId: 'salarian_cruiser', weight: 3 },
+    { classId: 'salarian_dreadnought', weight: 1 },
+  ],
   cerberus: [
     { classId: 'cerberus_frigate', weight: 5 },
     { classId: 'cerberus_cruiser', weight: 3 },
@@ -59,7 +64,7 @@ const DEFENCE_CLASSES: Partial<Record<FactionId, { cruiser: string; frigate: str
   geth: { cruiser: 'geth_cruiser', frigate: 'geth_frigate' },
   quarian: { cruiser: 'quarian_cruiser', frigate: 'quarian_cruiser' },
   cerberus: { cruiser: 'cerberus_cruiser', frigate: 'cerberus_frigate' },
-  salarian: { cruiser: 'asari_cruiser', frigate: 'asari_cruiser' },
+  salarian: { cruiser: 'salarian_cruiser', frigate: 'salarian_frigate' },
 };
 
 export const fleetPoints = (counts: Record<string, number>): number =>
@@ -132,7 +137,11 @@ export function createCampaign(opts: CampaignOptions): CampaignState {
     mk('Citadel Fleet (Hierarchy)', 'turian', 'allied', 'widow', k({ turian_dreadnought: 3, turian_cruiser: 8, turian_frigate: 12 }, fs.turian)),
     mk('Republics Home Fleet', 'asari', 'allied', 'athena', { ...k({ asari_dreadnought: 3, asari_cruiser: 14 }, fs.asari), destiny_ascension: ws.ascension === 'absent' ? 0 : 1 }),
     mk('Citadel Fleet (Republics)', 'asari', 'allied', 'widow', k({ asari_cruiser: 6 }, fs.asari)),
+    mk('Salarian Third Fleet', 'salarian', 'allied', 'annos', k({ salarian_dreadnought: 2, salarian_cruiser: 10, salarian_frigate: 16 }, fs.salarian)),
   ];
+  // Canon: the Dalatrass commits the First Fleet only when the genophage cure is sabotaged.
+  if (ws.genophage === 'sabotaged') fleets.push(mk('Salarian First Fleet', 'salarian', 'allied', 'annos', k({ salarian_dreadnought: 3, salarian_cruiser: 12, salarian_frigate: 18 }, fs.salarian)));
+  else factions.salarian.cooperation = Math.min(factions.salarian.cooperation, 0.4);
   if (rannochPeace) {
     fleets.push(mk('Migrant Fleet', 'quarian', 'allied', 'tikkun', k({ quarian_liveship: 2, quarian_heavy: 4, quarian_cruiser: 18 }, fs.quarian)));
     fleets.push(mk('Geth Consensus Fleet', 'geth', 'allied', 'tikkun', k({ geth_dreadnought: 1, geth_cruiser: 10, geth_frigate: 16 }, fs.geth)));

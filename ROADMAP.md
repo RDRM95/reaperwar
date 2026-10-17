@@ -6,7 +6,7 @@ Phases follow the project brief. ✅ done · 🔶 partial · ⬜ not started.
 | --- | --- | --- |
 | 1 | Technical foundation, deterministic sim, working 3D Battle of Earth | ✅ |
 | 2 | Improved ship models, weapons, effects, audio | 🔶 Alliance + Reaper models, effects and procedural audio exist; models need more detail passes (see KNOWN_ISSUES) |
-| 3 | Additional factions and ship classes (Turian, Asari, Salarian, Quarian, Geth, Cerberus) | 🔶 Turian, Asari, Cerberus, Geth and Quarian hulls, scenarios and custom-battle support done; Salarian pending |
+| 3 | Additional factions and ship classes (Turian, Asari, Salarian, Quarian, Geth, Cerberus) | ✅ all six factions have original hull families, scenarios, campaign fleets and custom-battle support |
 | 4 | Custom battle editor | ✅ (Alliance vs Reapers; reinforcement wave, formations, timeline, battlefield) |
 | 5 | AU rule engine | ✅ (18 tech multipliers, special tech, strategic variables, validated import/export, editor) |
 | 6 | Canon vs AU comparison mode | ✅ |
@@ -20,8 +20,7 @@ Phases follow the project brief. ✅ done · 🔶 partial · ⬜ not started.
 ## Next recommended tasks
 
 1. **Ship model detail pass**: Reaper hood plating and a stronger "eye" glow; Alliance panel lines and turret detail; LOD meshes for distant ships.
-2. **Salarian hulls** and a Sur'Kesh scenario.
-3. **Campaign depth**: ground war and homeworld defence tracks, research projects, political events, refugee pressure, multiple save slots.
-4. **Ammunition/heat refinements**: finite torpedo loads, heat-limited GARDIAN bursts.
-5. **Performance**: instanced rendering for frigates/fighters, aggregate distant formations.
-6. **Save slots** for campaigns (storage layer already supports export/import).
+2. **Campaign depth**: ground war and homeworld defence tracks, research projects, political events, refugee pressure, multiple save slots.
+3. **Ammunition/heat refinements**: finite torpedo loads, heat-limited GARDIAN bursts.
+4. **Performance**: instanced rendering for frigates/fighters, aggregate distant formations.
+5. **Save slots** for campaigns (storage layer already supports export/import).

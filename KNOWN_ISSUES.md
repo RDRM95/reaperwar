@@ -20,7 +20,6 @@
 ## Campaign
 
 - First build: ground warfare, research, diplomacy and refugee pressure are not modelled; production is abstract (point pool per faction).
-- Salarian fleets are absent (no hulls yet); the Citadel Fleet is represented by turian and asari groups.
 - Engagements cap each side at 70 ships by scaling counts; losses are scaled back proportionally.
 - One save slot (autosave each week); the post-war mode uses its own single slot.
 - Post-war (Cerberus Ascendant) reconstruction is an abstract metric model: budget programmes move eleven 0–1 indicators and a fleet-point total. There are no post-war battles, named characters or map; the Terminus and Council are events, not actors.

@@ -80,6 +80,20 @@ export const CODEX: CodexEntry[] = [
     estimate: ['Simulation doctrine: engage at range, protect the few capital ships, withdraw damaged hulls early. Asari hulls are original smooth lathe-turned designs with sweeping fins and violet lighting; barriers run well above Alliance values, plating below.'],
   },
   {
+    id: 'salarian',
+    category: 'Factions',
+    title: 'Salarian Union',
+    canon: [
+      'The Salarian Union favours intelligence, pre-emption and technology over mass. Its Special Tasks Group runs covert operations across Council space; its navy is fast and sensor-heavy, with few dreadnoughts under the Treaty of Farixen.',
+      'In 2186 the Dalatrass offers the Salarian First Fleet to the war effort only if Shepard sabotages the genophage cure. Sur’Kesh itself is not shown under heavy assault during the game.',
+    ],
+    estimate: [
+      'Simulation doctrine: engage at range on sensor data, prioritise the most dangerous target, finish wounded ships, withdraw early (40 % threshold). Hulls are original: slender amphibian bodies with a bow sensor head, drive pods on swept booms and pale green lights. Union hulls trade plating for sensors, electronic warfare and accuracy; STG frigates have the lowest signature of any organic warship in the catalogue.',
+      'The Defence of Sur’Kesh scenario is a simulation estimate of a raid, not a canon event. The genophage world state decides whether the First Fleet joins the campaign and the Final Battle of Earth.',
+    ],
+    au: { prime_apex: ['Prime/Apex: Union fleets receive the same hyper-mass accelerator and barrier improvements as the other Council navies.'] },
+  },
+  {
     id: 'geth',
     category: 'Factions',
     title: 'Geth',
