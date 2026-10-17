@@ -9,4 +9,6 @@ export interface BuiltShip {
   /** Local position of the primary weapon muzzle. */
   muzzle?: THREE.Vector3;
   glowColor: number;
+  /** Optional per-engine-node glow sprite scale multipliers (default 1). */
+  glowScales?: number[];
 }

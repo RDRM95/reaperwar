@@ -31,7 +31,7 @@ export interface SaveData {
 }
 
 export const DEFAULT_PREFERENCES: Preferences = {
-  graphics: { quality: 'high', showEngineGlow: true, pixelRatioCap: 2 },
+  graphics: { quality: 'high', showEngineGlow: true, pixelRatioCap: 2, lod: true },
   audio: { master: 0.8, sfx: 0.9, music: 0.5, muted: false },
   subtitles: true,
   lastTimelineId: 'canon_me3',

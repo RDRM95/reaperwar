@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.9.0 — Level of detail and model detail pass
+
+- Distance-based level of detail: close ships render fully; at range windows, accents, lights and engine glow sprites are dropped; far ships (and fighters beyond 90 units) collapse into one shared point cloud. Toggle in Settings. Final Battle of Earth (206 ships): draw calls fall from about 1,500 to about 590 in the tactical view (`scripts/perf.mjs`).
+- Reaper hood plating (three overlapping forward shells), an aperture iris and a larger eye glow; Alliance cruiser broadside barrels and flank panel lines; dreadnought bow panel lines and GARDIAN blisters.
+- HUD clock shows the frame's draw-call count.
+- Tests: LOD policy (81 unit tests).
+
 ## 0.8.0 — Saved games and touch zoom
 
 - Saved Games screen: autosaves for the campaign and the post-war plan plus named slots with rename and delete; "Save slot…" from the campaign and post-war screens; slots are included in the Settings export/import.

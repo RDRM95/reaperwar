@@ -81,6 +81,22 @@ export function buildReaper(opts: ReaperOpts): BuiltShip {
     shell.rotateZ(pp.rotZ);
     plates.push(shell);
   }
+  // Hood plating: overlapping forward shells around the arm roots, stepping down toward the aperture.
+  for (let i = 0; i < 3; i++) {
+    const z0 = L * (0.02 + i * 0.05);
+    const z1 = L * (0.12 + i * 0.05);
+    const pts: THREE.Vector2[] = [];
+    for (let s = 0; s <= 6; s++) {
+      const t = s / 6;
+      const z = z0 + (z1 - z0) * t;
+      pts.push(new THREE.Vector2(Math.max(0.01, sampleRadius(profile, z) * (1.1 - i * 0.03) * 0.8), z));
+    }
+    const hood = new THREE.LatheGeometry(pts, 12, 0, Math.PI * 0.9);
+    hood.rotateX(Math.PI / 2);
+    hood.scale(1, 0.8, -1);
+    hood.rotateZ(Math.PI * 0.55 + i * 0.12);
+    plates.push(hood);
+  }
   const plateMesh = new THREE.Mesh(merge(plates), p.accent);
   plateMesh.name = 'plates';
   group.add(plateMesh);
@@ -130,6 +146,11 @@ export function buildReaper(opts: ReaperOpts): BuiltShip {
   const socket = new THREE.Mesh(zCylinder(R * 0.26, R * 0.2, R * 0.25, 14, true), p.hullDark);
   socket.position.set(0, eyeY, eyeZ - R * 0.02);
   group.add(socket);
+  // Aperture iris: a bright ring just inside the socket so the eye reads at distance.
+  const iris = new THREE.Mesh(new THREE.TorusGeometry(R * 0.2, R * 0.035, 6, 20), p.windows);
+  iris.position.set(0, eyeY, eyeZ + R * 0.1);
+  iris.name = 'eye';
+  group.add(iris);
 
   // --- Rear "tail" emitters and dorsal spines.
   const tailGlow = new THREE.Mesh(zCylinder(R * 0.1, R * 0.05, R * 0.5, 8), p.windows);
@@ -167,6 +188,7 @@ export function buildReaper(opts: ReaperOpts): BuiltShip {
     group,
     // The aperture is listed as a glow node so the view adds a red bloom to the eye.
     engineNodes: [new THREE.Vector3(0, 0, -L * 0.46), new THREE.Vector3(0, eyeY, eyeZ + R * 0.1)],
+    glowScales: [1, 2.2],
     lengthUnits: L * 0.5 + armLen + L * 0.1,
     muzzle: new THREE.Vector3(0, eyeY, eyeZ + R * 0.15),
     glowColor: opts.tint ?? 0xff2a10,

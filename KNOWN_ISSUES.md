@@ -7,7 +7,7 @@
 - Fighters are rendered at 2× scale for visibility.
 - Earth is at compressed scale; cloud layer is baked into the surface texture (no separate cloud sphere).
 - Beam cylinders are flat-shaded; very close to the camera they look like ribbons.
-- No level-of-detail meshes yet; a 100+ ship battle costs ~300 draw calls.
+- Level of detail hides detail meshes and glow sprites by distance and draws far ships as points; there are no intermediate simplified hull meshes, so mid-range ships still cost two draw calls each (about 590 draw calls for a 206-ship Final Battle in the tactical view).
 
 ## Simulation
 

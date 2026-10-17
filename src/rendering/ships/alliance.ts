@@ -81,6 +81,9 @@ export function buildAllianceDreadnought(): BuiltShip {
   }
   // Ventral keel.
   parts.hullDark.push(at(taperedBox(0.4, 0.3, L * 0.55, 0.6, 0.9), 0, -0.4, -0.3));
+  // Bow panel lines and a pair of forward GARDIAN blisters.
+  parts.hullDark.push(...plateStrip(4, 0.5, 0.02, 0.05, new THREE.Vector3(0, 0.44, L * 0.18), new THREE.Vector3(0, 0.42, L * 0.36)));
+  for (const s of [-1, 1]) parts.hullDark.push(at(new THREE.SphereGeometry(0.09, 8, 6), s * 0.55, 0.3, L * 0.22));
   // Aft engine block with four main thrusters.
   const eb = new THREE.Group();
   void eb;
@@ -154,7 +157,13 @@ export function buildAllianceCruiser(): BuiltShip {
     fin.rotateZ(s * -0.35);
     parts.hull.push(at(fin, s * 0.7, -0.22, -0.3));
     parts.accent.push(at(new THREE.BoxGeometry(0.5, 0.05, 0.3), s * 0.6, -0.08, 0.6));
-    for (let i = 0; i < 2; i++) parts.hullDark.push(at(new THREE.BoxGeometry(0.16, 0.1, 0.2), s * 0.55, 0.1, -0.7 + i * 0.9));
+    for (let i = 0; i < 2; i++) {
+      // Broadside turret with barrel.
+      parts.hullDark.push(at(new THREE.BoxGeometry(0.16, 0.1, 0.2), s * 0.55, 0.1, -0.7 + i * 0.9));
+      parts.hullDark.push(at(rot(zCylinder(0.02, 0.02, 0.26, 6), 0, (s * Math.PI) / 2, 0), s * 0.7, 0.12, -0.7 + i * 0.9));
+    }
+    // Panel lines along the flank.
+    parts.hullDark.push(...plateStrip(5, 0.02, 0.12, 0.36, new THREE.Vector3(s * 0.32, 0.0, -1.5), new THREE.Vector3(s * 0.32, 0.0, 1.2), 0.2));
   }
   // Twin engines.
   const engParts = newParts();

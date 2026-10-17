@@ -9,6 +9,7 @@ import { EffectsSystem } from './effects';
 import { buildEnvironment, type EnvironmentBuild } from './environment';
 import { KM } from './geometry';
 import { instantiateShip, type BuiltShip } from './ships';
+import { DETAIL_MESH_NAMES, lodLevel, type LodLevel } from './lod';
 
 /**
  * Binds a BattleSimulation to a Three.js scene. The simulation owns all
@@ -24,13 +25,19 @@ export interface ShipVisual {
   removed: boolean;
   /** Unique materials for damage tinting (cloned lazily on first damage). */
   tinted: boolean;
+  /** Current level of detail. */
+  lod: LodLevel;
 }
 
 export interface GraphicsSettings {
   quality: 'low' | 'medium' | 'high';
   showEngineGlow: boolean;
   pixelRatioCap: number;
+  /** Distance-based level of detail (default on). */
+  lod?: boolean;
 }
+
+const MAX_FAR_POINTS = 2048;
 
 export class BattleView {
   readonly renderer: THREE.WebGLRenderer;
@@ -56,6 +63,14 @@ export class BattleView {
   private readonly fwd = new THREE.Vector3(0, 0, 1);
   settings: GraphicsSettings;
   private eventQueue: BattleEvent[] = [];
+  /** Shared point cloud for ships beyond mesh range (one draw call). */
+  private readonly farPoints: THREE.Points;
+  private readonly farPositions = new Float32Array(MAX_FAR_POINTS * 3);
+  private readonly farColours = new Float32Array(MAX_FAR_POINTS * 3);
+  private readonly tmpColour = new THREE.Color();
+  /** Draw calls of the last rendered frame. */
+  drawCalls = 0;
+  lodCounts = { full: 0, reduced: 0, point: 0 };
 
   constructor(canvas: HTMLCanvasElement, sim: BattleSimulation, settings: GraphicsSettings) {
     this.settings = settings;
@@ -92,6 +107,14 @@ export class BattleView {
     this.fillLight = new THREE.DirectionalLight(0xb8c8e8, 0.9);
     this.scene.add(this.fillLight, this.fillLight.target);
     this.scene.add(this.effects.group);
+    const farGeom = new THREE.BufferGeometry();
+    farGeom.setAttribute('position', new THREE.BufferAttribute(this.farPositions, 3));
+    farGeom.setAttribute('color', new THREE.BufferAttribute(this.farColours, 3));
+    farGeom.setDrawRange(0, 0);
+    this.farPoints = new THREE.Points(farGeom, new THREE.PointsMaterial({ size: 2.2, vertexColors: true, map: this.glowTex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, sizeAttenuation: true }));
+    this.farPoints.frustumCulled = false;
+    this.farPoints.name = 'far-points';
+    this.scene.add(this.farPoints);
     this.bind(sim);
   }
 
@@ -127,19 +150,19 @@ export class BattleView {
     const glows: THREE.Sprite[] = [];
     if (this.settings.showEngineGlow) {
       const color = getFaction(ship.faction).engineColourHex;
-      for (const node of built.engineNodes) {
+      built.engineNodes.forEach((node, i) => {
         const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.glowTex, color, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.85 }));
         sp.position.copy(node);
-        const s = Math.max(0.3, built.lengthUnits * (ship.faction === 'reaper' ? 0.12 : 0.11));
+        const s = Math.max(0.3, built.lengthUnits * (ship.faction === 'reaper' ? 0.12 : 0.11)) * (built.glowScales?.[i] ?? 1);
         sp.scale.set(s, s, 1);
         built.group.add(sp);
         glows.push(sp);
-      }
+      });
     }
     built.group.name = ship.id;
     built.group.userData.shipId = ship.id;
     this.scene.add(built.group);
-    v = { ship, built, glows, removed: false, tinted: false };
+    v = { ship, built, glows, removed: false, tinted: false, lod: 'full' };
     this.visuals.set(ship.id, v);
     this.placeVisual(v, 1);
     return v;
@@ -166,10 +189,26 @@ export class BattleView {
 
   // ------------------------------------------------------------- per frame
 
+  /** Apply a level of detail to a visual: toggles detail meshes, glow sprites and the far-point fallback. */
+  private applyLod(v: ShipVisual, level: LodLevel): void {
+    if (v.lod === level) return;
+    v.lod = level;
+    const g = v.built.group;
+    g.visible = level !== 'point';
+    for (const child of g.children) {
+      if ((child as THREE.Sprite).isSprite) child.visible = level === 'full';
+      else if (DETAIL_MESH_NAMES.has(child.name)) child.visible = level === 'full';
+    }
+  }
+
   update(dt: number, alpha: number): void {
     this.alpha = alpha;
     this.processEvents();
     const sim = this.sim;
+    const cam = this.rig.camera.position;
+    const lodOn = this.settings.lod !== false;
+    let far = 0;
+    this.lodCounts = { full: 0, reduced: 0, point: 0 };
     for (const ship of sim.ships) {
       const v = this.ensureVisual(ship);
       if (v.removed) continue;
@@ -182,9 +221,26 @@ export class BattleView {
         continue;
       }
       this.placeVisual(v, alpha);
+      // Level of detail by distance; far ships collapse into the shared point cloud.
+      const dist = cam.distanceTo(v.built.group.position);
+      const level = lodLevel(dist, v.built.lengthUnits, ship.role, lodOn);
+      this.applyLod(v, level);
+      this.lodCounts[level]++;
+      if (level === 'point' && far < MAX_FAR_POINTS) {
+        const p = v.built.group.position;
+        this.farPositions[far * 3] = p.x;
+        this.farPositions[far * 3 + 1] = p.y;
+        this.farPositions[far * 3 + 2] = p.z;
+        this.tmpColour.setHex(getFaction(ship.faction).engineColourHex);
+        this.farColours[far * 3] = this.tmpColour.r;
+        this.farColours[far * 3 + 1] = this.tmpColour.g;
+        this.farColours[far * 3 + 2] = this.tmpColour.b;
+        far++;
+        continue;
+      }
       // Engine glow intensity follows throttle.
       const speedFrac = Math.min(1, Math.hypot(ship.vel.x, ship.vel.y, ship.vel.z) / Math.max(0.01, ship.maxSpeed));
-      for (const gl of v.glows) (gl.material as THREE.SpriteMaterial).opacity = 0.35 + 0.6 * speedFrac * ship.subsystems.engines;
+      if (level === 'full') for (const gl of v.glows) (gl.material as THREE.SpriteMaterial).opacity = 0.35 + 0.6 * speedFrac * ship.subsystems.engines;
       // Damage tint.
       const hullFrac = ship.hull / ship.maxHull;
       if (hullFrac < 0.6 && !v.tinted) this.tintDamage(v);
@@ -199,6 +255,11 @@ export class BattleView {
         });
       }
     }
+    const farGeom = this.farPoints.geometry;
+    farGeom.setDrawRange(0, far);
+    (farGeom.attributes.position as THREE.BufferAttribute).needsUpdate = true;
+    (farGeom.attributes.color as THREE.BufferAttribute).needsUpdate = true;
+    this.farPoints.visible = far > 0;
     // Effects from sim state.
     const tracers = sim.projectiles.map((p) => ({ pos: p.pos, vel: p.vel, big: p.weapon.damage >= 600 }));
     this.effects.setTracers(tracers, alpha, SIM_DT);
@@ -475,6 +536,7 @@ export class BattleView {
 
   render(): void {
     this.renderer.render(this.scene, this.rig.camera);
+    this.drawCalls = this.renderer.info.render.calls;
   }
 
   dispose(): void {

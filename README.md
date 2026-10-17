@@ -26,6 +26,7 @@ npm run dev        # http://localhost:5173
 - **Fleet AI** with per-faction doctrine, formations (six), focus fire, withdrawal, carrier operations.
 - **Player command**: attack / advance / hold / defend / withdraw / retreat / escort / intercept, target priorities, formation changes, fighter deploy/recall, focus fire, point-defence mode, selection and right-click attack orders.
 - **Seven cameras**: tactical, cinematic director, ship follow, free, projectile, Reaper, command (holographic overlay).
+- **Rendering**: original procedural hulls with image-based lighting, distance level of detail (detail meshes and glow sprites drop with range; far ships and fighters collapse into one point cloud), pooled effects and a draw-call counter on the HUD. `npm run perf` benchmarks a 206-ship Final Battle headlessly.
 - **Deterministic simulation** with event log, replay (same seed → same battle), pause and 0.25×–8× speed.
 - **Timeline rule engine** with eight presets (Canon ME3, Prepared Galaxy, Humanity Ascendant, Cerberus Reformed, Reaper Escalation, Prime/Apex — Successful Refuse, Cerberus Ascendant, Custom) and a validated JSON import/export editor.
 - **Canon vs AU comparison**: same scenario, fleets and seed under two rule sets, split results table, replay of either side, and a ranked explanation of which modifiers changed the result.

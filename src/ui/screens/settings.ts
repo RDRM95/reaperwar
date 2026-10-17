@@ -24,6 +24,10 @@ export function renderSettings(app: App): HTMLElement {
           p.graphics.showEngineGlow = (e.target as HTMLSelectElement).value === 'on';
           void app.savePrefs();
         } }, [el('option', { value: 'on', selected: p.graphics.showEngineGlow }, 'On'), el('option', { value: 'off', selected: !p.graphics.showEngineGlow }, 'Off')])]),
+        el('label', { class: 'field' }, ['Level of detail', el('select', { onchange: (e: Event) => {
+          p.graphics.lod = (e.target as HTMLSelectElement).value === 'on';
+          void app.savePrefs();
+        } }, [el('option', { value: 'on', selected: p.graphics.lod !== false }, 'On: distant ships simplify to hull and points'), el('option', { value: 'off', selected: p.graphics.lod === false }, 'Off: full detail at any distance')])]),
         el('label', { class: 'field' }, ['Tactical overlay', el('select', { onchange: (e: Event) => {
           p.showOverlay = (e.target as HTMLSelectElement).value === 'on';
           void app.savePrefs();
