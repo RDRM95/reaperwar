@@ -20,7 +20,6 @@ Phases follow the project brief. ✅ done · 🔶 partial · ⬜ not started.
 ## Next recommended tasks
 
 1. **Ship model detail pass**: Reaper hood plating and a stronger "eye" glow; Alliance panel lines and turret detail; LOD meshes for distant ships.
-2. **Campaign depth**: negotiated diplomacy (war summits with choices), multiple save slots, more event chains (rachni, Council composition).
-3. **Ammunition/heat refinements**: finite torpedo loads, heat-limited GARDIAN bursts.
-4. **Performance**: instanced rendering for frigates/fighters, aggregate distant formations.
-5. **Save slots** for campaigns (storage layer already supports export/import).
+2. **Campaign depth**: negotiated diplomacy (war summits with choices), more event chains (rachni, Council composition).
+3. **Performance**: instanced rendering for frigates/fighters, aggregate distant formations.
+4. **Touch**: two-finger pan, compact HUD layout for phones.

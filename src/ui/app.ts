@@ -21,12 +21,13 @@ import { renderTimelines } from './screens/timelines';
 import { renderSettings } from './screens/settings';
 import { renderCampaign, renderCampaignSetup } from './screens/campaign';
 import { renderPostWar } from './screens/postwar';
+import { renderSaves } from './screens/saves';
 import { createPostWar, type PostWarState } from '@/campaign/postwar';
 import { applyEngagementResult, createCampaign, type CampaignOptions } from '@/campaign/engine';
 import { normaliseCampaign } from '@/campaign/depth';
 import type { CampaignState, PendingEngagement } from '@/campaign/state';
 
-export type ScreenName = 'menu' | 'briefing' | 'battle' | 'results' | 'comparison' | 'codex' | 'database' | 'custom' | 'timelines' | 'settings' | 'campaign' | 'campaign_setup' | 'postwar';
+export type ScreenName = 'menu' | 'briefing' | 'battle' | 'results' | 'comparison' | 'codex' | 'database' | 'custom' | 'timelines' | 'settings' | 'campaign' | 'campaign_setup' | 'postwar' | 'saves';
 
 export interface CampaignBattleLink {
   state: CampaignState;
@@ -270,13 +271,35 @@ export class BattleController {
 
   private bindInput(): void {
     const c = this.canvas;
+    // Touch: track active pointers for pinch-to-zoom.
+    const touches = new Map<number, { x: number; y: number }>();
+    let pinchDistance = 0;
     const onDown = (e: PointerEvent) => {
       if ((e.target as HTMLElement) !== c) return;
+      if (e.pointerType === 'touch') {
+        touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        if (touches.size === 2) {
+          const [a, b] = [...touches.values()];
+          pinchDistance = Math.hypot(a.x - b.x, a.y - b.y);
+          this.dragging = null; // two fingers: zoom, not orbit
+          return;
+        }
+      }
       this.dragging = { button: e.button, x: e.clientX, y: e.clientY, moved: false };
       c.setPointerCapture(e.pointerId);
     };
     const onMove = (e: PointerEvent) => {
       const rect = c.getBoundingClientRect();
+      if (e.pointerType === 'touch' && touches.has(e.pointerId)) {
+        touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        if (touches.size >= 2) {
+          const [a, b] = [...touches.values()];
+          const d = Math.hypot(a.x - b.x, a.y - b.y);
+          if (pinchDistance > 0 && Math.abs(d - pinchDistance) > 1) this.view.rig.zoom((pinchDistance - d) * 4);
+          pinchDistance = d;
+          return;
+        }
+      }
       if (this.dragging) {
         const dx = e.clientX - this.dragging.x;
         const dy = e.clientY - this.dragging.y;
@@ -294,6 +317,10 @@ export class BattleController {
       }
     };
     const onUp = (e: PointerEvent) => {
+      if (e.pointerType === 'touch') {
+        touches.delete(e.pointerId);
+        if (touches.size < 2) pinchDistance = 0;
+      }
       if (!this.dragging) return;
       const d = this.dragging;
       this.dragging = null;
@@ -316,6 +343,7 @@ export class BattleController {
     c.addEventListener('pointerdown', onDown);
     c.addEventListener('pointermove', onMove);
     c.addEventListener('pointerup', onUp);
+    c.addEventListener('pointercancel', onUp);
     c.addEventListener('contextmenu', (e) => e.preventDefault());
     c.addEventListener('wheel', (e) => {
       e.preventDefault();
@@ -548,6 +576,9 @@ export class App {
       case 'postwar':
         node = this.postwar ? renderPostWar(this, this.postwar) : renderMenu(this);
         break;
+      case 'saves':
+        node = renderSaves(this, params as { saveCurrent?: 'campaign' | 'postwar' } | undefined);
+        break;
       case 'battle':
         node = el('div');
         break;
@@ -579,9 +610,21 @@ export class App {
   async loadCampaign(): Promise<boolean> {
     const saved = await storage.get<CampaignState | undefined>('campaign', undefined);
     if (!saved || typeof saved !== 'object' || !saved.systems || !saved.fleets) return false;
-    this.campaign = normaliseCampaign(saved);
-    this.show('campaign');
+    this.resumeCampaign(saved);
     return true;
+  }
+
+  /** Resume a campaign from slot data: it becomes the active game and the autosave. */
+  resumeCampaign(state: CampaignState): void {
+    this.campaign = normaliseCampaign(state);
+    void storage.set('campaign', this.campaign);
+    this.show('campaign');
+  }
+
+  resumePostWar(state: PostWarState): void {
+    this.postwar = state;
+    void storage.set('postwar', this.postwar);
+    this.show('postwar');
   }
 
   startBattle(config: BattleConfig, opts: { replay?: boolean; comparison?: ComparisonReport; comparisonSide?: 'a' | 'b'; campaign?: CampaignBattleLink } = {}): void {

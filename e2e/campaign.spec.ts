@@ -35,10 +35,15 @@ test.describe('Galactic campaign', () => {
     const week = await page.locator('.hud-clock').innerText();
     expect(week).toMatch(/WEEK [1-9]/);
 
-    // Persistence: reload and Load Game returns to the same week.
-    await page.click('text=Menu');
+    // Named slot: save, then reload and load it from the Saved Games screen.
+    await page.click('[data-action="save-slot-screen"]');
+    await page.fill('[data-field="slot-name"]', 'E2E slot');
+    await page.click('[data-action="save-slot"]');
+    await expect(page.locator('[data-slot]', { hasText: 'E2E slot' })).toBeVisible();
     await page.reload();
     await page.click('[data-menu="load-game"]');
+    await expect(page.locator('[data-action="load-autosave-campaign"]')).toBeVisible();
+    await page.locator('[data-slot]', { hasText: 'E2E slot' }).locator('[data-action="load-slot"]').click();
     await expect(page.locator('.galaxy-map')).toBeVisible();
     await expect(page.locator('.hud-clock')).toContainText(week.split('\n')[0]);
     expect(errors).toEqual([]);
@@ -94,6 +99,7 @@ test.describe('Galactic campaign', () => {
     await page.click('text=Menu');
     await page.reload();
     await page.click('[data-menu="load-game"]');
+    await page.click('[data-action="load-autosave-postwar"]');
     await expect(page.locator('h1')).toContainText('CERBERUS ASCENDANT');
     await expect(page.locator('.hud-clock')).toContainText('2187 Q2');
     expect(errors).toEqual([]);

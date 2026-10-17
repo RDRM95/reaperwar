@@ -37,6 +37,10 @@ export function renderPostWar(app: App, state: PostWarState): HTMLElement {
           save();
           renderAll();
         } }, '+1 year'),
+        el('button', { class: 'btn', 'data-action': 'save-slot-screen', onclick: () => {
+          save();
+          app.show('saves', { saveCurrent: 'postwar' });
+        } }, 'Save slot…'),
         el('button', { class: 'btn', onclick: () => app.show('menu') }, 'Menu'),
       ]),
     );

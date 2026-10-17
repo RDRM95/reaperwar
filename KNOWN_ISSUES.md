@@ -23,12 +23,12 @@
 - Ground war, research, refugees and politics are abstract tracks (0–1 values and event triggers); there is no ground battle simulation and no negotiated diplomacy. Production is a point pool per faction.
 - The Terminus mercenary fleet event uses Alliance-pattern hulls (no Terminus hull family yet) and is labelled an estimate in the log.
 - Engagements cap each side at 70 ships by scaling counts; losses are scaled back proportionally.
-- One save slot (autosave each week); the post-war mode uses its own single slot.
+- Autosave each week plus named slots (Saved Games screen); slots are browser-local unless exported from Settings.
 - Post-war (Cerberus Ascendant) reconstruction is an abstract metric model: budget programmes move eleven 0–1 indicators and a fleet-point total. There are no post-war battles, named characters or map; the Terminus and Council are events, not actors.
 
 ## UI / platform
 
-- Touch: the HUD works on touch, but camera orbit relies on pointer drag and the wheel; pinch zoom is not implemented.
+- Touch: one-finger drag orbits, two-finger pinch zooms; there is no two-finger pan, and the HUD panels are sized for desktop widths.
 - Audio needs a first click (browser policy); it is synthesised and intentionally restrained.
 - Headless/software-GL renders at low frame rates; the simulation step budget (40 ms per frame) keeps it responsive but slows simulated time.
-- Load Game opens whichever save exists, preferring the war campaign over a post-war plan when both are present.
+- Loading a slot makes it the autosave; the previous autosave is overwritten on the next turn.

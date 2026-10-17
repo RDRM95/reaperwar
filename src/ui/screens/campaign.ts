@@ -208,6 +208,10 @@ export function renderCampaign(app: App, state: CampaignState): HTMLElement {
           save();
           app.toast('CAMPAIGN SAVED');
         } }, 'Save'),
+        el('button', { class: 'btn', 'data-action': 'save-slot-screen', onclick: () => {
+          save();
+          app.show('saves', { saveCurrent: 'campaign' });
+        } }, 'Save slot…'),
         el('button', { class: 'btn', onclick: () => app.show('menu') }, 'Menu'),
       ]),
     );

@@ -33,7 +33,7 @@ export function renderMenu(app: App): HTMLElement {
     item('Fleet Database', () => app.show('database')),
     item('Codex', () => app.show('codex')),
     item('Scenario Editor', () => app.show('custom'), 'VIA CUSTOM'),
-    item('Load Game', () => void app.loadCampaign().then(async (ok) => { if (!ok && !(await app.loadPostWar())) app.toast('NO SAVED CAMPAIGN'); }), app.campaign ? 'IN PROGRESS' : undefined),
+    item('Load Game', () => app.show('saves'), app.campaign ? 'IN PROGRESS' : undefined),
     item('Settings', () => app.show('settings')),
     el('div', { class: 'menu-foot' }, [
       'Unofficial, non-commercial fan project. Mass Effect is a trademark of Electronic Arts / BioWare. No game assets are used; all models, audio and text are original.',

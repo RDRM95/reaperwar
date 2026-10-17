@@ -24,6 +24,10 @@ export interface SaveData {
   battleHistory: BattleResult[];
   customBattle?: unknown;
   campaign?: unknown;
+  postwar?: unknown;
+  /** Named save slots: index plus data keyed by slot id. */
+  saveSlots?: unknown[];
+  slotData?: Record<string, unknown>;
 }
 
 export const DEFAULT_PREFERENCES: Preferences = {
@@ -119,7 +123,20 @@ export class Storage {
       battleHistory: await this.get<BattleResult[]>('battleHistory', []),
       customBattle: await this.get('customBattle', undefined),
       campaign: await this.get('campaign', undefined),
+      postwar: await this.get('postwar', undefined),
+      saveSlots: await this.get<unknown[]>('saveSlots', []),
+      slotData: await this.slotData(),
     };
+  }
+
+  private async slotData(): Promise<Record<string, unknown>> {
+    const idx = await this.get<{ id: string }[]>('saveSlots', []);
+    const out: Record<string, unknown> = {};
+    for (const m of Array.isArray(idx) ? idx : []) {
+      const d = await this.get(`slot:${m.id}`, undefined);
+      if (d !== undefined) out[m.id] = d;
+    }
+    return out;
   }
 
   async importAll(data: unknown): Promise<string[]> {
@@ -131,6 +148,22 @@ export class Storage {
     if (Array.isArray(d.customTimelines)) await this.set('customTimelines', d.customTimelines);
     if (Array.isArray(d.battleHistory)) await this.set('battleHistory', d.battleHistory.slice(-50));
     if (d.customBattle) await this.set('customBattle', d.customBattle);
+    if (d.campaign && typeof d.campaign === 'object') await this.set('campaign', d.campaign);
+    if (d.postwar && typeof d.postwar === 'object') await this.set('postwar', d.postwar);
+    if (Array.isArray(d.saveSlots) && d.slotData && typeof d.slotData === 'object') {
+      const existing = await this.get<{ id: string }[]>('saveSlots', []);
+      const merged = [...(Array.isArray(existing) ? existing : [])];
+      for (const m of d.saveSlots as { id: string }[]) {
+        if (!m || typeof m.id !== 'string') continue;
+        const data = (d.slotData as Record<string, unknown>)[m.id];
+        if (data === undefined) continue;
+        await this.set(`slot:${m.id}`, data);
+        const i = merged.findIndex((x) => x.id === m.id);
+        if (i >= 0) merged[i] = m;
+        else merged.push(m);
+      }
+      await this.set('saveSlots', merged);
+    }
     return warnings;
   }
 }

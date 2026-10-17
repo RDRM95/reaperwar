@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.0 — Saved games and touch zoom
+
+- Saved Games screen: autosaves for the campaign and the post-war plan plus named slots with rename and delete; "Save slot…" from the campaign and post-war screens; slots are included in the Settings export/import.
+- Two-finger pinch zoom in the battle view (touch), with pointer-cancel handling.
+- Tests: slot save/list/rename/load/delete, overwrite, export round trip; end-to-end slot save and load (77 unit tests).
+
 ## 0.7.0 — Finite ammunition and heat-limited point defence
 
 - Disruptor torpedo tubes carry a magazine (8 rounds per tube on frigates and cruisers, 2 per fighter). Empty batteries stop firing and raise an "ammunition depleted" event.

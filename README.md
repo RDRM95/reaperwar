@@ -33,7 +33,9 @@ npm run dev        # http://localhost:5173
 - **Codex** and **Fleet Database** with per-statistic provenance (canon confirmed / canon inferred / simulation estimate / AU modified).
 - **Procedural audio** (Web Audio) with volume and mute; local save of preferences, custom timelines, custom battle and history (IndexedDB with localStorage fallback) with export/import.
 
-Not yet implemented: negotiated diplomacy (cooperation is driven by events and outcomes), multiple save slots, touch pinch zoom. See [ROADMAP.md](ROADMAP.md).
+- **Saved games**: weekly autosave plus named slots (rename, delete, export/import with the rest of your data); touch pinch zoom in battle.
+
+Not yet implemented: negotiated diplomacy (cooperation is driven by events and outcomes), level-of-detail meshes and instanced rendering for very large fleets. See [ROADMAP.md](ROADMAP.md).
 
 ## Controls
 
