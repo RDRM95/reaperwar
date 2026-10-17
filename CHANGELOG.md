@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.11.0 — Touch layout and Council hull detail
+
+- Two-finger drag pans the battle camera (with pinch zoom); phone-width layout: the HUD top bar wraps, the fleet and target panels become bottom sheets behind a Panels toggle, screens and the campaign map collapse to one column.
+- Turian dreadnought and cruiser: broadside turrets with barrels, GARDIAN blisters, dorsal ridge plates, flank ribs. Asari dreadnought and cruiser: flank viewport rows, accent collars, ventral sensor domes.
+
 ## 0.10.0 — War summits and 2183 world states
 
 - Council war summits every twelve weeks while the Citadel holds: interactive campaigns pause for a decision (demand fleet commitments, pool Crucible resources, prioritise refugees) with twelve-week effects; AI-run campaigns press for fleets.

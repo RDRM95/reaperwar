@@ -21,5 +21,5 @@ Phases follow the project brief. ✅ done · 🔶 partial · ⬜ not started.
 
 1. **Campaign depth**: bilateral negotiation with individual governments, krogan and quarian political chains, Cerberus coup events.
 2. **Performance**: simplified mid-range hull meshes, instanced rendering for identical hulls, aggregate distant formations.
-3. **Touch**: two-finger pan, compact HUD layout for phones.
-4. **Model polish**: turian and asari detail passes, textures via procedural normal maps.
+3. **Touch**: a dedicated phone campaign map (zoomable canvas), larger hit targets.
+4. **Model polish**: procedural normal maps for plating, geth and quarian detail passes.

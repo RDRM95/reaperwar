@@ -181,9 +181,30 @@ td.num { font-family: var(--mono); text-align: right; }
   .grid2 { grid-template-columns: 1fr; }
   .codex { grid-template-columns: 1fr; }
 }
+.hud-panels-toggle { display: none; }
+.campaign-layout { display: grid; grid-template-columns: 1fr 360px; gap: 12px; margin-top: 10px; }
+@media (max-width: 900px) {
+  .campaign-layout { grid-template-columns: 1fr; }
+  .screen-body { padding: 14px 16px; }
+  .screen-footer { padding: 10px 16px; flex-wrap: wrap; }
+  .screen-header { padding: 12px 16px; }
+}
 @media (max-width: 760px) {
-  .hud-left, .hud-right { display: none; }
+  /* Phones: the top bar wraps, side panels become bottom sheets behind a toggle. */
+  .hud-top { flex-wrap: wrap; gap: 6px; }
+  .hud-top .panel { padding: 8px 10px; min-width: 0; }
+  .hud-clock { font-size: 16px; }
+  .hud-panels-toggle { display: inline-block; }
+  .hud-timeline { display: none; }
+  .hud-left, .hud-right { display: none; top: auto; bottom: 0; height: 42vh; width: 50%; background: rgba(6, 9, 15, 0.85); overflow: auto; padding: 6px; }
+  .hud-left { left: 0; }
+  .hud-right { right: 0; }
+  .hud.panels-open .hud-left, .hud.panels-open .hud-right { display: flex; }
+  .hud.panels-open .hud-bottom { display: none; }
+  .hud-bottom { left: 6px; right: 6px; bottom: 6px; flex-wrap: wrap; }
   .menu-title { font-size: 28px; }
+  .menu-left { padding: 32px 20px; }
+  .toast { top: 140px; }
 }
 
 /* ---------- campaign map ---------- */

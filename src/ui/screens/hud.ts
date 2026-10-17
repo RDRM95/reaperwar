@@ -94,10 +94,10 @@ export function createHud(app: App, ctrl: BattleController): Hud {
       clock,
       statusLine,
     ]),
-    el('div', { class: 'panel' }, [el('div', { class: 'panel-title' }, 'SIMULATION'), speedRow]),
+    el('div', { class: 'panel' }, [el('div', { class: 'panel-title' }, 'SIMULATION'), speedRow, el('button', { class: 'btn small hud-panels-toggle', 'data-action': 'toggle-panels', style: { marginTop: '6px' }, onclick: () => root.classList.toggle('panels-open') }, 'Panels')]),
     el('div', { class: 'panel' }, [el('div', { class: 'panel-title' }, 'CAMERA'), cameraRow]),
     el('div', { class: 'spacer' }),
-    el('div', { class: 'panel orange', style: { maxWidth: '260px' } }, [el('div', { class: 'panel-title' }, 'TIMELINE'), el('div', { style: { fontSize: '13px' } }, rules.name), el('div', { class: 'dim', style: { fontSize: '11px' } }, rules.tagline)]),
+    el('div', { class: 'panel orange hud-timeline', style: { maxWidth: '260px' } }, [el('div', { class: 'panel-title' }, 'TIMELINE'), el('div', { style: { fontSize: '13px' } }, rules.name), el('div', { class: 'dim', style: { fontSize: '11px' } }, rules.tagline)]),
     el('button', { class: 'btn', 'data-action': 'menu', onclick: () => toggleMenu() }, 'Menu'),
   ]);
 

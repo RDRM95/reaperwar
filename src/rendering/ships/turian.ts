@@ -50,12 +50,19 @@ export function buildTurianDreadnought(): BuiltShip {
   bladeWings(parts, 2.6, 2.2, -1.4, -0.1, 0.5, -0.12);
   // Ventral blade.
   parts.hullDark.push(at(taperedBox(0.1, 0.9, 2.4, 0.4, 1), 0, -0.9, -0.4));
-  // Hull plating detail.
+  // Hull plating detail: ribs, lit viewports, accent stripe, broadside turrets and GARDIAN blisters.
   for (const s of [-1, 1]) {
     for (let i = 0; i < 6; i++) parts.hullDark.push(at(new THREE.BoxGeometry(0.1, 0.36, 0.5), s * 0.5, 0.0, -3 + i * 1.05));
     for (let i = 0; i < 10; i++) parts.windows.push(at(new THREE.BoxGeometry(0.06, 0.05, 0.25), s * 0.47, 0.25, -3.2 + i * 0.65));
     parts.accent.push(at(new THREE.BoxGeometry(0.06, 0.5, 2.2), s * 0.49, 0.1, 2.2));
+    for (let i = 0; i < 4; i++) {
+      parts.hullDark.push(at(new THREE.BoxGeometry(0.18, 0.12, 0.26), s * 0.52, 0.58, -2.4 + i * 1.1));
+      parts.hullDark.push(at(rot(zCylinder(0.025, 0.025, 0.36, 6), 0, (s * Math.PI) / 2, 0), s * 0.7, 0.6, -2.4 + i * 1.1));
+    }
+    for (let i = 0; i < 3; i++) parts.hullDark.push(at(new THREE.SphereGeometry(0.07, 8, 6), s * 0.46, -0.45, -1.5 + i * 1.6));
   }
+  // Dorsal ridge plates along the spine.
+  for (let i = 0; i < 5; i++) parts.accent.push(at(taperedBox(0.5, 0.06, 0.5, 0.8, 1), 0, 0.57, -2.8 + i * 0.9));
   const eng = newParts();
   engineBlock(1.5, 1.2, 1.8, [
     { x: 0.45, y: 0.3, r: 0.24 },
@@ -79,8 +86,12 @@ export function buildTurianCruiser(): BuiltShip {
   parts.hullDark.push(at(taperedBox(0.08, 0.5, 1.4, 0.4, 1), 0, -0.55, -0.2));
   for (const s of [-1, 1]) {
     for (let i = 0; i < 6; i++) parts.windows.push(at(new THREE.BoxGeometry(0.05, 0.04, 0.2), s * 0.31, 0.15, -1.6 + i * 0.6));
-    for (let i = 0; i < 2; i++) parts.hullDark.push(at(new THREE.BoxGeometry(0.16, 0.12, 0.22), s * 0.34, 0.3, -0.6 + i * 0.9));
+    for (let i = 0; i < 2; i++) {
+      parts.hullDark.push(at(new THREE.BoxGeometry(0.16, 0.12, 0.22), s * 0.34, 0.3, -0.6 + i * 0.9));
+      parts.hullDark.push(at(rot(zCylinder(0.02, 0.02, 0.28, 6), 0, (s * Math.PI) / 2, 0), s * 0.5, 0.32, -0.6 + i * 0.9));
+    }
     parts.accent.push(at(new THREE.BoxGeometry(0.05, 0.3, 1.2), s * 0.32, 0.05, 1.3));
+    for (let i = 0; i < 4; i++) parts.hullDark.push(at(new THREE.BoxGeometry(0.06, 0.22, 0.3), s * 0.31, -0.1, -1.4 + i * 0.75));
   }
   const eng = newParts();
   engineBlock(1.0, 0.7, 1.2, [

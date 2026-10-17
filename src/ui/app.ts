@@ -274,6 +274,7 @@ export class BattleController {
     // Touch: track active pointers for pinch-to-zoom.
     const touches = new Map<number, { x: number; y: number }>();
     let pinchDistance = 0;
+    let pinchCentre: { x: number; y: number } | null = null;
     const onDown = (e: PointerEvent) => {
       if ((e.target as HTMLElement) !== c) return;
       if (e.pointerType === 'touch') {
@@ -281,7 +282,8 @@ export class BattleController {
         if (touches.size === 2) {
           const [a, b] = [...touches.values()];
           pinchDistance = Math.hypot(a.x - b.x, a.y - b.y);
-          this.dragging = null; // two fingers: zoom, not orbit
+          pinchCentre = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+          this.dragging = null; // two fingers: zoom and pan, not orbit
           return;
         }
       }
@@ -297,6 +299,11 @@ export class BattleController {
           const d = Math.hypot(a.x - b.x, a.y - b.y);
           if (pinchDistance > 0 && Math.abs(d - pinchDistance) > 1) this.view.rig.zoom((pinchDistance - d) * 4);
           pinchDistance = d;
+          // Two-finger drag pans: move by the centroid delta.
+          const cx = (a.x + b.x) / 2;
+          const cy = (a.y + b.y) / 2;
+          if (pinchCentre) this.view.rig.pan(cx - pinchCentre.x, cy - pinchCentre.y);
+          pinchCentre = { x: cx, y: cy };
           return;
         }
       }
@@ -319,7 +326,10 @@ export class BattleController {
     const onUp = (e: PointerEvent) => {
       if (e.pointerType === 'touch') {
         touches.delete(e.pointerId);
-        if (touches.size < 2) pinchDistance = 0;
+        if (touches.size < 2) {
+          pinchDistance = 0;
+          pinchCentre = null;
+        }
       }
       if (!this.dragging) return;
       const d = this.dragging;

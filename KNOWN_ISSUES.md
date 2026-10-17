@@ -28,7 +28,7 @@
 
 ## UI / platform
 
-- Touch: one-finger drag orbits, two-finger pinch zooms; there is no two-finger pan, and the HUD panels are sized for desktop widths.
+- Touch: one-finger drag orbits, two-finger pinch zooms and pans. On phones the fleet and target panels sit behind a Panels toggle as half-height bottom sheets; the galaxy map canvas keeps its 1200×760 aspect and is small on narrow screens.
 - Audio needs a first click (browser policy); it is synthesised and intentionally restrained.
 - Headless/software-GL renders at low frame rates; the simulation step budget (40 ms per frame) keeps it responsive but slows simulated time.
 - Loading a slot makes it the autosave; the previous autosave is overwritten on the next turn.

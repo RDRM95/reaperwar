@@ -55,6 +55,9 @@ export function buildAsariCruiser(): BuiltShip {
   curvedBody(parts, L, 0.42);
   sweepingFins(parts, L, 0.42, 3, 2.2, 0);
   parts.windows.push(at(new THREE.BoxGeometry(0.3, 0.04, 0.5), 0, 0.3, 1.0));
+  // Flank viewports and a pair of accent collars.
+  for (let i = 0; i < 6; i++) for (const s of [-1, 1]) parts.windows.push(at(new THREE.BoxGeometry(0.04, 0.03, 0.14), s * 0.38, 0.08, -1.4 + i * 0.5));
+  for (const z of [-0.6, 0.9]) parts.accent.push(at(zCylinder(0.44, 0.44, 0.08, 24, true), 0, 0, z));
   parts.hullDark.push(at(zCylinder(0.07, 0.1, 0.9, 12), 0, -0.05, L * 0.5 - 0.3));
   return assemble(parts, 'asari', [new THREE.Vector3(0, 0, -L * 0.5)], L, new THREE.Vector3(0, -0.05, L * 0.5 + 0.2), GLOW);
 }
@@ -68,6 +71,10 @@ export function buildAsariDreadnought(): BuiltShip {
   parts.hullDark.push(at(zCylinder(0.14, 0.2, 1.4, 12), 0, -0.08, L * 0.5 - 0.5));
   parts.windows.push(at(new THREE.BoxGeometry(0.4, 0.05, 1.2), 0, 0.5, 1.2));
   for (let i = 0; i < 8; i++) parts.windows.push(at(new THREE.BoxGeometry(0.5, 0.03, 0.08), 0, 0.62 - i * 0.02, -2.5 + i * 0.6));
+  // Flank viewport rows, accent collars and ventral sensor domes.
+  for (let i = 0; i < 10; i++) for (const s of [-1, 1]) parts.windows.push(at(new THREE.BoxGeometry(0.05, 0.04, 0.2), s * 0.68, 0.1, -2.6 + i * 0.55));
+  for (const z of [-1.2, 1.4]) parts.accent.push(at(zCylinder(0.78, 0.78, 0.1, 28, true), 0, 0, z));
+  for (const z of [-1.8, 0, 1.8]) parts.hullDark.push(at(new THREE.SphereGeometry(0.12, 10, 8), 0, -0.6, z));
   return assemble(parts, 'asari', [new THREE.Vector3(0, 0, -L * 0.5)], L, new THREE.Vector3(0, -0.08, L * 0.5 + 0.3), GLOW);
 }
 

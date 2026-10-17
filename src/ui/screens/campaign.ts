@@ -464,7 +464,7 @@ export function renderCampaign(app: App, state: CampaignState): HTMLElement {
     el('div', { class: 'screen-header' }, [el('h1', {}, 'GALACTIC CAMPAIGN'), el('span', { class: 'sub' }, state.name.toUpperCase())]),
     el('div', { class: 'screen-body', style: { padding: '12px 16px' } }, [
       statusBar,
-      el('div', { style: { display: 'grid', gridTemplateColumns: '1fr 360px', gap: '12px', marginTop: '10px' } }, [
+      el('div', { class: 'campaign-layout' }, [
         el('div', { class: 'panel', style: { padding: '8px' } }, [canvas]),
         el('div', { class: 'col' }, [
           el('div', { class: 'panel' }, [el('div', { class: 'panel-title' }, 'SYSTEM'), el('div', { class: 'target-panel' }, [sysPanel])]),
