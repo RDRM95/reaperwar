@@ -57,6 +57,7 @@ export const CODEX: CodexEntry[] = [
       'Cerberus is a human-supremacist paramilitary organisation led by the Illusive Man. In 2186 it fights the Alliance and the Council while pursuing control of Reaper technology.',
       'Its ships use a black, white and orange identification scheme. By the end of the war the Illusive Man is indoctrinated.',
     ],
+    estimate: ['Simulation Cerberus hulls (fighter, frigate, cruiser) are original designs with better electronics than Alliance equivalents. The Black Fleet dreadnought is AU-only and does not exist in the trilogy. The Cerberus Intervention scenario is hostile under canon and cooperative under timelines where the Illusive Man is not indoctrinated.'],
     au: {
       cerberus_reformed: ['Cerberus Reformed: the Illusive Man is never indoctrinated and Cerberus cooperates with the Alliance against the Reapers while remaining pro-human and pragmatic.'],
       cerberus_ascendant: ['Cerberus Ascendant: with Shepard dead and the Collector Base preserved, Cerberus develops the control solution and takes the Reaper fleet.'],
@@ -68,7 +69,29 @@ export const CODEX: CodexEntry[] = [
     category: 'Factions',
     title: 'Turian Hierarchy',
     canon: ['The Hierarchy maintains the largest fleet in Citadel space and is permitted the most dreadnoughts under the Treaty of Farixen. Palaven and its moon Menae are under heavy Reaper assault in 2186.'],
-    estimate: ['Turian ships and the Palaven scenarios are planned for a later phase; the doctrine data exists but no hulls are modelled yet.'],
+    estimate: ['Simulation doctrine: tight formations, aggressive closure, strong dreadnought line, withdrawal only below 12 % hull. Hierarchy hulls are original designs: tall angular bodies, split pincer bows, large dorsal fins, cyan lights.'],
+    au: { prime_apex: ['Prime/Apex Homeworld Defence Rule: the Hierarchy can hold Palaven unaided, with hyper-mass accelerators on its dreadnoughts.'] },
+  },
+  {
+    id: 'asari',
+    category: 'Factions',
+    title: 'Asari Republics',
+    canon: ['The oldest Council race, with the most advanced warships in Citadel space but few dreadnoughts. Thessia is attacked in force in 2186 and falls; the Republics had concealed a Prothean beacon.'],
+    estimate: ['Simulation doctrine: engage at range, protect the few capital ships, withdraw damaged hulls early. Asari hulls are original smooth lathe-turned designs with sweeping fins and violet lighting; barriers run well above Alliance values, plating below.'],
+  },
+  {
+    id: 'ship_destiny_ascension',
+    category: 'Ships',
+    title: 'Destiny Ascension',
+    canon: ['Flagship of the Citadel fleet and the largest warship in Citadel space. Whether it survived Sovereign’s attack in 2183 is a player-dependent outcome. In ME1 its main gun is described as having more firepower than the entire Alliance fleet.'],
+    estimate: ['The firepower line is treated as hyperbole: the simulation gives the main gun roughly 2.6× a dreadnought round. Hull 20,000 / barriers 14,000 / armour 200. The Fall of Thessia scenario lets you choose whether it is present.'],
+  },
+  {
+    id: 'ship_turian_dreadnought',
+    category: 'Ships',
+    title: 'Hierarchy dreadnought',
+    canon: ['Turian dreadnoughts are the most numerous capital ships in Citadel space.'],
+    estimate: ['Simulation hull 9,500 / armour 150 / barriers 5,000 with a slightly heavier spinal gun than the Alliance Kilimanjaro-class, reflecting turian gunnery discipline. Original hull design.'],
   },
   // ------------------------------------------------------------------ Ships
   {

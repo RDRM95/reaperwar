@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import type { BattleSimulation } from '@/simulation/battle';
 import { SIM_DT } from '@/simulation/battle';
 import type { BattleEvent, ShipState } from '@/simulation/types';
@@ -48,6 +49,7 @@ export class BattleView {
   private projectileTrack?: { id: number };
   private readonly glowTex: THREE.Texture;
   private sunLight: THREE.DirectionalLight;
+  private fillLight: THREE.DirectionalLight;
   private readonly tmpA = new THREE.Vector3();
   private readonly tmpB = new THREE.Vector3();
   private readonly tmpQ = new THREE.Quaternion();
@@ -63,6 +65,12 @@ export class BattleView {
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.05;
     this.rig = new CameraRig(canvas.clientWidth / Math.max(1, canvas.clientHeight));
+    // Image-based lighting so metallic hull plating reads as metal rather than
+    // black: a neutral PMREM environment at low intensity.
+    const pmrem = new THREE.PMREMGenerator(this.renderer);
+    this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    this.scene.environmentIntensity = 0.35;
+    pmrem.dispose();
     this.sim = sim;
 
     const c = document.createElement('canvas');
@@ -78,8 +86,11 @@ export class BattleView {
 
     this.sunLight = new THREE.DirectionalLight(0xfff2e0, 2.6);
     this.scene.add(this.sunLight);
-    this.scene.add(new THREE.HemisphereLight(0x8fb4ff, 0x1a1420, 0.55));
-    this.scene.add(new THREE.AmbientLight(0x404a60, 0.35));
+    this.scene.add(new THREE.HemisphereLight(0x8fb4ff, 0x1a1420, 0.7));
+    this.scene.add(new THREE.AmbientLight(0x404a60, 0.45));
+    // Camera-relative fill so hulls stay readable when viewed against the sun.
+    this.fillLight = new THREE.DirectionalLight(0xb8c8e8, 0.9);
+    this.scene.add(this.fillLight, this.fillLight.target);
     this.scene.add(this.effects.group);
     this.bind(sim);
   }
@@ -217,6 +228,9 @@ export class BattleView {
     // Camera.
     this.cine.age += dt;
     this.updateCamera(dt);
+    // Fill light rides with the camera.
+    this.fillLight.position.copy(this.rig.camera.position);
+    this.fillLight.target.position.copy(this.rig.camera.position).add(this.rig.camera.getWorldDirection(this.tmpB).multiplyScalar(100));
     // Sky objects follow the camera so the starfield never parallaxes.
     for (const o of this.env.skyObjects) if (o.name !== 'sun') o.position.copy(this.rig.camera.position);
     this.env.group.getObjectByName('sun')?.position.copy(this.rig.camera.position).addScaledVector(this.env.sunDirection, 150_000);

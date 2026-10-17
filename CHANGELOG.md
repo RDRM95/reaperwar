@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.0 — Council factions and Cerberus
+
+- Turian Hierarchy, Asari Republics and Cerberus hull families (original procedural models), weapons and ship classes with provenance tags.
+- Scenarios: Defence of Palaven (optional Alliance detachment), Fall of Thessia (Destiny Ascension player-dependent), Cerberus Intervention (hostile under canon, cooperative where the Illusive Man is unindoctrinated), Prime/Apex Palaven Defence.
+- Custom battle builder accepts any of Alliance, Turian, Asari, Cerberus or Reaper fleets on either side.
+- Reaper aperture glow; camera-relative fill light so hulls stay readable against the sun.
+- Beam bursts now count toward hit statistics.
+- Codex entries for the new factions and the Destiny Ascension; 44 unit tests.
+
 ## 0.1.0 — Vertical slice: Battle of Earth
 
 - Deterministic fixed-step battle simulation with event log and replay.

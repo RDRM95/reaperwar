@@ -663,6 +663,7 @@ export class BattleSimulation implements AiContext {
         w.beamRemaining = def.beamDuration ?? 1.5;
         w.beamTargetId = target.id;
         w.beamHit = hit;
+        if (hit) ship.stats.hits++;
         w.beamStart = origin;
         if (hit) w.beamEnd = clone(target.pos);
         else {

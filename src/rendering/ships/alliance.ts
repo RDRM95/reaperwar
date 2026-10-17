@@ -12,7 +12,7 @@ import type { BuiltShip } from './types';
  * Original fan models; proportions follow the trilogy's Alliance silhouettes.
  */
 
-function engineBlock(width: number, height: number, length: number, nozzles: { x: number; y: number; r: number }[], parts: Parts): void {
+export function engineBlock(width: number, height: number, length: number, nozzles: { x: number; y: number; r: number }[], parts: Parts): void {
   parts.hullDark.push(at(taperedBox(width, height, length, 1, 0.85), 0, 0, 0));
   for (const n of nozzles) {
     parts.hullDark.push(at(zCylinder(n.r * 1.05, n.r * 0.9, length * 0.35, 14, true), n.x, n.y, -length * 0.55));
@@ -20,7 +20,7 @@ function engineBlock(width: number, height: number, length: number, nozzles: { x
   }
 }
 
-interface Parts {
+export interface Parts {
   hull: THREE.BufferGeometry[];
   hullDark: THREE.BufferGeometry[];
   accent: THREE.BufferGeometry[];
@@ -28,9 +28,9 @@ interface Parts {
   windows: THREE.BufferGeometry[];
 }
 
-const newParts = (): Parts => ({ hull: [], hullDark: [], accent: [], engine: [], windows: [] });
+export const newParts = (): Parts => ({ hull: [], hullDark: [], accent: [], engine: [], windows: [] });
 
-function assemble(parts: Parts, faction: string, engineNodes: THREE.Vector3[], lengthUnits: number, muzzle?: THREE.Vector3): BuiltShip {
+export function assemble(parts: Parts, faction: string, engineNodes: THREE.Vector3[], lengthUnits: number, muzzle?: THREE.Vector3, glowColor = 0x4fb8ff): BuiltShip {
   const p = paletteFor(faction);
   const group = new THREE.Group();
   const add = (g: THREE.BufferGeometry[], m: THREE.Material, name: string) => {
@@ -45,7 +45,7 @@ function assemble(parts: Parts, faction: string, engineNodes: THREE.Vector3[], l
   add(parts.accent, p.accent, 'accent');
   add(parts.engine, p.engine, 'engine');
   add(parts.windows, p.windows, 'windows');
-  return { group, engineNodes, lengthUnits, muzzle, glowColor: 0x4fb8ff };
+  return { group, engineNodes, lengthUnits, muzzle, glowColor };
 }
 
 /** Kilimanjaro-class dreadnought: ~888 m → 8.88 units. */

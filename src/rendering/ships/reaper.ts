@@ -165,7 +165,8 @@ export function buildReaper(opts: ReaperOpts): BuiltShip {
 
   return {
     group,
-    engineNodes: [new THREE.Vector3(0, 0, -L * 0.46)],
+    // The aperture is listed as a glow node so the view adds a red bloom to the eye.
+    engineNodes: [new THREE.Vector3(0, 0, -L * 0.46), new THREE.Vector3(0, eyeY, eyeZ + R * 0.1)],
     lengthUnits: L * 0.5 + armLen + L * 0.1,
     muzzle: new THREE.Vector3(0, eyeY, eyeZ + R * 0.15),
     glowColor: opts.tint ?? 0xff2a10,

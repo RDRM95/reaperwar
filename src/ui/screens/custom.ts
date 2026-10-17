@@ -1,6 +1,7 @@
 import type { App } from '../app';
 import { el } from '../dom';
-import { buildCustomBattle, type CustomBattleInput } from '@/scenarios';
+import { buildCustomBattle, type CustomBattleInput, type CustomFaction } from '@/scenarios';
+import { FACTIONS } from '@/data/factions';
 import { SHIP_CLASS_LIST, getShipClass } from '@/data/ships';
 import { FORMATION_LABELS, type Environment, type FormationType } from '@/simulation/types';
 import { storage } from '@/core/storage';
@@ -12,6 +13,16 @@ const ENVIRONMENTS: { id: Environment; label: string }[] = [
   { id: 'rannoch_orbit', label: 'Rannoch orbit' },
   { id: 'deep_space', label: 'Deep space' },
 ];
+
+/** Default fleet compositions per faction (fixed, not scaled by timeline). */
+export const FACTION_DEFAULTS: Record<CustomFaction, { name: string; formation: FormationType; counts: Record<string, number> }> = {
+  alliance: { name: 'Alliance Task Force', formation: 'line_abreast', counts: { alliance_dreadnought: 8, alliance_carrier: 1, alliance_cruiser: 16, alliance_frigate: 30, alliance_frigate_thanix: 1 } },
+  turian: { name: 'Hierarchy battle group', formation: 'line_abreast', counts: { turian_dreadnought: 8, turian_cruiser: 16, turian_frigate: 28 } },
+  asari: { name: 'Republics fleet', formation: 'defensive_screen', counts: { destiny_ascension: 1, asari_dreadnought: 3, asari_cruiser: 14 } },
+  cerberus: { name: 'Cerberus strike fleet', formation: 'strike_wedge', counts: { cerberus_dreadnought: 0, cerberus_cruiser: 10, cerberus_frigate: 16 } },
+  reaper: { name: 'Reaper harvest group', formation: 'strike_wedge', counts: { reaper_capital: 4, reaper_destroyer: 8, harbinger: 0 } },
+};
+const CUSTOM_FACTIONS: CustomFaction[] = ['alliance', 'turian', 'asari', 'cerberus', 'reaper'];
 
 const DEFAULT_INPUT: CustomBattleInput = {
   seed: 42,
@@ -44,13 +55,14 @@ export function renderCustom(app: App): HTMLElement {
     return el('div', { class: `panel ${cls}` }, [
       el('div', { class: 'panel-title' }, [title, el('span', { class: 'mono' }, `${points(f.counts)} pts`)]),
       el('div', { class: 'row' }, [
-        el('label', { class: 'field', style: { flex: '1' } }, ['Faction', el('select', { onchange: (e: Event) => {
-          const fac = (e.target as HTMLSelectElement).value as 'alliance' | 'reaper';
+        el('label', { class: 'field', style: { flex: '1' } }, ['Faction', el('select', { 'data-faction': side, onchange: (e: Event) => {
+          const fac = (e.target as HTMLSelectElement).value as CustomFaction;
           f.faction = fac;
-          f.counts = fac === 'alliance' ? { ...DEFAULT_INPUT.sideA.counts } : { ...DEFAULT_INPUT.sideB.counts };
-          f.name = fac === 'alliance' ? 'Alliance Task Force' : 'Reaper harvest group';
+          f.counts = { ...FACTION_DEFAULTS[fac].counts };
+          f.name = FACTION_DEFAULTS[fac].name;
+          f.formation = FACTION_DEFAULTS[fac].formation;
           render();
-        } }, [el('option', { value: 'alliance', selected: f.faction === 'alliance' }, 'Systems Alliance'), el('option', { value: 'reaper', selected: f.faction === 'reaper' }, 'Reapers')])]),
+        } }, CUSTOM_FACTIONS.map((fac) => el('option', { value: fac, selected: f.faction === fac }, FACTIONS[fac].name)))]),
         el('label', { class: 'field', style: { flex: '1' } }, ['Formation', el('select', { onchange: (e: Event) => (f.formation = (e.target as HTMLSelectElement).value as FormationType) }, (Object.keys(FORMATION_LABELS) as FormationType[]).map((k) => el('option', { value: k, selected: f.formation === k }, FORMATION_LABELS[k])))]),
       ]),
       el('label', { class: 'field' }, ['Fleet name', el('input', { type: 'text', value: f.name, onchange: (e: Event) => (f.name = (e.target as HTMLInputElement).value) })]),

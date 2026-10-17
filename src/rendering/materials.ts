@@ -15,7 +15,7 @@ export interface FactionPalette {
 }
 
 const std = (color: number, opts: Partial<THREE.MeshStandardMaterialParameters> = {}): THREE.MeshStandardMaterial =>
-  new THREE.MeshStandardMaterial({ color, metalness: 0.55, roughness: 0.48, ...opts });
+  new THREE.MeshStandardMaterial({ color, metalness: 0.45, roughness: 0.5, ...opts });
 
 export const PALETTES: Record<string, FactionPalette> = {
   alliance: {
@@ -41,6 +41,14 @@ export const PALETTES: Record<string, FactionPalette> = {
     engine: new THREE.MeshStandardMaterial({ color: 0xff3a1a, emissive: 0xff2a10, emissiveIntensity: 4, roughness: 0.3, metalness: 0 }),
     windows: new THREE.MeshStandardMaterial({ color: 0xff5030, emissive: 0xff3018, emissiveIntensity: 2.5 }),
     glow: new THREE.MeshBasicMaterial({ color: 0xff3018, transparent: true, opacity: 0.6, blending: THREE.AdditiveBlending, depthWrite: false }),
+  },
+  asari: {
+    hull: std(0xc4bcd9, { metalness: 0.45, roughness: 0.3 }),
+    hullDark: std(0x3a3352, { metalness: 0.6, roughness: 0.4 }),
+    accent: std(0x7a4fe0, { metalness: 0.35, roughness: 0.35 }),
+    engine: new THREE.MeshStandardMaterial({ color: 0xd0a8ff, emissive: 0xb080ff, emissiveIntensity: 3, roughness: 0.3, metalness: 0 }),
+    windows: new THREE.MeshStandardMaterial({ color: 0xf0e8ff, emissive: 0xc8b0ff, emissiveIntensity: 1.6 }),
+    glow: new THREE.MeshBasicMaterial({ color: 0xd0a8ff, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false }),
   },
   turian: {
     hull: std(0x8a98a8, { metalness: 0.6, roughness: 0.4 }),

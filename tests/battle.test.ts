@@ -124,7 +124,7 @@ describe('battle simulation', () => {
   });
 
   it('every scenario builds under every preset', () => {
-    for (const s of ['battle_of_earth', 'alliance_fleet_engagement', 'prime_apex_sol_defence', 'cerberus_ascendant_harbinger']) {
+    for (const s of ['battle_of_earth', 'defence_of_palaven', 'fall_of_thessia', 'cerberus_intervention', 'alliance_fleet_engagement', 'prime_apex_sol_defence', 'prime_apex_palaven_defence', 'cerberus_ascendant_harbinger']) {
       for (const p of ['canon_me3', 'prepared_galaxy', 'humanity_ascendant', 'cerberus_reformed', 'reaper_escalation', 'prime_apex', 'cerberus_ascendant']) {
         const cfg = getScenario(s).build(getPreset(p), 1, {});
         const sim = new BattleSimulation(cfg);
@@ -132,6 +132,34 @@ describe('battle simulation', () => {
         expect(sim.ships.length).toBeGreaterThan(0);
       }
     }
+  });
+});
+
+describe('faction scenarios', () => {
+  it('Cerberus Intervention is hostile in canon and cooperative under Cerberus Reformed', () => {
+    const canon = buildScenario('cerberus_intervention', 'canon_me3', 1);
+    const reformed = buildScenario('cerberus_intervention', 'cerberus_reformed', 1);
+    expect(canon.fleets.find((f) => f.faction === 'cerberus')?.side).toBe('B');
+    expect(reformed.fleets.find((f) => f.faction === 'cerberus')?.side).toBe('A');
+    expect(reformed.fleets.some((f) => f.faction === 'reaper')).toBe(true);
+    expect(canon.fleets.some((f) => f.faction === 'reaper')).toBe(false);
+  });
+  it('Defence of Palaven and Fall of Thessia run to completion with the new factions firing', () => {
+    for (const id of ['defence_of_palaven', 'fall_of_thessia']) {
+      const sim = new BattleSimulation(buildScenario(id, 'canon_me3', 3, fixed));
+      const r = sim.run();
+      expect(['A', 'B', 'draw']).toContain(r.winner);
+      const faction = id === 'defence_of_palaven' ? 'turian' : 'asari';
+      const fired = sim.events.some((e) => e.type === 'weapon_fired' && sim.getShip(e.shipId)?.faction === faction);
+      expect(fired).toBe(true);
+    }
+  });
+  it('the Destiny Ascension world-state choice adds or removes the flagship', () => {
+    const withShip = buildScenario('fall_of_thessia', 'canon_me3', 1, { ascension: 'present' });
+    const without = buildScenario('fall_of_thessia', 'canon_me3', 1, { ascension: 'absent' });
+    const has = (c: typeof withShip) => c.fleets.some((f) => f.ships.some((s) => s.classId === 'destiny_ascension'));
+    expect(has(withShip)).toBe(true);
+    expect(has(without)).toBe(false);
   });
 });
 

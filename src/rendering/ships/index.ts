@@ -1,6 +1,9 @@
 import * as THREE from 'three';
 import { buildAllianceCarrier, buildAllianceCruiser, buildAllianceDreadnought, buildAllianceFighter, buildAllianceFrigate } from './alliance';
+import { buildAsariCruiser, buildAsariDreadnought, buildDestinyAscension } from './asari';
+import { buildCerberusCruiser, buildCerberusDreadnought, buildCerberusFighter, buildCerberusFrigate } from './cerberus';
 import { buildHarbinger, buildReaperCapital, buildReaperDestroyer } from './reaper';
+import { buildTurianCruiser, buildTurianDreadnought, buildTurianFighter, buildTurianFrigate } from './turian';
 import type { BuiltShip } from './types';
 
 export type { BuiltShip } from './types';
@@ -12,6 +15,17 @@ const BUILDERS: Record<string, () => BuiltShip> = {
   alliance_frigate: () => buildAllianceFrigate(false),
   alliance_frigate_thanix: () => buildAllianceFrigate(true),
   alliance_fighter: buildAllianceFighter,
+  turian_dreadnought: buildTurianDreadnought,
+  turian_cruiser: buildTurianCruiser,
+  turian_frigate: buildTurianFrigate,
+  turian_fighter: buildTurianFighter,
+  asari_dreadnought: buildAsariDreadnought,
+  asari_cruiser: buildAsariCruiser,
+  destiny_ascension: buildDestinyAscension,
+  cerberus_dreadnought: buildCerberusDreadnought,
+  cerberus_cruiser: buildCerberusCruiser,
+  cerberus_frigate: buildCerberusFrigate,
+  cerberus_fighter: buildCerberusFighter,
   reaper_capital: buildReaperCapital,
   reaper_destroyer: buildReaperDestroyer,
   harbinger: buildHarbinger,
@@ -34,7 +48,6 @@ export function getShipTemplate(classId: string): BuiltShip {
 export function instantiateShip(classId: string): BuiltShip {
   const t = getShipTemplate(classId);
   const group = t.group.clone(true);
-  // Materials are shared between instances; damage tinting clones lazily.
   group.traverse((o) => {
     if ((o as THREE.Mesh).isMesh) (o as THREE.Mesh).matrixAutoUpdate = true;
   });
@@ -42,3 +55,4 @@ export function instantiateShip(classId: string): BuiltShip {
 }
 
 export const hasModel = (classId: string): boolean => classId in BUILDERS;
+export const MODELLED_CLASS_IDS = Object.keys(BUILDERS);
