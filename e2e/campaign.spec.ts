@@ -72,4 +72,30 @@ test.describe('Galactic campaign', () => {
     await expect(page.locator('.galaxy-map')).toBeVisible();
     await expect(page.locator('.screen-body')).toContainText('Battle of Earth');
   });
+
+  test('the Cerberus Ascendant post-war plan runs by quarters and persists', async ({ page }) => {
+    const errors: string[] = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto('/');
+    await page.click('[data-menu="new-galactic-campaign"]');
+    await page.click('[data-action="start-postwar"]');
+    await expect(page.locator('h1')).toContainText('CERBERUS ASCENDANT');
+    await expect(page.locator('.hud-clock')).toContainText('2186 Q1');
+    // Dismantlement is refused before readiness.
+    await page.click('[data-action="dismantle"]');
+    await expect(page.locator('.toast')).toContainText(/NOT READY/i);
+    // Reallocate and advance a year.
+    await page.locator('[data-programme="conventional_fleets"]').fill('30');
+    await page.click('text=+1 year');
+    await expect(page.locator('.hud-clock')).toContainText('2187 Q1');
+    await page.click('[data-action="end-quarter"]');
+    await expect(page.locator('.hud-clock')).toContainText('2187 Q2');
+    // Reload: Load Game resumes the plan at the same quarter.
+    await page.click('text=Menu');
+    await page.reload();
+    await page.click('[data-menu="load-game"]');
+    await expect(page.locator('h1')).toContainText('CERBERUS ASCENDANT');
+    await expect(page.locator('.hud-clock')).toContainText('2187 Q2');
+    expect(errors).toEqual([]);
+  });
 });

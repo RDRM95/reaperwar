@@ -38,3 +38,17 @@ Prerequisites enforced on import: a dead Shepard has effectiveness 0; Cerberus c
 - Prime/Apex: Alliance victory; 7–19 ships lost including 1–3 dreadnoughts; all 12 Reapers destroyed.
 
 Prime/Apex is deliberately a hard-won victory: the Reapers keep their weapons, numbers and doctrine.
+
+## Cerberus Ascendant post-war plan (2186–2206)
+
+The post-war mode (`src/campaign/postwar.ts`) is an **alternate continuity** strategic model and is labelled as such on every screen. It is reachable from campaign setup or after winning a campaign under the Cerberus Ascendant preset.
+
+- One turn is a quarter; the plan runs at most 80 quarters (2186–2206).
+- Twelve budget programmes normalise to 100 %: Rebuild Earth, Reinforce Sol, Restore infrastructure, Assist the Systems Alliance, Reconstruct colonies, Support Council reconstruction, Reverse-engineer Reaper technology, Expand shipbuilding, Develop conventional fleets, Increase Cerberus influence, Negotiate with the Council, Prepare Reaper dismantlement.
+- Eleven metrics (0–1): Earth recovery, Sol defence, infrastructure, colonies, Alliance relations, Council relations, Cerberus influence, stability, Reaper technology, shipyard capacity, dismantlement readiness; plus the conventional fleet point total.
+- The 60 controlled Reapers are valued at 1 800 fleet points each. Humanity "stands alone" at 60 % of that total (54 000 points, 15 % less with Council relations ≥ 0.6). Orbital defence counts for up to 6 000 points.
+- Dismantlement needs 30 % readiness, allows at most `floor(readiness × 6)` Reapers a quarter, and is **progressive**: the share of Reapers dismantled must be matched by conventional strength. The last Reapers leave orbit only once Sol defence is at 50 %.
+- Defeat: stability below 8 %, a Council coalition (Council relations < 5 % while Cerberus influence < 30 %), the Reapers gone before humanity can stand alone, or 2206 with Reapers still in service. A late success is granted at 2206 with ≥ 80 % dismantled and ≥ 80 % of the required strength.
+- Reference results (seeds 1–21): a fleet-first plan completes in 2204–2205; the default even allocation scrapes a late success; a research-heavy plan fails on Council relations.
+
+All values are SIMULATION_ESTIMATE / AU_MODIFIED; nothing in this mode is presented as canon.

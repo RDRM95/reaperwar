@@ -3,6 +3,8 @@ import { advanceTick, applyEngagementResult, buildEngagement, createCampaign, fl
 import { RELAYS, SYSTEMS, neighbours, relayPath } from '@/campaign/galaxy';
 import { BattleSimulation } from '@/simulation/battle';
 import { getPreset } from '@/timelines/presets';
+import { advanceQuarter, createPostWar, dismantle, setAllocation, requiredConventionalFleet } from '@/campaign/postwar';
+import { buildScenario } from '@/scenarios';
 
 describe('galaxy', () => {
   it('every system is reachable from Sol', () => {
@@ -129,5 +131,58 @@ describe('campaign engine', () => {
     advanceTick(copy, { interactive: false });
     expect(copy.tick).toBe(st.tick);
     expect(copy.fleets.map((f: { location: string }) => f.location)).toEqual(st.fleets.map((f) => f.location));
+  });
+});
+
+describe('Cerberus Ascendant post-war plan', () => {
+  it('runs twenty years deterministically and ends with an outcome', () => {
+    const run = () => {
+      const st = createPostWar(getPreset('cerberus_ascendant'), 11);
+      setAllocation(st, { conventional_fleets: 30, shipbuilding: 20, dismantlement_prep: 15, reinforce_sol: 10, negotiate_council: 10 });
+      while (!st.outcome) {
+        advanceQuarter(st);
+        if (st.quarter % 2 === 0) dismantle(st, 6);
+      }
+      return st;
+    };
+    const a = run();
+    const b = run();
+    expect(a.outcome).toBeDefined();
+    expect(a.quarter).toBeLessThanOrEqual(80);
+    expect(JSON.stringify(a.metrics)).toBe(JSON.stringify(b.metrics));
+    expect(a.outcome?.kind).toBe(b.outcome?.kind);
+  });
+  it('refuses dismantlement before readiness and allows it later', () => {
+    const st = createPostWar(getPreset('cerberus_ascendant'), 3);
+    expect(dismantle(st, 3).ok).toBe(false);
+    setAllocation(st, { dismantlement_prep: 40, conventional_fleets: 30, shipbuilding: 30 });
+    for (let i = 0; i < 24; i++) advanceQuarter(st);
+    expect(st.metrics.dismantlementReadiness).toBeGreaterThan(0.3);
+    const r = dismantle(st, 2);
+    expect(r.ok || r.reason?.includes('defend')).toBe(true);
+    expect(requiredConventionalFleet(st)).toBeGreaterThan(0);
+  });
+  it('a fleet-first plan can complete the dismantlement with a victory', () => {
+    const st = createPostWar(getPreset('cerberus_ascendant'), 21);
+    setAllocation(st, { conventional_fleets: 28, shipbuilding: 22, dismantlement_prep: 14, reinforce_sol: 12, infrastructure: 10, negotiate_council: 8, rebuild_earth: 6 });
+    while (!st.outcome) {
+      advanceQuarter(st);
+      dismantle(st, 6);
+    }
+    expect(st.outcome?.kind).toBe('victory');
+    expect(st.controlledReapers).toBe(0);
+  });
+});
+
+describe('Final Battle of Earth', () => {
+  it('uses campaign fleets when provided and defaults otherwise', () => {
+    const def = buildScenario('final_battle_of_earth', 'canon_me3', 1, { forces: 'default' });
+    expect(def.fleets.some((f) => f.ships.some((s) => s.classId === 'harbinger'))).toBe(true);
+    const linked = buildScenario('final_battle_of_earth', 'canon_me3', 1, {
+      campaignAllied: JSON.stringify([{ name: 'Survivors', faction: 'alliance', counts: { alliance_dreadnought: 2, alliance_cruiser: 5 } }]),
+      campaignReaper: JSON.stringify({ reaper_capital: 2, reaper_destroyer: 3 }),
+    });
+    expect(linked.fleets.find((f) => f.side === 'A')?.name).toBe('Survivors');
+    expect(linked.fleets.find((f) => f.side === 'B')?.ships.find((s) => s.classId === 'reaper_capital')?.count).toBe(2);
   });
 });

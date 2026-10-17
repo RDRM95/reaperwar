@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.0 — Post-war reconstruction and the Final Battle of Earth
+
+- Cerberus Ascendant post-war mode (2186–2206, alternate continuity): quarterly turns, twelve budget programmes, eleven tracked metrics, progressive Reaper dismantlement gated by conventional strength and Sol defence, Council and Alliance political events, victory/defeat outcomes, autosave and Load Game. Reachable from campaign setup or after a Cerberus Ascendant campaign victory.
+- Final Battle of Earth scenario: Harbinger-led assault on Sol; when a campaign save exists its surviving allied fleets and remaining Reaper strength are used as the order of battle (world state `forces`).
+- Post-war balance: a fleet-first plan completes the dismantlement around 2204–2205; an unfocused plan scrapes a late result or fails; a research-heavy plan fails on Council relations.
+- Tests: post-war determinism, dismantlement gating, fleet-first victory; Final Battle campaign linkage; end-to-end post-war screen.
+
 ## 0.3.0 — Galactic campaign (first build)
 
 - Galaxy map with 15 systems and relay corridors; weekly campaign ticks.

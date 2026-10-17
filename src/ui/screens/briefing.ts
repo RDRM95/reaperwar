@@ -11,11 +11,20 @@ export function renderBriefing(app: App, params?: { scenarioId?: string }): HTML
   let seed = Math.floor(Math.random() * 100000);
   let worldState = defaultWorldState(scenario);
 
+  /** Campaign-linked scenarios receive the saved war's fleets through world state. */
+  const campaignWorldState = (): Record<string, string> => {
+    const c = app.campaign;
+    if (!c) return {};
+    const allied = c.fleets.filter((f) => f.allegiance === 'allied').map((f) => ({ name: f.name, faction: f.faction, counts: f.counts }));
+    const reaper: Record<string, number> = {};
+    for (const f of c.fleets.filter((x) => x.allegiance === 'reaper')) for (const [k, n] of Object.entries(f.counts)) reaper[k] = (reaper[k] ?? 0) + n;
+    return { campaignAllied: JSON.stringify(allied), campaignReaper: JSON.stringify(reaper) };
+  };
   const body = el('div', { class: 'screen-body' });
   const render = () => {
     body.replaceChildren();
     const rules = app.getTimeline(timelineId);
-    const config = scenario.build(rules, seed, worldState);
+    const config = scenario.build(rules, seed, { ...worldState, ...campaignWorldState() });
     const fleetSummary = (side: 'A' | 'B') =>
       config.fleets
         .filter((f) => f.side === side)
@@ -93,7 +102,7 @@ export function renderBriefing(app: App, params?: { scenarioId?: string }): HTML
       app.playUi('ui_confirm');
       app.selectTimeline(timelineId);
       const rules = app.getTimeline(timelineId);
-      app.startBattle(scenario.build(rules, seed, worldState));
+      app.startBattle(scenario.build(rules, seed, { ...worldState, ...campaignWorldState() }));
     } }, 'Launch battle →'),
   ]);
 

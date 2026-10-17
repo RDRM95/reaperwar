@@ -20,10 +20,12 @@ import { renderCustom } from './screens/custom';
 import { renderTimelines } from './screens/timelines';
 import { renderSettings } from './screens/settings';
 import { renderCampaign, renderCampaignSetup } from './screens/campaign';
+import { renderPostWar } from './screens/postwar';
+import { createPostWar, type PostWarState } from '@/campaign/postwar';
 import { applyEngagementResult, createCampaign, type CampaignOptions } from '@/campaign/engine';
 import type { CampaignState, PendingEngagement } from '@/campaign/state';
 
-export type ScreenName = 'menu' | 'briefing' | 'battle' | 'results' | 'comparison' | 'codex' | 'database' | 'custom' | 'timelines' | 'settings' | 'campaign' | 'campaign_setup';
+export type ScreenName = 'menu' | 'briefing' | 'battle' | 'results' | 'comparison' | 'codex' | 'database' | 'custom' | 'timelines' | 'settings' | 'campaign' | 'campaign_setup' | 'postwar';
 
 export interface CampaignBattleLink {
   state: CampaignState;
@@ -425,6 +427,7 @@ export class App {
   lastBattle?: LastBattle;
   screen: ScreenName = 'menu';
   campaign?: CampaignState;
+  postwar?: PostWarState;
   /** Set when returning to the campaign screen after a fought battle. */
   campaignResume = false;
   private toastTimer = 0;
@@ -541,6 +544,9 @@ export class App {
       case 'campaign':
         node = this.campaign ? renderCampaign(this, this.campaign) : renderMenu(this);
         break;
+      case 'postwar':
+        node = this.postwar ? renderPostWar(this, this.postwar) : renderMenu(this);
+        break;
       case 'battle':
         node = el('div');
         break;
@@ -553,6 +559,20 @@ export class App {
     this.campaign = createCampaign(opts);
     void storage.set('campaign', this.campaign);
     this.show('campaign');
+  }
+
+  startPostWar(rules: RuleSet, seed: number): void {
+    this.postwar = createPostWar(rules, seed);
+    void storage.set('postwar', this.postwar);
+    this.show('postwar');
+  }
+
+  async loadPostWar(): Promise<boolean> {
+    const saved = await storage.get<PostWarState | undefined>('postwar', undefined);
+    if (!saved || typeof saved !== 'object' || !saved.metrics) return false;
+    this.postwar = saved;
+    this.show('postwar');
+    return true;
   }
 
   async loadCampaign(): Promise<boolean> {

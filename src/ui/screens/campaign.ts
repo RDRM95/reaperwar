@@ -289,7 +289,11 @@ export function renderCampaign(app: App, state: CampaignState): HTMLElement {
             el('div', { class: `result-banner ${state.outcome.kind}` }, state.outcome.kind.toUpperCase()),
             el('p', {}, state.outcome.reason),
             el('p', { class: 'dim' }, `Week ${state.outcome.tick} · ${state.rules.name}${state.rules.category !== 'canon' ? ' (alternate universe)' : ''}`),
-            el('div', { class: 'row', style: { justifyContent: 'center' } }, [el('button', { class: 'btn primary', onclick: () => app.show('menu') }, 'Main menu'), el('button', { class: 'btn', onclick: () => modalHost.replaceChildren() }, 'Inspect the map')]),
+            el('div', { class: 'row', style: { justifyContent: 'center' } }, [
+              el('button', { class: 'btn primary', onclick: () => app.show('menu') }, 'Main menu'),
+              state.outcome.kind === 'victory' && state.rules.id === 'cerberus_ascendant' ? el('button', { class: 'btn', onclick: () => app.startPostWar(state.rules, state.seed) }, 'Continue: post-war 2186–2206 →') : null,
+              el('button', { class: 'btn', onclick: () => modalHost.replaceChildren() }, 'Inspect the map'),
+            ]),
           ]),
         ]),
       );
@@ -456,6 +460,10 @@ export function renderCampaignSetup(app: App): HTMLElement {
     el('div', { class: 'screen-footer' }, [
       el('button', { class: 'btn', onclick: () => app.show('menu') }, '← Main menu'),
       el('div', { class: 'spacer' }),
+      el('button', { class: 'btn', 'data-action': 'start-postwar', onclick: () => {
+        app.selectTimeline('cerberus_ascendant');
+        app.startPostWar(app.getTimeline('cerberus_ascendant'), seed);
+      } }, 'Cerberus Ascendant: post-war 2186–2206 →'),
       el('button', { class: 'btn primary', 'data-action': 'start-campaign', onclick: () => {
         app.selectTimeline(timelineId);
         app.startCampaign({ seed, rules: app.getTimeline(timelineId), worldState: ws });

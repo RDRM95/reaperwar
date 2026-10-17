@@ -402,6 +402,49 @@ export const SCENARIOS: ScenarioDef[] = [
     },
   },
   {
+    id: 'final_battle_of_earth',
+    name: 'Final Battle of Earth',
+    subtitle: 'Sol, 2186 — the combined fleets return for the Crucible',
+    environment: 'earth_orbit',
+    description:
+      'Every fleet the galaxy can still field returns to Earth to clear the Reaper blockade for the Crucible. When a campaign is in progress its surviving allied fleets and the Reapers’ remaining strength set the forces; otherwise the canon-shaped combined fleet faces Harbinger’s armada.',
+    recommendedRules: ['canon_me3', 'prime_apex', 'prepared_galaxy'],
+    objective: 'Break the Reaper blockade of Earth.',
+    maxDuration: 540,
+    worldState: [
+      {
+        id: 'forces',
+        label: 'Order of battle',
+        kind: 'extrapolation',
+        description: 'Use the current campaign’s fleets, or the default combined fleet.',
+        choices: [
+          { id: 'campaign', label: 'From campaign (if one is saved)', description: 'Surviving allied fleets vs remaining Reaper fleets.' },
+          { id: 'default', label: 'Default combined fleet', description: 'Alliance, Hierarchy, Republics, Migrant Fleet and geth vs Harbinger’s armada.' },
+        ],
+        default: 'campaign',
+      },
+    ],
+    briefing: ['Sword fleet engages the Reapers in orbit while Hammer lands.', 'Harbinger commands the blockade in person.', 'Campaign-linked: fleet strengths follow the saved war when one exists.'],
+    build: (rules, seed, ws) => {
+      const fleets: FleetSpec[] = [];
+      const campaignCounts = ws.campaignAllied ? (JSON.parse(ws.campaignAllied) as { name: string; faction: FactionId; counts: Record<string, number> }[]) : undefined;
+      const reaperCounts = ws.campaignReaper ? (JSON.parse(ws.campaignReaper) as Record<string, number>) : undefined;
+      if ((ws.forces ?? 'campaign') === 'campaign' && campaignCounts && campaignCounts.length > 0 && reaperCounts) {
+        campaignCounts.forEach((f, i) => fleets.push(fleet(`sword-${i}`, f.faction, rules, { counts: f.counts, name: f.name, position: v3(-24 + (i % 4) * 16, 0, -34 - Math.floor(i / 4) * 8), formation: i === 0 ? 'line_abreast' : 'defensive_screen', mult: 1 })));
+        fleets.push(fleet('reaper-blockade', 'reaper', rules, { counts: reaperCounts, fixedClasses: ['harbinger'], name: 'Reaper blockade', side: 'B', position: v3(0, 0, 46), heading: v3(0, 0, -1), formation: 'strike_wedge', mult: 1 }));
+      } else {
+        fleets.push(fleet('sword-alliance', 'alliance', rules, { counts: { alliance_dreadnought: 6, alliance_carrier: 2, alliance_cruiser: 16, alliance_frigate: 24, alliance_frigate_thanix: 1 }, fixedClasses: ['alliance_frigate_thanix'], name: 'Sword Fleet (Alliance)', position: v3(-20, 0, -34), formation: 'line_abreast', ws }));
+        fleets.push(fleet('sword-turian', 'turian', rules, { counts: { turian_dreadnought: 5, turian_cruiser: 10, turian_frigate: 16 }, name: 'Sword Fleet (Hierarchy)', position: v3(18, 0, -38), formation: 'line_abreast', ws }));
+        fleets.push(fleet('sword-asari', 'asari', rules, { counts: { destiny_ascension: ws.ascension === 'absent' ? 0 : 1, asari_dreadnought: 2, asari_cruiser: 8 }, fixedClasses: ['destiny_ascension'], name: 'Sword Fleet (Republics)', position: v3(0, 4, -48), formation: 'defensive_screen', ws }));
+        fleets.push(fleet('sword-quarian', 'quarian', rules, { counts: { quarian_heavy: 3, quarian_cruiser: 10 }, name: 'Migrant Fleet detachment', position: v3(-40, 0, -46), formation: 'defensive_screen', ws }));
+        fleets.push(fleet('sword-geth', 'geth', rules, { counts: { geth_dreadnought: 1, geth_cruiser: 8, geth_frigate: 12 }, fixedClasses: ['geth_dreadnought'], name: 'Geth fleet', position: v3(40, 0, -44), formation: 'strike_wedge', ws }));
+        fleets.push(reaperFleet('reaper-blockade', rules, { capitals: 6, destroyers: 14, harbinger: true, name: 'Reaper blockade', position: v3(0, 0, 46), ws }));
+        fleets.push(reaperFleet('reaper-blockade-2', rules, { capitals: 3, destroyers: 8, name: 'Reaper reserve', position: v3(-50, 0, 76), heading: v3(0.4, 0, -1), arrivalTime: 90, ws }));
+      }
+      return base('final_battle_of_earth', 'Final Battle of Earth', 'final_battle_of_earth', seed, rules, 'earth_orbit', 540, 'Break the Reaper blockade of Earth.', ws, fleets);
+    },
+  },
+  {
     id: 'alliance_fleet_engagement',
     name: 'Alliance Fleet Engagement',
     subtitle: 'Deep space — Alliance dreadnought group versus Reaper capital ships',
