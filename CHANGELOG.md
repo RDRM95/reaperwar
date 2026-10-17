@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.6.0 — Campaign depth
+
+- Ground war: every system tracks ground forces that slow the population harvest (not orbital bombardment of industry), attrit under occupation at a rate scaled by Reaper competence, and recover when safe; liberation clears more Reaper presence where the ground is still held. The genophage cure sends krogan clans to Earth and Palaven (reinforced ground forces); sabotage keeps the Salarian First Fleet instead.
+- Research: eight projects (Reaper armour analysis, barrier overcharge, predictive targeting VI, GARDIAN upgrade, ground defence doctrine, indoctrination screening, Crucible schematics, Thanix refit) funded by intact allied industry (Sur'Kesh counts double); completed projects apply as technology overrides to allied fleets in campaign engagements. Player-selected, auto-queued otherwise.
+- Refugee pressure on the Citadel: grows with population loss, erodes Council cooperation and Crucible pace, triggers a refugee crisis.
+- Political events: Council war summits, indoctrinated officials exposed, shipyard sabotage, Aria's Terminus fleet (estimate), STG intercepts degrading Reaper coordination.
+- Campaign UI: refugee gauge, research panel, ground forces per system. Old saves are migrated on load.
+- Tests: ground war, research technology in engagements, refugees and events, save migration (69 unit tests).
+
 ## 0.5.0 — Salarian Union
 
 - Salarian Union hull family (original models): Union dreadnought, Union cruiser with a four-interceptor bay, STG stealth frigate (lowest signature of any organic hull), Union interceptor; three new weapons; pale green palette and lighting.

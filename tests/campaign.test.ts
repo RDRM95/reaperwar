@@ -5,6 +5,7 @@ import { BattleSimulation } from '@/simulation/battle';
 import { getPreset } from '@/timelines/presets';
 import { advanceQuarter, createPostWar, dismantle, setAllocation, requiredConventionalFleet } from '@/campaign/postwar';
 import { buildScenario } from '@/scenarios';
+import { effectiveGround, normaliseCampaign, researchTech, setResearch } from '@/campaign/depth';
 
 describe('galaxy', () => {
   it('every system is reachable from Sol', () => {
@@ -131,6 +132,60 @@ describe('campaign engine', () => {
     advanceTick(copy, { interactive: false });
     expect(copy.tick).toBe(st.tick);
     expect(copy.fleets.map((f: { location: string }) => f.location)).toEqual(st.fleets.map((f) => f.location));
+  });
+});
+
+describe('campaign depth', () => {
+  it('ground forces slow the harvest and krogan reinforce the homeworlds when the genophage is cured', () => {
+    const mk = (ground: number) => {
+      const st = createCampaign({ seed: 12, rules: getPreset('canon_me3'), worldState: { genophage: 'sabotaged' } });
+      st.fleets = st.fleets.filter((f) => f.allegiance !== 'allied' || f.location !== 'exodus');
+      st.fleets.find((f) => f.name === 'Reaper vanguard')!.location = 'exodus';
+      st.systems.exodus.ground = ground;
+      for (let i = 0; i < 4; i++) advanceTick(st, { interactive: false });
+      return st.systems.exodus.population;
+    };
+    expect(mk(1)).toBeGreaterThan(mk(0));
+    const cured = createCampaign({ seed: 12, rules: getPreset('canon_me3'), worldState: { genophage: 'cured' } });
+    for (let i = 0; i < 4; i++) advanceTick(cured, { interactive: false });
+    expect(cured.flags.krogan_muster).toBeDefined();
+    expect(effectiveGround(cured, 'trebia')).toBeGreaterThanOrEqual(cured.systems.trebia.ground);
+    expect(cured.events.some((e) => e.kind === 'ground')).toBe(true);
+  });
+
+  it('research completes projects that change allied fleet technology in engagements', () => {
+    const st = createCampaign({ seed: 13, rules: getPreset('canon_me3'), worldState: {} });
+    expect(setResearch(st, 'barrier_overcharge').ok).toBe(true);
+    expect(setResearch(st, 'nope').ok).toBe(false);
+    let guard = 0;
+    while (!st.research.completed.includes('barrier_overcharge') && guard++ < 60) advanceTick(st, { interactive: false });
+    expect(st.research.completed).toContain('barrier_overcharge');
+    expect(researchTech(st)?.kineticBarrierStrength).toBeCloseTo(st.rules.organic.kineticBarrierStrength * 1.15, 5);
+    st.fleets.find((f) => f.name === 'Reaper vanguard')!.location = 'sol';
+    advanceTick(st, { interactive: true });
+    const cfg = buildEngagement(st, st.pending!);
+    expect(cfg.fleets.find((f) => f.side === 'A' && f.name === 'Alliance Fifth Fleet')?.techOverride?.kineticBarrierStrength).toBeCloseTo(st.rules.organic.kineticBarrierStrength * 1.15, 5);
+  });
+
+  it('refugees rise with the harvest and political events fire', () => {
+    const st = createCampaign({ seed: 14, rules: getPreset('reaper_escalation'), worldState: {} });
+    for (let i = 0; i < 30 && !st.outcome; i++) advanceTick(st, { interactive: false });
+    expect(st.refugees).toBeGreaterThan(0);
+    expect(st.events.some((e) => e.kind === 'political')).toBe(true);
+  });
+
+  it('normalises campaign saves from the first build', () => {
+    const st = createCampaign({ seed: 15, rules: getPreset('canon_me3'), worldState: {} });
+    const old = JSON.parse(JSON.stringify(st)) as Record<string, unknown>;
+    delete old.research;
+    delete old.refugees;
+    delete old.flags;
+    for (const s of Object.values(old.systems as Record<string, Record<string, unknown>>)) delete s.ground;
+    const fixed = normaliseCampaign(old as unknown as typeof st);
+    expect(fixed.research.completed).toEqual([]);
+    expect(fixed.systems.sol.ground).toBe(1);
+    advanceTick(fixed, { interactive: false });
+    expect(fixed.tick).toBe(1);
   });
 });
 

@@ -23,6 +23,7 @@ import { renderCampaign, renderCampaignSetup } from './screens/campaign';
 import { renderPostWar } from './screens/postwar';
 import { createPostWar, type PostWarState } from '@/campaign/postwar';
 import { applyEngagementResult, createCampaign, type CampaignOptions } from '@/campaign/engine';
+import { normaliseCampaign } from '@/campaign/depth';
 import type { CampaignState, PendingEngagement } from '@/campaign/state';
 
 export type ScreenName = 'menu' | 'briefing' | 'battle' | 'results' | 'comparison' | 'codex' | 'database' | 'custom' | 'timelines' | 'settings' | 'campaign' | 'campaign_setup' | 'postwar';
@@ -578,7 +579,7 @@ export class App {
   async loadCampaign(): Promise<boolean> {
     const saved = await storage.get<CampaignState | undefined>('campaign', undefined);
     if (!saved || typeof saved !== 'object' || !saved.systems || !saved.fleets) return false;
-    this.campaign = saved;
+    this.campaign = normaliseCampaign(saved);
     this.show('campaign');
     return true;
   }

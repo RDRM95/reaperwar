@@ -3,6 +3,7 @@ import { el, fmtNum, setChildren } from '../dom';
 import { RELAYS, SYSTEMS, getSystem, type SystemId } from '@/campaign/galaxy';
 import { advanceTick, autoResolve, buildEngagement, campaignReaperAssessment, fleetPoints, fleetShipCount, fleetsAt, orderMove, reaperFleetValue, resolvePhase, setPosture, withdrawFromEngagement } from '@/campaign/engine';
 import type { CampaignFleet, CampaignState } from '@/campaign/state';
+import { effectiveGround, getProject, RESEARCH_PROJECTS, researchOutput, setResearch } from '@/campaign/depth';
 import { FACTIONS } from '@/data/factions';
 import { getShipClass } from '@/data/ships';
 import { storage } from '@/core/storage';
@@ -27,6 +28,7 @@ export function renderCampaign(app: App, state: CampaignState): HTMLElement {
   const statusBar = el('div', { class: 'row' });
   const eventLog = el('div', { class: 'comms scroll', style: { maxHeight: '160px' } });
   const intelBox = el('div', { class: 'intel' });
+  const researchPanel = el('div');
   const modalHost = el('div');
   const pos = (id: SystemId) => {
     const s = getSystem(id);
@@ -193,6 +195,11 @@ export function renderCampaign(app: App, state: CampaignState): HTMLElement {
           ? el('div', {}, [el('div', { class: 'bar hull', style: { height: '6px', marginBottom: '4px' } }, [el('i', { style: { width: `${state.crucible.progress * 100}%` } })]), el('small', {}, state.crucible.complete ? 'COMPLETE — reach the Citadel' : `${(state.crucible.progress * 100).toFixed(0)}% built`)])
           : el('small', {}, 'Not available in this timeline. Victory must be conventional.'),
       ]),
+      el('div', { class: 'panel' }, [
+        el('div', { class: 'panel-title' }, 'REFUGEES'),
+        el('div', { class: 'bar', style: { height: '6px', marginBottom: '4px' } }, [el('i', { style: { width: `${state.refugees * 100}%`, background: state.refugees > 0.7 ? 'var(--red)' : 'var(--orange)' } })]),
+        el('small', {}, state.refugees > 0.7 ? 'Crisis: Citadel overwhelmed' : state.refugees > 0.5 ? 'Pressure on Council cooperation' : `${Math.round(state.refugees * 100)}% of capacity`),
+      ]),
       el('div', { class: 'spacer' }),
       el('div', { class: 'row' }, [
         el('button', { class: 'btn primary', 'data-action': 'end-turn', disabled: !!state.outcome || !!state.pending, onclick: () => runTicks(1) }, 'End week →'),
@@ -223,6 +230,7 @@ export function renderCampaign(app: App, state: CampaignState): HTMLElement {
       stat('Industry', `${pct(st.industry)} (index ${s.industry})`),
       stat('Orbital defence', `${pct(st.defence)} (index ${s.defence})`),
       stat('Reaper activity', st.reaperPresence > 0 ? `${pct(st.reaperPresence)} harvest` : 'none'),
+      stat('Ground forces', `${pct(effectiveGround(state, s.id))}${effectiveGround(state, s.id) > st.ground + 0.01 ? ' (krogan reinforced)' : ''}`),
       stat('Indoctrination', pct(st.indoctrination)),
       st.lastBattle ? stat('Last battle', `wk ${st.lastBattle.tick}: ${st.lastBattle.summary}`) : null,
       el('div', { class: 'dim', style: { fontSize: '11px', margin: '6px 0' } }, s.note),
@@ -271,6 +279,33 @@ export function renderCampaign(app: App, state: CampaignState): HTMLElement {
         selectedFleetId = undefined;
         renderAll();
       } }, 'All fleets'),
+    );
+  };
+
+  const renderResearch = () => {
+    const r = state.research;
+    const active = r.active ? getProject(r.active) : undefined;
+    const remaining = RESEARCH_PROJECTS.filter((p) => !r.completed.includes(p.id));
+    setChildren(
+      researchPanel,
+      el('label', { class: 'field' }, [
+        'Active project',
+        el('select', { 'data-field': 'research', disabled: remaining.length === 0, onchange: (e: Event) => {
+          const v = (e.target as HTMLSelectElement).value;
+          const res = setResearch(state, v || undefined);
+          if (!res.ok) app.toast((res.reason ?? 'REFUSED').toUpperCase());
+          save();
+          renderResearch();
+        } }, remaining.map((p) => el('option', { value: p.id, selected: r.active === p.id }, `${p.name} (${p.cost} pts)`))),
+      ]),
+      active
+        ? el('div', {}, [
+            el('div', { class: 'bar hull', style: { height: '6px', marginBottom: '4px' } }, [el('i', { style: { width: `${Math.min(100, (r.progress / active.cost) * 100)}%` } })]),
+            el('small', {}, `${Math.round(r.progress)}/${active.cost} · ${researchOutput(state).toFixed(1)} pts/week · ${Math.max(1, Math.ceil((active.cost - r.progress) / Math.max(0.01, researchOutput(state))))} weeks`),
+            el('div', { class: 'dim', style: { fontSize: '11px', marginTop: '4px' } }, active.description),
+          ])
+        : el('small', { class: 'dim' }, remaining.length === 0 ? 'All projects complete.' : 'No active project: the next one starts automatically.'),
+      r.completed.length > 0 ? el('div', { class: 'dim', style: { fontSize: '11px', marginTop: '6px' } }, `Completed: ${r.completed.map((id) => getProject(id)?.name ?? id).join(', ')}`) : null,
     );
   };
 
@@ -336,6 +371,7 @@ export function renderCampaign(app: App, state: CampaignState): HTMLElement {
     renderStatus();
     renderSystem();
     renderFleet();
+    renderResearch();
     renderEvents();
     renderModal();
   };
@@ -405,6 +441,7 @@ export function renderCampaign(app: App, state: CampaignState): HTMLElement {
         el('div', { class: 'col' }, [
           el('div', { class: 'panel' }, [el('div', { class: 'panel-title' }, 'SYSTEM'), el('div', { class: 'target-panel' }, [sysPanel])]),
           el('div', { class: 'panel orange' }, [el('div', { class: 'panel-title' }, 'FLEET COMMAND'), fleetPanel]),
+          el('div', { class: 'panel' }, [el('div', { class: 'panel-title' }, 'RESEARCH'), researchPanel]),
           el('div', { class: 'panel red' }, [el('div', { class: 'panel-title' }, 'REAPER STRATEGIC ASSESSMENT'), intelBox]),
           el('div', { class: 'panel' }, [el('div', { class: 'panel-title' }, 'WAR LOG'), eventLog]),
         ]),
@@ -449,7 +486,7 @@ export function renderCampaignSetup(app: App): HTMLElement {
             ? el('label', { class: 'field' }, ['The Crucible', el('select', { 'data-field': 'crucible', onchange: (e: Event) => (ws.crucible = (e.target as HTMLSelectElement).value) }, [el('option', { value: 'use', selected: ws.crucible === 'use' }, 'Build and use it: the war ends when it docks with the Citadel'), el('option', { value: 'refuse', selected: ws.crucible === 'refuse' }, 'Refuse it: victory only by destroying every Reaper (AU “Successful Refuse”)')]), el('small', {}, rules.strategic.conventionalVictoryPossible ? 'This timeline flags conventional victory as possible.' : 'This timeline does not consider conventional victory possible; refusing is a long shot.')])
             : el('p', { class: 'dim', style: { fontSize: '12px' } }, 'No Crucible in this timeline: the war can only be won conventionally.'),
           el('p', { class: 'dim', style: { fontSize: '12px' } }, 'The campaign begins as the Reapers enter from batarian space. One turn is one week. Engagements involving your fleets can be fought in the 3D simulator or auto-resolved. Progress autosaves every turn.'),
-          el('p', { class: 'dim', style: { fontSize: '12px' } }, 'Phase 7 build: the strategic layer models movement, harvest, production, Crucible construction, indoctrination pressure and fleet morale. Ground war, research and diplomacy are simplified (see ROADMAP).'),
+          el('p', { class: 'dim', style: { fontSize: '12px' } }, 'The strategic layer models movement, harvest, the ground war, production, research projects, refugee pressure, political events, Crucible construction, indoctrination pressure and fleet morale. Diplomacy is represented by cooperation and events rather than negotiation (see ROADMAP).'),
         ]),
       ]),
     );

@@ -42,6 +42,8 @@ export interface SystemState {
   reaperPresence: number;
   /** Reaper indoctrination pressure 0..1. */
   indoctrination: number;
+  /** 0..1 ground forces: slow the harvest and hold the surface while the fleet is away. */
+  ground: number;
   /** Last engagement summary for the intel panel. */
   lastBattle?: { tick: number; winner: Allegiance | 'draw'; summary: string };
 }
@@ -59,7 +61,7 @@ export interface FactionStatus {
 
 export interface CampaignEvent {
   tick: number;
-  kind: 'move' | 'battle' | 'harvest' | 'production' | 'political' | 'crucible' | 'intel' | 'victory' | 'defeat' | 'arrival';
+  kind: 'move' | 'battle' | 'harvest' | 'production' | 'political' | 'crucible' | 'intel' | 'victory' | 'defeat' | 'arrival' | 'research' | 'ground';
   text: string;
   system?: SystemId;
 }
@@ -89,6 +91,12 @@ export interface CampaignState {
   crucible: { progress: number; available: boolean; complete: boolean; docked: boolean };
   reaper: { strength: number; competence: number; reinforcementPool: number; lostValue: number; killedValue: number };
   warAssets: number;
+  /** Research: one active project at a time; completed projects apply fleet-wide. */
+  research: { active?: string; progress: number; completed: string[] };
+  /** 0..1 refugee pressure on the Citadel and the allied economy. */
+  refugees: number;
+  /** One-shot / cooldown flags for political events (tick of last firing). */
+  flags: Record<string, number>;
   events: CampaignEvent[];
   pending?: PendingEngagement;
   outcome?: { kind: 'victory' | 'defeat'; reason: string; tick: number };

@@ -8,6 +8,7 @@ import type { BattleConfig, BattleResult, FleetSpec } from '@/simulation/types';
 import type { RuleSet } from '@/timelines/rules';
 import { getSystem, neighbours, relayPath, SYSTEMS, type SystemId } from './galaxy';
 import type { Allegiance, CampaignEvent, CampaignFleet, CampaignState, FactionStatus, PendingEngagement, SystemState } from './state';
+import { crucibleRateModifier, groundWar, indoctrinationModifier, liberationClear, politicalPhase, refugeePhase, researchPhase, researchTech } from './depth';
 
 /**
  * Strategic campaign engine. One tick ≈ one week of the war. Fleets move
@@ -18,7 +19,7 @@ import type { Allegiance, CampaignEvent, CampaignFleet, CampaignState, FactionSt
  * Crucible availability and the conventional-victory flag.
  */
 
-export const CAMPAIGN_VERSION = 1;
+export const CAMPAIGN_VERSION = 2;
 const MAX_SHIPS_PER_SIDE = 70;
 
 /** Classes each faction produces, with relative weights and point costs. */
@@ -100,12 +101,13 @@ export function createCampaign(opts: CampaignOptions): CampaignState {
     if (s.owner === 'terminus' || s.owner === 'batarian') controller = 'neutral';
     if (s.owner === 'geth') controller = rannochPeace ? 'allied' : 'neutral';
     if (s.id === 'omega') controller = cerberusAllied ? 'allied' : 'cerberus';
-    systems[s.id] = { id: s.id, controller, population: 1, industry: 1, defence: 1, reaperPresence: 0, indoctrination: 0 };
+    systems[s.id] = { id: s.id, controller, population: 1, industry: 1, defence: 1, reaperPresence: 0, indoctrination: 0, ground: controller === 'allied' ? 1 : 0.6 };
   }
   // The invasion has begun: batarian space is already under harvest.
   systems.kite_nest.controller = 'reaper';
   systems.kite_nest.reaperPresence = 0.7;
   systems.kite_nest.population = 0.5;
+  systems.kite_nest.ground = 0.3;
   systems.hades_gamma.controller = 'reaper';
   systems.hades_gamma.reaperPresence = 1;
 
@@ -166,6 +168,9 @@ export function createCampaign(opts: CampaignOptions): CampaignState {
     crucible: { progress: 0, available: rules.strategic.crucibleAvailable && rules.strategic.catalystOperational && ws.crucible !== 'refuse', complete: false, docked: false },
     reaper: { strength: 1, competence: rules.strategic.reaperCompetence, reinforcementPool: Math.round(6 * rules.strategic.reaperReinforcements), lostValue: 0, killedValue: 0 },
     warAssets: 0,
+    research: { progress: 0, completed: [] },
+    refugees: 0,
+    flags: {},
     events: [{ tick: 0, kind: 'intel', text: ws.crucible === 'refuse' ? 'The Reapers have entered the galaxy through batarian space. The Crucible will not be used: this war must be won by the fleets.' : 'The Reapers have entered the galaxy through batarian space. Arcturus and Earth are next.' }],
     worldState: ws,
     nextFleetId: nextId,
@@ -241,7 +246,10 @@ export function buildEngagement(state: CampaignState, pending: PendingEngagement
   const kA = Math.min(1, MAX_SHIPS_PER_SIDE / Math.max(1, alliedTotal));
   const kB = Math.min(1, MAX_SHIPS_PER_SIDE / Math.max(1, reaperTotal));
   const fleets: FleetSpec[] = [];
+  const research = researchTech(state);
   allied.forEach((f, i) => {
+    const readiness = f.readiness < 0.95 ? { crewQuality: 0.7 + 0.3 * f.readiness } : undefined;
+    const techOverride = research || readiness ? { ...research, ...readiness } : undefined;
     fleets.push({
       id: f.id,
       name: f.name,
@@ -252,7 +260,7 @@ export function buildEngagement(state: CampaignState, pending: PendingEngagement
       position: v3(-18 + i * 18, 0, -36 - i * 4),
       heading: v3(0, 0, 1),
       playerControlled: f.playerControlled,
-      techOverride: f.readiness < 0.95 ? { crewQuality: 0.7 + 0.3 * f.readiness } : undefined,
+      techOverride,
     });
   });
   // Orbital defence as a static escort group of the system owner's hulls.
@@ -562,33 +570,31 @@ export function resolvePhase(state: CampaignState, opts: { interactive: boolean 
 
 function economyPhase(state: CampaignState): void {
   const rules = state.rules;
-  // Harvest.
+  const logger = (kind: CampaignEvent['kind'], text: string, system?: SystemId) => log(state, kind, text, system);
+  // Harvest and the ground war.
+  let refugeeLoad = 0;
   for (const s of SYSTEMS) {
     const st = state.systems[s.id];
     const reapersHere = fleetsAt(state, s.id).filter((f) => f.allegiance === 'reaper');
-    if (reapersHere.length > 0 && !fleetsAt(state, s.id).some((f) => f.allegiance === 'allied')) {
-      const power = Math.min(2, reapersHere.reduce((a, f) => a + fleetPoints(f.counts), 0) / 8000);
-      st.reaperPresence = Math.min(1, st.reaperPresence + 0.15 * power);
-      st.population = Math.max(0, st.population - 0.03 * power);
-      st.industry = Math.max(0, st.industry - 0.06 * power);
-      st.defence = Math.max(0, st.defence - 0.3);
+    const alliedHere = fleetsAt(state, s.id).some((f) => f.allegiance === 'allied');
+    const power = reapersHere.length > 0 ? Math.min(2, reapersHere.reduce((a, f) => a + fleetPoints(f.counts), 0) / 8000) : 0;
+    const popBefore = st.population;
+    groundWar(state, s.id, power, alliedHere);
+    refugeeLoad += (popBefore - st.population) * s.population;
+    if (power > 0 && !alliedHere) {
       if (st.controller !== 'reaper' && st.reaperPresence >= 0.5) {
         st.controller = 'reaper';
         log(state, 'harvest', `${s.world} has fallen under Reaper occupation.`, s.id);
         if (s.homeworldOf) state.factions[s.homeworldOf].morale = Math.max(0.1, state.factions[s.homeworldOf].morale - 0.25);
       }
-    } else if (st.controller === 'reaper' && reapersHere.length === 0 && !fleetsAt(state, s.id).some((f) => f.allegiance === 'allied')) {
-      // Ground harvest continues under occupation even without a fleet in orbit.
-      st.population = Math.max(0, st.population - 0.012 * st.reaperPresence);
-      st.industry = Math.max(0, st.industry - 0.01);
-    } else if (st.controller === 'reaper' && reapersHere.length === 0 && fleetsAt(state, s.id).some((f) => f.allegiance === 'allied')) {
+    } else if (st.controller === 'reaper' && reapersHere.length === 0 && alliedHere) {
       st.controller = 'allied';
-      st.reaperPresence = Math.max(0, st.reaperPresence - 0.5);
+      st.reaperPresence = Math.max(0, st.reaperPresence - liberationClear(state, s.id));
       log(state, 'political', `${s.world} liberated.`, s.id);
     }
     // Indoctrination pressure near Reapers.
     const near = reapersHere.length > 0 || neighbours(s.id).some((n) => fleetsAt(state, n).some((f) => f.allegiance === 'reaper'));
-    const indoct = rules.special.indoctrinationDisabled ? 0 : rules.strategic.indoctrinationEffectiveness;
+    const indoct = rules.special.indoctrinationDisabled ? 0 : rules.strategic.indoctrinationEffectiveness * indoctrinationModifier(state);
     st.indoctrination = Math.max(0, Math.min(1, st.indoctrination + (near ? 0.04 * indoct : -0.02)));
     // Slow repair when safe.
     if (st.controller === 'allied' && !near) {
@@ -644,7 +650,7 @@ function economyPhase(state: CampaignState): void {
   // Crucible.
   if (state.crucible.available && !state.crucible.complete) {
     const industry = SYSTEMS.filter((s) => state.systems[s.id].controller === 'allied').reduce((a, s) => a + s.industry * state.systems[s.id].industry, 0);
-    const rate = (industry / 60) * 0.052 * (0.7 + 0.3 * rules.strategic.alliedCoordination) * (0.9 + 0.1 * rules.strategic.shepardEffectiveness);
+    const rate = (industry / 60) * 0.052 * (0.7 + 0.3 * rules.strategic.alliedCoordination) * (0.9 + 0.1 * rules.strategic.shepardEffectiveness) * crucibleRateModifier(state);
     state.crucible.progress = Math.min(1, state.crucible.progress + rate);
     if (state.crucible.progress >= 1) {
       state.crucible.complete = true;
@@ -653,6 +659,10 @@ function economyPhase(state: CampaignState): void {
   }
   // Cooperation grows with shared victories and time.
   for (const f of Object.values(state.factions)) f.cooperation = Math.min(1, f.cooperation + 0.01 * rules.strategic.alliedCoordination);
+  // Depth: refugees, research, politics.
+  refugeePhase(state, refugeeLoad, logger);
+  researchPhase(state, logger);
+  politicalPhase(state, logger);
   state.warAssets = computeWarAssets(state);
 }
 

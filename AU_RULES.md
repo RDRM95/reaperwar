@@ -39,6 +39,19 @@ Prerequisites enforced on import: a dead Shepard has effectiveness 0; Cerberus c
 
 Prime/Apex is deliberately a hard-won victory: the Reapers keep their weapons, numbers and doctrine.
 
+## Campaign reference outcomes (AI-run, seeds 5/9/21, v0.6.0)
+
+| Timeline | World state | Typical outcome |
+| --- | --- | --- |
+| Canon ME3 | defaults | Crucible victory around week 43; ~10 systems under occupation; Earth at ~55 % population. |
+| Canon ME3 | genophage sabotaged + geth/quarian peace | Crucible victory around week 33 (two extra fleets). |
+| Prepared Galaxy | defaults | Crucible victory around week 33. |
+| Reaper Escalation | defaults | Narrow Crucible victory around week 48–49 with 10–11 systems harvested; some seeds end in annihilation of the allied fleets. |
+| Prime/Apex | Crucible refused | Conventional victory around week 38 with every committed Reaper destroyed. |
+| Cerberus Ascendant (war phase) | defaults | Defeat around week 53–56: no Crucible, the AI-run fleets are ground down. |
+
+Ground forces slow the population harvest but not orbital bombardment of industry; competent Reapers (Escalation) land processing forces faster.
+
 ## Cerberus Ascendant post-war plan (2186–2206)
 
 The post-war mode (`src/campaign/postwar.ts`) is an **alternate continuity** strategic model and is labelled as such on every screen. It is reachable from campaign setup or after winning a campaign under the Cerberus Ascendant preset.
