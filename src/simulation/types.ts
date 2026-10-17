@@ -121,6 +121,12 @@ export interface WeaponState {
   beamEnd?: Vec3;
   /** World-space origin of the active beam (km). */
   beamStart?: Vec3;
+  /** Rounds remaining for magazine-limited weapons (undefined = unlimited). */
+  ammo?: number;
+  /** Shots left in the current point-defence burst (burst weapons only). */
+  burstLeft?: number;
+  /** Seconds until a spent burst recovers. */
+  burstRecover: number;
 }
 
 export interface Subsystems {
@@ -182,6 +188,10 @@ export interface ShipState {
   lastHitAt: number;
   /** Time the ship first fired (for comms). */
   firstShotAt?: number;
+  /** Fighter returning to its carrier to reload torpedoes. */
+  rearming?: boolean;
+  /** Seconds of hangar time left before a rearming fighter relaunches. */
+  rearmTimer?: number;
   aiTimer: number;
   stats: ShipStats;
   /** Carrier: fighters not yet launched. */
@@ -261,6 +271,8 @@ export type BattleEvent =
   | { t: number; type: 'ship_destroyed'; shipId: string; killerId?: string; classId: string; faction: FactionId; side: Side; name: string; pos: Vec3; role: ShipRole }
   | { t: number; type: 'missile_intercepted'; missileId: number; interceptorId: string; pos: Vec3 }
   | { t: number; type: 'fighters_launched'; carrierId: string; count: number }
+  | { t: number; type: 'ammunition_depleted'; shipId: string; weaponId: string }
+  | { t: number; type: 'fighter_rearmed'; shipId: string; carrierId: string }
   | { t: number; type: 'fleet_withdraw'; fleetId: string; side: Side }
   | { t: number; type: 'ship_withdrawing'; shipId: string }
   | { t: number; type: 'reinforcement_arrival'; fleetId: string; side: Side }

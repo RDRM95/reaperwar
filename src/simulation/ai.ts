@@ -263,9 +263,10 @@ export function movementGoal(ctx: AiContext, ship: ShipState, fleet: FleetState)
 
   // Fighters: strike runs.
   if (ship.role === 'fighter') {
-    if (!fleet.orders.fightersDeployed && ship.carrierId) {
+    if ((!fleet.orders.fightersDeployed || ship.rearming) && ship.carrierId) {
       const carrier = ctx.getShip(ship.carrierId);
       if (carrier && carrier.alive) return { position: carrier.pos, speedFraction: 1 };
+      if (ship.rearming) ship.rearming = false; // carrier lost: fight on with guns
     }
     if (target) {
       const torpRange = Math.max(...ship.weapons.map((w) => w.def.range));

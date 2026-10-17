@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.7.0 — Finite ammunition and heat-limited point defence
+
+- Disruptor torpedo tubes carry a magazine (8 rounds per tube on frigates and cruisers, 2 per fighter). Empty batteries stop firing and raise an "ammunition depleted" event.
+- Fighters that spend their torpedoes fly back to their carrier, reload during 12 seconds of hangar time and relaunch; a lost carrier leaves them fighting on with guns.
+- GARDIAN lasers and Reaper anti-fighter emitters fire in heat-limited bursts (10 and 14 shots) followed by a recovery pause, on top of ship-wide heat.
+- Battle HUD shows torpedoes remaining, rearming status and point-defence readiness for the selected ship.
+- Tests: magazines, depletion events, fighter rearming, burst recovery, determinism (74 unit tests).
+
 ## 0.6.0 — Campaign depth
 
 - Ground war: every system tracks ground forces that slow the population harvest (not orbital bombardment of industry), attrit under occupation at a rate scaled by Reaper competence, and recover when safe; liberation clears more Reaper presence where the ground is still held. The genophage cure sends krogan clans to Earth and Palaven (reinforced ground forces); sabotage keeps the Salarian First Fleet instead.

@@ -26,6 +26,9 @@ import { applyDamage, hitProbability } from './damage';
 import { assignSlots } from './formations';
 import { summarise } from './results';
 import { BATTLESPACE_SCALE as S } from './constants';
+
+/** Hangar time for a fighter to reload torpedoes alongside its carrier. */
+const REARM_SECONDS = 12;
 import type {
   BattleConfig,
   BattleEvent,
@@ -189,6 +192,9 @@ export class BattleSimulation implements AiContext {
           facing: (hp.facing * Math.PI) / 180,
           beamRemaining: 0,
           beamHit: false,
+          ammo: def.magazine,
+          burstLeft: def.burst?.shots,
+          burstRecover: 0,
         });
       }
     });
@@ -479,6 +485,17 @@ export class BattleSimulation implements AiContext {
         }
       }
     }
+    // Rearming: fighters that have spent their torpedoes reload alongside the carrier.
+    for (const f of this.ships) {
+      if (f.carrierId !== ship.id || !f.rearming || !f.alive || f.escaped) continue;
+      if (distance(f.pos, ship.pos) > ship.lengthKm * 1.5) continue;
+      f.rearmTimer = (f.rearmTimer ?? REARM_SECONDS) - dt;
+      if (f.rearmTimer > 0) continue;
+      for (const w of f.weapons) if (w.def.magazine !== undefined) w.ammo = w.def.magazine;
+      f.rearming = false;
+      f.rearmTimer = undefined;
+      this.emit({ t: this.time, type: 'fighter_rearmed', shipId: f.id, carrierId: ship.id });
+    }
   }
 
   // ---------------------------------------------------------------- weapons
@@ -529,7 +546,14 @@ export class BattleSimulation implements AiContext {
         continue;
       }
       w.cooldown -= dt * wpnFactor;
+      // Heat-limited point-defence bursts recover while the mount is silent.
+      if (w.def.burst && w.burstLeft !== undefined && w.burstLeft <= 0) {
+        w.burstRecover -= dt;
+        if (w.burstRecover > 0) continue;
+        w.burstLeft = w.def.burst.shots;
+      }
       if (w.cooldown > 0) continue;
+      if (w.ammo !== undefined && w.ammo <= 0) continue;
       if (ship.overheated && w.def.heat > 0) continue;
       if (fleet.orders.order === 'retreat' && ship.role !== 'fighter' && w.def.arc < 180) continue;
       this.tryFire(ship, fleet, w);
@@ -609,6 +633,17 @@ export class BattleSimulation implements AiContext {
     w.cooldown = def.cooldown * (0.95 + 0.1 * this.rng.next());
     ship.heat += def.heat;
     ship.stats.shotsFired++;
+    if (w.burstLeft !== undefined && def.burst) {
+      w.burstLeft--;
+      if (w.burstLeft <= 0) w.burstRecover = def.burst.recovery;
+    }
+    if (w.ammo !== undefined) {
+      w.ammo--;
+      if (w.ammo <= 0 && !ship.weapons.some((o) => o.def.id === def.id && (o.ammo ?? 1) > 0)) {
+        this.emit({ t: this.time, type: 'ammunition_depleted', shipId: ship.id, weaponId: def.id });
+        if (ship.role === 'fighter' && ship.carrierId) ship.rearming = true;
+      }
+    }
     if (ship.firstShotAt === undefined) {
       ship.firstShotAt = this.time;
       if (!this.engagementAnnounced.has(fleet.spec.id) && ship.role !== 'fighter') {

@@ -244,6 +244,12 @@ export function createHud(app: App, ctrl: BattleController): Hud {
       stat('Barriers', `${fmtNum(s.barriers)} / ${fmtNum(s.maxBarriers)}`),
       stat('Armour', `${fmtNum(s.armour)} / ${fmtNum(s.maxArmour)}`),
       stat('Heat', s.heatCapacity > 0 ? `${fmtNum((100 * s.heat) / s.heatCapacity)}%${s.overheated ? ' OVERHEAT' : ''}` : 'n/a'),
+      ...(s.weapons.some((w) => w.ammo !== undefined)
+        ? [stat('Torpedoes', `${s.weapons.reduce((a, w) => a + (w.ammo ?? 0), 0)} / ${s.weapons.reduce((a, w) => a + (w.def.magazine ?? 0), 0)}${s.rearming ? ' · REARMING' : ''}`)]
+        : []),
+      ...(s.weapons.some((w) => w.def.burst)
+        ? [stat('Point defence', s.weapons.filter((w) => w.def.burst).every((w) => (w.burstLeft ?? 1) <= 0) ? 'RECOVERING' : `${s.weapons.filter((w) => w.def.burst && (w.burstLeft ?? 1) > 0).length} / ${s.weapons.filter((w) => w.def.burst).length} mounts ready`)]
+        : []),
       stat('Speed', `${(Math.hypot(s.vel.x, s.vel.y, s.vel.z) * 1000).toFixed(0)} m/s`),
       stat('Subsystems', `ENG ${fmtNum(s.subsystems.engines * 100)}% · WPN ${fmtNum(s.subsystems.weapons * 100)}% · SNS ${fmtNum(s.subsystems.sensors * 100)}%`),
       stat('Target', target ? target.name : '—'),

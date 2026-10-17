@@ -1,6 +1,6 @@
 {
   "name": "mass-effect-reaper-war-simulator",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "private": true,
   "description": "Unofficial, non-commercial Mass Effect 3 fan project: a browser-based Reaper War naval warfare simulator with canon and alternate-timeline rule sets.",
   "type": "module",

@@ -52,6 +52,10 @@ export interface WeaponDef {
   missileHp?: number;
   /** Heat units generated per shot (ship heat capacity is 100). */
   heat: number;
+  /** Rounds carried per mount; undefined = not ammunition-limited. Fighters rearm at their carrier. */
+  magazine?: number;
+  /** Point-defence lasers fire in heat-limited bursts: `shots` before a `recovery`-second pause. */
+  burst?: { shots: number; recovery: number };
   /** Whether this weapon can target fighters/missiles. */
   antiSmall: boolean;
   /** Prefer firing at larger targets. */

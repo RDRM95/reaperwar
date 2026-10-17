@@ -11,7 +11,8 @@
 
 ## Simulation
 
-- Torpedo and fighter ammunition is unlimited (cooldown-limited only).
+- Torpedo magazines are finite (8 per tube, 2 per fighter) and fighters rearm alongside their carrier, but carriers themselves never run out of torpedoes to issue; mass accelerator rounds are treated as unlimited (canon describes very large slug magazines).
+- Fighters under canon rules still die quickly to Reaper point defence; the new burst recovery helps only marginally.
 - Fleets compress to a single formation anchor per fleet; sub-groups (squadrons) are not modelled.
 - Point defence will scorch nearby hulls with GARDIAN lasers when no small targets exist (low priority, low damage).
 - Fleet-wide withdrawal triggers at 12 % of starting value for factions with a withdrawal threshold; Reapers never withdraw.

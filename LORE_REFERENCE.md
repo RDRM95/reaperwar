@@ -16,7 +16,7 @@ Every important statistic in `src/data` carries one of four tags, which the UI s
 - **Reaper destroyer** (ME3 codex): ~160 m; beam defeats frigates and cruisers.
 - **Kinetic barriers** (codex): stop fast projectiles, not slow objects, not directed energy.
 - **GARDIAN** (codex): infrared point-defence lasers, heat-limited.
-- **Disruptor torpedoes** (codex): slow to pass barriers; shearing mass-effect warheads.
+- **Disruptor torpedoes** (codex): slow to pass barriers; shearing mass-effect warheads. Magazine sizes (8 per tube, 2 per fighter) are simulation estimates; fighters rearming at carriers follows the codex description of carrier operations.
 - **Thanix cannon** (ME2 codex): molten iron-uranium-tungsten stream derived from Sovereign; frigate gains cruiser-grade punch.
 - **Carriers** (codex): humans alone field them; fighters strike with torpedoes.
 - **Treaty of Farixen** dreadnought ratios; Kilimanjaro-class dreadnought names (SSV Kilimanjaro, SSV Orizaba); F-61 Trident; Normandy SR-2 Thanix refit; Harbinger as the first Reaper; Earth invaded via Charon relay with Arcturus lost; Palaven/Menae under assault.
