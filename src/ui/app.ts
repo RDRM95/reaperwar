@@ -19,8 +19,16 @@ import { renderDatabase } from './screens/database';
 import { renderCustom } from './screens/custom';
 import { renderTimelines } from './screens/timelines';
 import { renderSettings } from './screens/settings';
+import { renderCampaign, renderCampaignSetup } from './screens/campaign';
+import { applyEngagementResult, createCampaign, type CampaignOptions } from '@/campaign/engine';
+import type { CampaignState, PendingEngagement } from '@/campaign/state';
 
-export type ScreenName = 'menu' | 'briefing' | 'battle' | 'results' | 'comparison' | 'codex' | 'database' | 'custom' | 'timelines' | 'settings';
+export type ScreenName = 'menu' | 'briefing' | 'battle' | 'results' | 'comparison' | 'codex' | 'database' | 'custom' | 'timelines' | 'settings' | 'campaign' | 'campaign_setup';
+
+export interface CampaignBattleLink {
+  state: CampaignState;
+  pending: PendingEngagement;
+}
 
 export interface LastBattle {
   sim: BattleSimulation;
@@ -28,6 +36,7 @@ export interface LastBattle {
   config: BattleConfig;
   comparison?: ComparisonReport;
   comparisonSide?: 'a' | 'b';
+  campaign?: CampaignBattleLink;
 }
 
 /** Speed steps available to the player. */
@@ -56,6 +65,8 @@ export class BattleController {
   /** Events consumed by the HUD since last frame. */
   private pendingEvents: BattleEvent[] = [];
   readonly isReplay: boolean;
+  /** Set when this battle resolves a campaign engagement. */
+  campaignLink?: CampaignBattleLink;
 
   constructor(
     readonly app: App,
@@ -413,6 +424,9 @@ export class App {
   battle?: BattleController;
   lastBattle?: LastBattle;
   screen: ScreenName = 'menu';
+  campaign?: CampaignState;
+  /** Set when returning to the campaign screen after a fought battle. */
+  campaignResume = false;
   private toastTimer = 0;
 
   constructor() {
@@ -521,6 +535,12 @@ export class App {
       case 'settings':
         node = renderSettings(this);
         break;
+      case 'campaign_setup':
+        node = renderCampaignSetup(this);
+        break;
+      case 'campaign':
+        node = this.campaign ? renderCampaign(this, this.campaign) : renderMenu(this);
+        break;
       case 'battle':
         node = el('div');
         break;
@@ -529,7 +549,21 @@ export class App {
   }
 
   /** Start (or replay) a battle. */
-  startBattle(config: BattleConfig, opts: { replay?: boolean; comparison?: ComparisonReport; comparisonSide?: 'a' | 'b' } = {}): void {
+  startCampaign(opts: CampaignOptions): void {
+    this.campaign = createCampaign(opts);
+    void storage.set('campaign', this.campaign);
+    this.show('campaign');
+  }
+
+  async loadCampaign(): Promise<boolean> {
+    const saved = await storage.get<CampaignState | undefined>('campaign', undefined);
+    if (!saved || typeof saved !== 'object' || !saved.systems || !saved.fleets) return false;
+    this.campaign = saved;
+    this.show('campaign');
+    return true;
+  }
+
+  startBattle(config: BattleConfig, opts: { replay?: boolean; comparison?: ComparisonReport; comparisonSide?: 'a' | 'b'; campaign?: CampaignBattleLink } = {}): void {
     if (this.battle) this.battle.dispose();
     clear(this.ui);
     this.screen = 'battle';
@@ -538,15 +572,24 @@ export class App {
     this.battle = controller;
     this.ui.appendChild(controller.hud.root);
     controller.hud.setComparison(opts.comparison, opts.comparisonSide);
-    this.prefs.lastScenarioId = config.scenarioId;
-    void this.savePrefs();
+    controller.campaignLink = opts.campaign;
+    if (config.scenarioId !== 'campaign') {
+      this.prefs.lastScenarioId = config.scenarioId;
+      void this.savePrefs();
+    }
   }
 
   /** Called by the HUD when a battle ends and the player views results. */
   finishBattle(comparison?: ComparisonReport, comparisonSide?: 'a' | 'b'): void {
     const b = this.battle;
     if (!b || !b.sim.result) return;
-    this.lastBattle = { sim: b.sim, result: b.sim.result, config: b.config, comparison, comparisonSide };
+    this.lastBattle = { sim: b.sim, result: b.sim.result, config: b.config, comparison, comparisonSide, campaign: b.campaignLink };
+    if (b.campaignLink && b.campaignLink.state.pending) {
+      applyEngagementResult(b.campaignLink.state, b.campaignLink.pending, b.sim.result);
+      this.campaign = b.campaignLink.state;
+      this.campaignResume = true;
+      void storage.set('campaign', this.campaign);
+    }
     if (!b.isReplay) {
       this.history.push(b.sim.result);
       this.history = this.history.slice(-50);

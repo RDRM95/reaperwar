@@ -10,18 +10,18 @@ Phases follow the project brief. ✅ done · 🔶 partial · ⬜ not started.
 | 4 | Custom battle editor | ✅ (Alliance vs Reapers; reinforcement wave, formations, timeline, battlefield) |
 | 5 | AU rule engine | ✅ (18 tech multipliers, special tech, strategic variables, validated import/export, editor) |
 | 6 | Canon vs AU comparison mode | ✅ |
-| 7 | Galactic campaign map | ⬜ |
-| 8 | Strategic warfare simulation (ticks, production, losses, Crucible, indoctrination) | ⬜ |
+| 7 | Galactic campaign map | 🔶 interactive map, 15 systems, relays, fleets, system intel, orders |
+| 8 | Strategic warfare simulation (ticks, production, losses, Crucible, indoctrination) | 🔶 weekly ticks, Reaper AI, harvest, production, reinforcements, Crucible, morale, indoctrination; ground war, research, diplomacy and refugees pending |
 | 9 | Codex and intelligence systems | ✅ codex, fleet database, Reaper intelligence panel |
 | 10 | Additional timelines and scenarios (Palaven, Thessia, Rannoch, Citadel, Final Battle of Earth, Cerberus Intervention, Prime/Apex Palaven) | 🔶 Palaven, Thessia, Cerberus Intervention, Rannoch, Battle of the Citadel and Prime/Apex Palaven done; Final Battle of Earth pending (campaign-linked) |
-| 11 | Campaign progression and strategic AI | ⬜ |
+| 11 | Campaign progression and strategic AI | 🔶 Reaper target selection with competence, allied reinforcement AI, final push on the Citadel |
 | 12 | Advanced cinematics, optimisation, polish | 🔶 |
 
 ## Next recommended tasks
 
 1. **Ship model detail pass**: Reaper hood plating and a stronger "eye" glow; Alliance panel lines and turret detail; LOD meshes for distant ships.
 2. **Salarian hulls** and a Sur'Kesh scenario; Final Battle of Earth linked to campaign state.
-3. **Campaign skeleton** (Phase 7): galaxy map data (Sol, Arcturus, Palaven, Thessia, Sur'Kesh, Tuchanka, Rannoch, Citadel, Omega, Illium), relay graph, fleet positions, tick loop; resolve battles with the existing simulation.
+3. **Campaign depth**: ground war and homeworld defence tracks, research projects, political events, refugee pressure, Cerberus Ascendant post-war reconstruction mode (2186–2206), multiple save slots.
 4. **Ammunition/heat refinements**: finite torpedo loads, heat-limited GARDIAN bursts.
 5. **Performance**: instanced rendering for frigates/fighters, aggregate distant formations.
 6. **Save slots** for campaigns (storage layer already supports export/import).

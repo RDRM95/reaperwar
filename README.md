@@ -18,6 +18,7 @@ npm run dev        # http://localhost:5173
 
 ## What works today (vertical slice, v0.1.0)
 
+- **Galactic campaign** (Phase 7/8 first build): interactive galaxy map with 15 systems and relay corridors, weekly turns, Reaper offensives and harvest, allied production from intact industry, fleet movement with cooperation constraints, Crucible construction, indoctrination pressure, morale, Reaper strategic assessment, autosave and Load Game. Engagements involving your fleets can be fought in the 3D simulator or auto-resolved; outcomes feed back into the war.
 - **Ten scenarios**: Battle of Earth, Defence of Palaven, Fall of Thessia, Cerberus Intervention (hostile in canon, cooperative in AU timelines), Rannoch Campaign (war with Reaper-upgraded geth, war without upgrades, or peace against the Reapers), Battle of the Citadel (2183, save the Ascension or concentrate on Sovereign), Alliance Fleet Engagement, Prime/Apex Sol Defence, Prime/Apex Palaven Defence, Cerberus Ascendant — Harbinger, plus a **Custom Battle** builder for any combination of Alliance, Turian, Asari, Cerberus, Geth, Quarian and Reaper fleets.
 - **Real-time 3D battle** with original Alliance (dreadnought, carrier, cruiser, frigate, Normandy-style Thanix frigate, Trident fighter), Turian (dreadnought, cruiser, frigate, interceptor), Asari (Destiny Ascension, dreadnought, cruiser), Cerberus (cruiser, frigate, fighter, AU Black Fleet dreadnought), Geth (dreadnought, cruiser, frigate, fighter), Quarian (liveship, Heavy Fleet warship, Patrol cruiser, fighter) and Reaper (Sovereign-class capital, destroyer, Harbinger) models, a procedural Citadel, Earth/Palaven/Thessia/Rannoch orbital environments, starfield, procedural weapon effects, barrier shimmer, hull damage glow and break-apart destruction.
 - **Simulated weapons**: mass accelerators (real projectiles with lead and sweep collision), Thanix streams, Reaper magnetohydrodynamic beams, GARDIAN point defence, disruptor torpedoes with interception. Kinetic barriers, armour with penetration and ablation, hull, subsystem damage, heat.
@@ -31,7 +32,7 @@ npm run dev        # http://localhost:5173
 - **Codex** and **Fleet Database** with per-statistic provenance (canon confirmed / canon inferred / simulation estimate / AU modified).
 - **Procedural audio** (Web Audio) with volume and mute; local save of preferences, custom timelines, custom battle and history (IndexedDB with localStorage fallback) with export/import.
 
-Not yet implemented (menu entries are marked as such): the galactic campaign, campaign save/load, and Salarian hulls. See [ROADMAP.md](ROADMAP.md).
+Not yet implemented: Salarian hulls, campaign ground war, research and diplomacy (the strategic layer simplifies them; see ROADMAP.md). See [ROADMAP.md](ROADMAP.md).
 
 ## Controls
 

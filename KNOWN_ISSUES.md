@@ -17,6 +17,13 @@
 - Fleet-wide withdrawal triggers at 12 % of starting value for factions with a withdrawal threshold; Reapers never withdraw.
 - Balance is tuned on the reference engagement only; the Battle of Earth under canon rules usually ends with zero Reaper kills unless the player prioritises destroyers.
 
+## Campaign
+
+- First build: ground warfare, research, diplomacy and refugee pressure are not modelled; production is abstract (point pool per faction).
+- Salarian fleets are absent (no hulls yet); the Citadel Fleet is represented by turian and asari groups.
+- Engagements cap each side at 70 ships by scaling counts; losses are scaled back proportionally.
+- One save slot (autosave each week).
+
 ## UI / platform
 
 - Touch: the HUD works on touch, but camera orbit relies on pointer drag and the wheel; pinch zoom is not implemented.

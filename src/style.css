@@ -185,3 +185,6 @@ td.num { font-family: var(--mono); text-align: right; }
   .hud-left, .hud-right { display: none; }
   .menu-title { font-size: 28px; }
 }
+
+/* ---------- campaign map ---------- */
+.galaxy-map { width: 100%; height: auto; display: block; background: #06090f; border: 1px solid var(--line); cursor: pointer; }

@@ -25,7 +25,7 @@ export function renderMenu(app: App): HTMLElement {
   const left = el('div', { class: 'menu-left' }, [
     el('div', { class: 'menu-title' }, ['MASS EFFECT 3', el('span', {}, 'REAPER WAR SIMULATOR')]),
     el('div', { class: 'menu-tagline' }, 'CHANGE THE VARIABLES. CHANGE THE WAR.'),
-    item('New Galactic Campaign', undefined, 'PHASE 7'),
+    item('New Galactic Campaign', () => app.show('campaign_setup')),
     item('Quick Battle', () => app.show('briefing', { scenarioId: lastScenario.id }), undefined, true),
     item('Custom Battle', () => app.show('custom')),
     item('Alternate Timelines', () => app.show('timelines')),
@@ -33,7 +33,7 @@ export function renderMenu(app: App): HTMLElement {
     item('Fleet Database', () => app.show('database')),
     item('Codex', () => app.show('codex')),
     item('Scenario Editor', () => app.show('custom'), 'VIA CUSTOM'),
-    item('Load Game', undefined, 'PHASE 7'),
+    item('Load Game', () => void app.loadCampaign().then((ok) => { if (!ok) app.toast('NO SAVED CAMPAIGN'); }), app.campaign ? 'IN PROGRESS' : undefined),
     item('Settings', () => app.show('settings')),
     el('div', { class: 'menu-foot' }, [
       'Unofficial, non-commercial fan project. Mass Effect is a trademark of Electronic Arts / BioWare. No game assets are used; all models, audio and text are original.',

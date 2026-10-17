@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.0 — Galactic campaign (first build)
+
+- Galaxy map with 15 systems and relay corridors; weekly campaign ticks.
+- Reaper strategic AI (target value, competence, risk), allied reinforcement AI, fleet preservation, final push on the Citadel once the Crucible is complete.
+- Harvest, occupation, liberation, production from intact industry, Reaper reinforcements, Crucible construction, indoctrination pressure, morale, cooperation constraints on non-Alliance fleets.
+- Engagements expand into the battle simulation (with orbital defence groups) and can be fought in 3D or auto-resolved; results feed losses, retreats and control back into the war.
+- Campaign setup with timeline and player-dependent world state; autosave; Load Game.
+- Campaign tests and end-to-end tests.
+
 ## 0.2.0 — Council factions and Cerberus
 
 - Turian Hierarchy, Asari Republics and Cerberus hull families (original procedural models), weapons and ship classes with provenance tags.
