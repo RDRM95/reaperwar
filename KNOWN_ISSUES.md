@@ -3,7 +3,7 @@
 ## Visual
 
 - Reaper models are recognisable (ridged body, swept arms, red seams, forward aperture) but still simpler than the source silhouette; hood plating and arm articulation need another pass.
-- Alliance, Turian, Asari and Cerberus hulls have limited surface detail (panel strips, turrets); no textures, only materials. Asari and Turian fleets have no frigate/fighter carriers in scenarios yet.
+- All organic hulls have limited surface detail (panel strips, turrets); no textures, only materials. Asari fleets have no frigates; the Citadel's wards are simplified boxes.
 - Fighters are rendered at 2× scale for visibility.
 - Earth is at compressed scale; cloud layer is baked into the surface texture (no separate cloud sphere).
 - Beam cylinders are flat-shaded; very close to the camera they look like ribbons.

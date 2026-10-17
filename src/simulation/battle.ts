@@ -20,7 +20,7 @@ import { FACTIONS, type CommsEvent } from '@/data/factions';
 import { getShipClass } from '@/data/ships';
 import type { FactionId } from '@/data/types';
 import { WEAPONS, getWeapon } from '@/data/weapons';
-import { applyRulesToShip, applyRulesToWeapon, type EffectiveWeapon } from '@/timelines/rules';
+import { applyRulesToShip, applyRulesToWeapon, cloneRules, type EffectiveWeapon, type RuleSet } from '@/timelines/rules';
 import { fleetDecision, movementGoal, shipDecision, type AiContext } from './ai';
 import { applyDamage, hitProbability } from './damage';
 import { assignSlots } from './formations';
@@ -75,6 +75,7 @@ export class BattleSimulation implements AiContext {
   result?: BattleResult;
   private nextId = 1;
   private shipCounter = new Map<string, number>();
+  private fleetRules = new Map<string, RuleSet>();
   private pendingFleets: FleetSpec[] = [];
   private heavyLossesAnnounced = new Set<Side>();
   private engagementAnnounced = new Set<string>();
@@ -152,9 +153,21 @@ export class BattleSimulation implements AiContext {
     return v3(fleet.anchor.x + rx * slot.x + h.x * slot.z, fleet.anchor.y + slot.y, fleet.anchor.z + rz * slot.x + h.z * slot.z);
   }
 
+  private rulesFor(spec: FleetSpec): RuleSet {
+    if (!spec.techOverride) return this.rules;
+    let r = this.fleetRules.get(spec.id);
+    if (!r) {
+      r = cloneRules(this.rules);
+      r.factionOverrides[spec.faction] = { ...(r.factionOverrides[spec.faction] ?? {}), ...spec.techOverride };
+      this.fleetRules.set(spec.id, r);
+    }
+    return r;
+  }
+
   private createShip(classId: string, spec: FleetSpec, name?: string, carrierId?: string): ShipState {
     const cls = getShipClass(classId);
-    const stats = applyRulesToShip(cls, this.rules);
+    const rules = this.rulesFor(spec);
+    const stats = applyRulesToShip(cls, rules);
     const n = (this.shipCounter.get(classId) ?? 0) + 1;
     this.shipCounter.set(classId, n);
     const id = `${spec.id}-${classId}-${n}`;
@@ -162,7 +175,7 @@ export class BattleSimulation implements AiContext {
     let wi = 0;
     cls.hardpoints.forEach((hp, hpIndex) => {
       const base = getWeapon(hp.weaponId);
-      const nominal = applyRulesToWeapon(base, cls.faction, cls, this.rules, WEAPONS);
+      const nominal = applyRulesToWeapon(base, cls.faction, cls, rules, WEAPONS);
       const def: EffectiveWeapon = { ...nominal, range: nominal.range * S, projectileSpeed: nominal.projectileSpeed * S };
       for (let m = 0; m < hp.count; m++) {
         weapons.push({

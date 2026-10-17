@@ -18,8 +18,8 @@ npm run dev        # http://localhost:5173
 
 ## What works today (vertical slice, v0.1.0)
 
-- **Eight scenarios**: Battle of Earth, Defence of Palaven, Fall of Thessia, Cerberus Intervention (hostile in canon, cooperative in AU timelines), Alliance Fleet Engagement, Prime/Apex Sol Defence, Prime/Apex Palaven Defence, Cerberus Ascendant — Harbinger, plus a **Custom Battle** builder for any combination of Alliance, Turian, Asari, Cerberus and Reaper fleets.
-- **Real-time 3D battle** with original Alliance (dreadnought, carrier, cruiser, frigate, Normandy-style Thanix frigate, Trident fighter), Turian (dreadnought, cruiser, frigate, interceptor), Asari (Destiny Ascension, dreadnought, cruiser), Cerberus (cruiser, frigate, fighter, AU Black Fleet dreadnought) and Reaper (Sovereign-class capital, destroyer, Harbinger) models, Earth/Palaven/Thessia/Rannoch orbital environments, starfield, procedural weapon effects, barrier shimmer, hull damage glow and break-apart destruction.
+- **Ten scenarios**: Battle of Earth, Defence of Palaven, Fall of Thessia, Cerberus Intervention (hostile in canon, cooperative in AU timelines), Rannoch Campaign (war with Reaper-upgraded geth, war without upgrades, or peace against the Reapers), Battle of the Citadel (2183, save the Ascension or concentrate on Sovereign), Alliance Fleet Engagement, Prime/Apex Sol Defence, Prime/Apex Palaven Defence, Cerberus Ascendant — Harbinger, plus a **Custom Battle** builder for any combination of Alliance, Turian, Asari, Cerberus, Geth, Quarian and Reaper fleets.
+- **Real-time 3D battle** with original Alliance (dreadnought, carrier, cruiser, frigate, Normandy-style Thanix frigate, Trident fighter), Turian (dreadnought, cruiser, frigate, interceptor), Asari (Destiny Ascension, dreadnought, cruiser), Cerberus (cruiser, frigate, fighter, AU Black Fleet dreadnought), Geth (dreadnought, cruiser, frigate, fighter), Quarian (liveship, Heavy Fleet warship, Patrol cruiser, fighter) and Reaper (Sovereign-class capital, destroyer, Harbinger) models, a procedural Citadel, Earth/Palaven/Thessia/Rannoch orbital environments, starfield, procedural weapon effects, barrier shimmer, hull damage glow and break-apart destruction.
 - **Simulated weapons**: mass accelerators (real projectiles with lead and sweep collision), Thanix streams, Reaper magnetohydrodynamic beams, GARDIAN point defence, disruptor torpedoes with interception. Kinetic barriers, armour with penetration and ablation, hull, subsystem damage, heat.
 - **Fleet AI** with per-faction doctrine, formations (six), focus fire, withdrawal, carrier operations.
 - **Player command**: attack / advance / hold / defend / withdraw / retreat / escort / intercept, target priorities, formation changes, fighter deploy/recall, focus fire, point-defence mode, selection and right-click attack orders.
@@ -31,7 +31,7 @@ npm run dev        # http://localhost:5173
 - **Codex** and **Fleet Database** with per-statistic provenance (canon confirmed / canon inferred / simulation estimate / AU modified).
 - **Procedural audio** (Web Audio) with volume and mute; local save of preferences, custom timelines, custom battle and history (IndexedDB with localStorage fallback) with export/import.
 
-Not yet implemented (menu entries are marked as such): the galactic campaign, campaign save/load, and Salarian/Quarian/Geth hulls. See [ROADMAP.md](ROADMAP.md).
+Not yet implemented (menu entries are marked as such): the galactic campaign, campaign save/load, and Salarian hulls. See [ROADMAP.md](ROADMAP.md).
 
 ## Controls
 

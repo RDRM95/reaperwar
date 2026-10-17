@@ -1,7 +1,6 @@
 import type { Vec3 } from '@/core/vec3';
 import type { DamageType, FactionId, ShipRole } from '@/data/types';
-import type { EffectiveWeapon } from '@/timelines/rules';
-import type { RuleSet } from '@/timelines/rules';
+import type { EffectiveWeapon, RuleSet, TechModifiers } from '@/timelines/rules';
 
 export type Side = 'A' | 'B';
 
@@ -73,6 +72,8 @@ export interface FleetSpec {
   arrivalTime?: number;
   /** Player can command this fleet. */
   playerControlled?: boolean;
+  /** Scenario-level technology override for this fleet (e.g. Reaper-upgraded geth). Merged over the faction's rules. */
+  techOverride?: Partial<TechModifiers>;
 }
 
 export type Environment =

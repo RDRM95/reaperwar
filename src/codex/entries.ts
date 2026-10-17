@@ -80,6 +80,27 @@ export const CODEX: CodexEntry[] = [
     estimate: ['Simulation doctrine: engage at range, protect the few capital ships, withdraw damaged hulls early. Asari hulls are original smooth lathe-turned designs with sweeping fins and violet lighting; barriers run well above Alliance values, plating below.'],
   },
   {
+    id: 'geth',
+    category: 'Factions',
+    title: 'Geth',
+    canon: ['Synthetic intelligences created by the quarians, exiled beyond the Perseus Veil. In 2186 the Reapers upgrade the geth with their code; depending on Shepard’s choices the geth are freed, destroyed, or make peace with the quarians.'],
+    estimate: ['Simulation doctrine: 0.6-second decision cycles, near-perfect fire distribution, no withdrawal. The Rannoch scenario applies a +40 % barrier / +20 % accuracy upgrade when the Reaper code is active. Hulls are original: segmented white-grey bodies with a hooded forward optic.'],
+  },
+  {
+    id: 'quarian',
+    category: 'Factions',
+    title: 'Quarian Migrant Fleet',
+    canon: ['Fifty thousand ships carrying the quarian people since their exile. The Heavy Fleet, Patrol Fleet and Civilian Fleet protect three liveships whose loss would mean famine. In 2186 the Admiralty Board attacks the geth to retake Rannoch.'],
+    estimate: ['Simulation doctrine: protect capital ships above everything (liveships are modelled as unarmed carrier-role hulls), withdraw damaged ships early. Hulls are original: converted bulk hulls with bolted-on modules and amber lights.'],
+  },
+  {
+    id: 'battle_citadel_2183',
+    category: 'Reaper War',
+    title: 'Battle of the Citadel (2183)',
+    canon: ['Sovereign and a geth fleet attack the Citadel while Saren seizes the Tower. The Citadel fleet and the Destiny Ascension are overwhelmed until the Alliance Fifth Fleet arrives; Shepard decides whether the Alliance saves the Ascension or concentrates on Sovereign. Sovereign’s barriers fail when Saren dies and the fleet destroys it.'],
+    estimate: ['The scenario gives the fleets the task of overwhelming Sovereign conventionally; the Citadel is drawn with its canon Presidium ring diameter (7.2 km) and ward length (~44 km) at compressed scale.'],
+  },
+  {
     id: 'ship_destiny_ascension',
     category: 'Ships',
     title: 'Destiny Ascension',

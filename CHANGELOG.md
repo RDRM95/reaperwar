@@ -7,7 +7,9 @@
 - Custom battle builder accepts any of Alliance, Turian, Asari, Cerberus or Reaper fleets on either side.
 - Reaper aperture glow; camera-relative fill light so hulls stay readable against the sun.
 - Beam bursts now count toward hit statistics.
-- Codex entries for the new factions and the Destiny Ascension; 44 unit tests.
+- Geth and Quarian hull families (dreadnought with fighter wing, cruiser, frigate, fighter; liveship, Heavy Fleet warship, Patrol cruiser, fighter).
+- Rannoch Campaign with player-dependent outcomes (Reaper-upgraded geth via per-fleet technology overrides, baseline geth, or peace against the Reapers) and Battle of the Citadel (2183) with a procedural Citadel and Serpent Nebula environment.
+- Codex entries for the new factions, the Destiny Ascension and the 2183 battle; 45 unit tests.
 
 ## 0.1.0 — Vertical slice: Battle of Earth
 

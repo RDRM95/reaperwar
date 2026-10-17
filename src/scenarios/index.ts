@@ -69,6 +69,10 @@ const NAMES: Record<string, string[]> = {
   cerberus_cruiser: CERBERUS_NAMES,
   cerberus_dreadnought: ['Black Fleet Flagship Prometheus'],
   harbinger: ['Harbinger'],
+  quarian_liveship: ['Rayya', 'Shellen', 'Tonbay'],
+  quarian_heavy: ['Qwib-Qwib', 'Alarei', 'Neema', 'Idenna', 'Moreh', 'Iktomi'],
+  quarian_cruiser: ['Usela', 'Tesleya', 'Chayym', 'Defrahnz', 'Honorata', 'Konesh', 'Rannoch Hope', 'Tasi', 'Ulnay', 'Yaska'],
+  geth_dreadnought: ['Geth dreadnought'],
 };
 
 /** Scale a ship count by a fleet strength multiplier, never below 1 if the base was >= 1. */
@@ -91,6 +95,7 @@ export interface FleetOpts {
   arrivalTime?: number;
   playerControlled?: boolean;
   ws?: Record<string, string>;
+  initialOrder?: FleetSpec['initialOrder'];
 }
 
 /** Generic fleet builder for any faction. */
@@ -117,6 +122,7 @@ export function fleet(id: string, faction: FactionId, rules: RuleSet, opts: Flee
     heading: opts.heading ?? (side === 'A' ? v3(0, 0, 1) : v3(0, 0, -1)),
     playerControlled: opts.playerControlled ?? side === 'A',
     arrivalTime: opts.arrivalTime,
+    initialOrder: opts.initialOrder,
   };
 }
 
@@ -306,6 +312,96 @@ export const SCENARIOS: ScenarioDef[] = [
     },
   },
   {
+    id: 'rannoch_campaign',
+    name: 'Rannoch Campaign',
+    subtitle: 'Tikkun system, 2186 — the Migrant Fleet and the geth',
+    environment: 'rannoch_orbit',
+    description:
+      'The quarians attack the geth over Rannoch while the geth, upgraded with Reaper code, counter-attack. How the conflict ends is a player-dependent ME3 outcome: war, or a peace that turns both fleets on the Reapers.',
+    recommendedRules: ['canon_me3', 'prime_apex'],
+    objective: 'War: protect the liveships and defeat the geth fleet. Peace: defend Rannoch against the Reapers.',
+    maxDuration: 420,
+    worldState: [
+      {
+        id: 'outcome',
+        label: 'Geth–quarian outcome',
+        kind: 'player_dependent',
+        description: 'The state of the Rannoch conflict when this battle is fought.',
+        choices: [
+          { id: 'war', label: 'War: Migrant Fleet vs Reaper-upgraded geth', description: 'The geth fight with Reaper upgrades (+40 % barriers, +20 % accuracy, better crews). Protect the liveships.' },
+          { id: 'war_unupgraded', label: 'War: geth without Reaper upgrades', description: 'The Reaper signal is cut; geth fight at baseline capability.' },
+          { id: 'peace', label: 'Peace: geth and quarians vs Reapers', description: 'Both fleets under joint command face a Reaper group.' },
+        ],
+        default: 'war',
+      },
+    ],
+    briefing: [
+      'The Migrant Fleet has committed its Heavy and Patrol Fleets. The liveships are in orbit and must not be lost.',
+      'Geth fleets under Reaper influence fight with inhuman coordination.',
+      'Admiral Koris’ Civilian Fleet is not present in this engagement.',
+    ],
+    build: (rules, seed, ws) => {
+      const outcome = ws.outcome ?? 'war';
+      if (outcome === 'peace') {
+        return base('rannoch_campaign', 'Rannoch — United Fleet', 'rannoch_campaign', seed, rules, 'rannoch_orbit', 420, 'Defend Rannoch against the Reapers.', ws, [
+          fleet('migrant-fleet', 'quarian', rules, { counts: { quarian_liveship: 1, quarian_heavy: 3, quarian_cruiser: 12 }, fixedClasses: ['quarian_liveship'], name: 'Migrant Fleet', position: v3(-18, 0, -36), formation: 'defensive_screen', ws }),
+          fleet('geth-fleet', 'geth', rules, { counts: { geth_dreadnought: 1, geth_cruiser: 8, geth_frigate: 12 }, fixedClasses: ['geth_dreadnought'], name: 'Geth Consensus fleet', position: v3(22, 0, -34), formation: 'strike_wedge', ws }),
+          reaperFleet('reaper-tikkun', rules, { capitals: 3, destroyers: 8, position: v3(0, 0, 44), ws }),
+        ]);
+      }
+      const upgraded = outcome === 'war';
+      return base('rannoch_campaign', upgraded ? 'Rannoch — Migrant Fleet vs upgraded geth' : 'Rannoch — Migrant Fleet vs geth', 'rannoch_campaign', seed, rules, 'rannoch_orbit', 420, 'Protect the liveships and defeat the geth fleet.', ws, [
+        fleet('migrant-fleet', 'quarian', rules, { counts: { quarian_liveship: 2, quarian_heavy: 4, quarian_cruiser: 18 }, fixedClasses: ['quarian_liveship'], name: 'Migrant Fleet (Heavy and Patrol Fleets)', position: v3(0, 0, -36), formation: 'defensive_screen', ws }),
+        {
+          ...fleet('geth-fleet', 'geth', rules, { counts: { geth_dreadnought: 1, geth_cruiser: 14, geth_frigate: 22 }, fixedClasses: ['geth_dreadnought'], name: upgraded ? 'Reaper-upgraded geth fleet' : 'Geth fleet', side: 'B', position: v3(0, 0, 40), heading: v3(0, 0, -1), formation: 'strike_wedge', ws }),
+          techOverride: upgraded ? { kineticBarrierStrength: 1.4, accuracy: 1.2, crewQuality: 1.2, barrierRegen: 1.4, massAcceleratorDamage: 1.15 } : undefined,
+        },
+      ]);
+    },
+  },
+  {
+    id: 'battle_of_the_citadel',
+    name: 'Battle of the Citadel',
+    subtitle: 'Serpent Nebula, 2183 — Sovereign and the geth attack the Citadel',
+    environment: 'citadel',
+    description:
+      'Three years before the Reaper War: Sovereign arrives with a geth fleet while the Citadel fleet, the Destiny Ascension and the Alliance Fifth Fleet engage. In canon Sovereign’s barriers fall only when Saren dies; here the fleet must bring it down conventionally while deciding whether to save the Ascension.',
+    recommendedRules: ['canon_me3', 'prepared_galaxy'],
+    objective: 'Destroy Sovereign and its geth escort.',
+    maxDuration: 420,
+    worldState: [
+      {
+        id: 'ascension',
+        label: 'Alliance priority',
+        kind: 'player_dependent',
+        description: 'Shepard’s choice: send the Alliance fleet to save the Destiny Ascension or concentrate on Sovereign.',
+        choices: [
+          { id: 'save', label: 'Save the Destiny Ascension', description: 'The Ascension is present and the Alliance fleet protects it.' },
+          { id: 'sovereign', label: 'Concentrate on Sovereign', description: 'The Ascension is lost before the Alliance arrives.' },
+        ],
+        default: 'save',
+      },
+    ],
+    briefing: [
+      'The Citadel’s arms are closing. Sovereign has docked with the Tower; its geth escort holds the approaches.',
+      'Citadel Fleet (turian and asari) is engaged. The Alliance Fifth Fleet is arriving through the relay.',
+      'Sovereign is a single capital Reaper: its barriers will absorb everything until they are overwhelmed.',
+    ],
+    build: (rules, seed, ws) => {
+      const save = (ws.ascension ?? 'save') === 'save';
+      return base('battle_of_the_citadel', 'Battle of the Citadel', 'battle_of_the_citadel', seed, rules, 'citadel', 420, 'Destroy Sovereign and its geth escort.', ws, [
+        fleet('citadel-fleet', 'turian', rules, { counts: { turian_dreadnought: 3, turian_cruiser: 10, turian_frigate: 14 }, name: 'Citadel Fleet (Hierarchy)', position: v3(-16, 0, -34), formation: 'line_abreast', ws }),
+        fleet('republics-guard', 'asari', rules, { counts: { destiny_ascension: save ? 1 : 0, asari_cruiser: 6 }, fixedClasses: ['destiny_ascension'], name: 'Citadel Fleet (Republics)', position: v3(18, 0, -40), formation: 'defensive_screen', ws }),
+        fleet('alliance-5th', 'alliance', rules, { counts: { alliance_dreadnought: 3, alliance_cruiser: 10, alliance_frigate: 16, alliance_frigate_thanix: 0 }, name: 'Alliance Fifth Fleet', position: v3(0, 6, -70), formation: 'strike_wedge', arrivalTime: 40, initialOrder: save ? { order: 'escort', targetId: 'republics-guard-destiny_ascension-1', protectCapitals: true } : undefined, ws } as FleetOpts),
+        {
+          ...reaperFleet('sovereign', rules, { capitals: 1, destroyers: 0, name: 'Sovereign', position: v3(0, 0, 46), mult: 1, formation: 'capital_column' }),
+          ships: [{ classId: 'reaper_capital', count: 1, names: ['Sovereign'] }],
+        },
+        fleet('geth-escort', 'geth', rules, { counts: { geth_dreadnought: 2, geth_cruiser: 14, geth_frigate: 22 }, name: 'Geth escort fleet', side: 'B', position: v3(0, 0, 36), heading: v3(0, 0, -1), formation: 'defensive_screen', ws }),
+      ]);
+    },
+  },
+  {
     id: 'alliance_fleet_engagement',
     name: 'Alliance Fleet Engagement',
     subtitle: 'Deep space — Alliance dreadnought group versus Reaper capital ships',
@@ -419,7 +515,7 @@ export function buildScenario(scenarioId: string, rulesId: string, seed: number,
 
 // ------------------------------------------------------------ custom battles
 
-export type CustomFaction = Exclude<FactionId, 'salarian' | 'quarian' | 'geth'>;
+export type CustomFaction = Exclude<FactionId, 'salarian'>;
 
 export interface CustomFleetInput {
   faction: CustomFaction;

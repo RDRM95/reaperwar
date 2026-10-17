@@ -50,6 +50,22 @@ export const PALETTES: Record<string, FactionPalette> = {
     windows: new THREE.MeshStandardMaterial({ color: 0xf0e8ff, emissive: 0xc8b0ff, emissiveIntensity: 1.6 }),
     glow: new THREE.MeshBasicMaterial({ color: 0xd0a8ff, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false }),
   },
+  geth: {
+    hull: std(0xd8dde3, { metalness: 0.5, roughness: 0.35 }),
+    hullDark: std(0x4a5260, { metalness: 0.7, roughness: 0.4 }),
+    accent: std(0x8a98a8, { metalness: 0.6, roughness: 0.4 }),
+    engine: new THREE.MeshStandardMaterial({ color: 0xe8f0ff, emissive: 0xc0d8ff, emissiveIntensity: 3, roughness: 0.3, metalness: 0 }),
+    windows: new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xd8e8ff, emissiveIntensity: 2.2 }),
+    glow: new THREE.MeshBasicMaterial({ color: 0xe8f0ff, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false }),
+  },
+  quarian: {
+    hull: std(0xb59d78, { metalness: 0.4, roughness: 0.6 }),
+    hullDark: std(0x4a3f33, { metalness: 0.5, roughness: 0.6 }),
+    accent: std(0x8c5a2b, { metalness: 0.4, roughness: 0.55 }),
+    engine: new THREE.MeshStandardMaterial({ color: 0xffe0a0, emissive: 0xffc060, emissiveIntensity: 2.6, roughness: 0.3, metalness: 0 }),
+    windows: new THREE.MeshStandardMaterial({ color: 0xfff4d8, emissive: 0xffd890, emissiveIntensity: 1.4 }),
+    glow: new THREE.MeshBasicMaterial({ color: 0xffe0a0, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false }),
+  },
   turian: {
     hull: std(0x8a98a8, { metalness: 0.6, roughness: 0.4 }),
     hullDark: std(0x2e3540, { metalness: 0.65 }),

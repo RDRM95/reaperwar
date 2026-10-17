@@ -246,6 +246,53 @@ export function makeGalaxyBand(radius = 170_000): THREE.Mesh {
   return m;
 }
 
+/**
+ * The Citadel: Presidium ring (7.2 km diameter, canon) and five wards
+ * (~44 km long, canon), built at render scale. Original procedural model.
+ */
+export function makeCitadel(): THREE.Group {
+  const g = new THREE.Group();
+  const hull = new THREE.MeshStandardMaterial({ color: 0xb8bcc4, metalness: 0.5, roughness: 0.45 });
+  const dark = new THREE.MeshStandardMaterial({ color: 0x3a4250, metalness: 0.6, roughness: 0.5 });
+  const lights = new THREE.MeshStandardMaterial({ color: 0xcfe4ff, emissive: 0x9fc8ff, emissiveIntensity: 1.8 });
+  const ringR = 36; // 3.6 km radius
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(ringR, 5, 10, 48), hull);
+  g.add(ring);
+  const inner = new THREE.Mesh(new THREE.TorusGeometry(ringR, 5.4, 10, 48, Math.PI * 2), lights);
+  inner.scale.set(1, 1, 0.2);
+  g.add(inner);
+  const hubGeo = new THREE.CylinderGeometry(ringR * 0.55, ringR * 0.55, 3, 32, 1, true);
+  hubGeo.rotateX(Math.PI / 2);
+  g.add(new THREE.Mesh(hubGeo, dark));
+  const tower = new THREE.Mesh(new THREE.CylinderGeometry(2.5, 4, 40, 10), hull);
+  tower.rotation.x = Math.PI / 2;
+  tower.position.set(0, 0, 20);
+  g.add(tower);
+  for (let i = 0; i < 5; i++) {
+    const a = (i / 5) * Math.PI * 2;
+    const ward = new THREE.Group();
+    const body = new THREE.Mesh(new THREE.BoxGeometry(22, 9, 440), hull);
+    body.position.set(0, 0, 220 + ringR * 0.6);
+    ward.add(body);
+    const plate = new THREE.Mesh(new THREE.BoxGeometry(23, 1.2, 420), dark);
+    plate.position.set(0, 5, 230 + ringR * 0.6);
+    ward.add(plate);
+    // Ward lights: city grid on the inner face.
+    for (let j = 0; j < 14; j++) {
+      const strip = new THREE.Mesh(new THREE.BoxGeometry(16, 0.4, 8), lights);
+      strip.position.set(0, -4.8, 60 + ringR * 0.6 + j * 28);
+      ward.add(strip);
+    }
+    // Wards attach at the ring and open outward (partially open Citadel).
+    ward.position.set(Math.cos(a) * ringR, Math.sin(a) * ringR, 0);
+    ward.rotation.z = a + Math.PI / 2;
+    ward.rotation.x = -0.18;
+    g.add(ward);
+  }
+  g.name = 'citadel';
+  return g;
+}
+
 export interface EnvironmentBuild {
   group: THREE.Group;
   sunDirection: THREE.Vector3;
@@ -306,7 +353,19 @@ export function buildEnvironment(env: Environment): EnvironmentBuild {
     case 'rannoch_orbit':
       addPlanet(PLANET_STYLES.rannoch, 18_000, new THREE.Vector3(0, -21_500, 7_000), 'Rannoch orbit');
       break;
-    case 'citadel':
+    case 'citadel': {
+      const citadel = makeCitadel();
+      citadel.position.set(-520, -120, 260);
+      citadel.rotation.set(0.5, 0.9, 0.2);
+      group.add(citadel);
+      // Serpent Nebula haze.
+      const haze = new THREE.Mesh(new THREE.SphereGeometry(150_000, 24, 12), new THREE.MeshBasicMaterial({ color: 0x5a3a8a, side: THREE.BackSide, transparent: true, opacity: 0.22, depthWrite: false, blending: THREE.AdditiveBlending }));
+      haze.renderOrder = -9;
+      group.add(haze);
+      sky.push(haze);
+      name = 'The Citadel, Serpent Nebula';
+      break;
+    }
     case 'relay':
     case 'deep_space':
       break;

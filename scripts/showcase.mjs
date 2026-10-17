@@ -27,6 +27,8 @@ const shots = [
   { scenario: 'Defence of Palaven', classes: ['turian_dreadnought', 'turian_cruiser', 'turian_frigate'] },
   { scenario: 'Fall of Thessia', classes: ['destiny_ascension', 'asari_dreadnought', 'asari_cruiser'] },
   { scenario: 'Cerberus Intervention', classes: ['alliance_cruiser'] },
+  { scenario: 'Rannoch Campaign', classes: ['quarian_liveship', 'quarian_heavy', 'quarian_cruiser'], enemies: ['geth_dreadnought', 'geth_cruiser', 'geth_frigate'] },
+  { scenario: 'Battle of the Citadel', classes: ['turian_dreadnought'], wide: true },
 ];
 await page.goto(base + '/');
 for (const s of shots) {
@@ -51,9 +53,23 @@ for (const s of shots) {
     console.log('captured', cid);
     await page.evaluate(() => window.reaperwar.battle.toggleHud());
   }
-  // Cerberus ships are on side B in canon: frame one directly.
-  if (s.scenario === 'Cerberus Intervention') {
-    for (const cid of ['cerberus_cruiser', 'cerberus_frigate']) {
+  if (s.wide) {
+    await page.evaluate(() => {
+      const b = window.reaperwar.battle;
+      b.setCamera('tactical');
+      b.view.rig.distance = 900;
+      b.view.rig.pitch = 0.25;
+      b.view.rig.yaw = 2.2;
+      b.toggleHud();
+    });
+    await page.waitForTimeout(1500);
+    await page.screenshot({ path: `${outDir}/env-${s.scenario.replace(/\W+/g, '_')}.png` });
+    console.log('captured environment', s.scenario);
+    await page.evaluate(() => window.reaperwar.battle.toggleHud());
+  }
+  // Enemy-side ships: frame one directly.
+  if (s.enemies || s.scenario === 'Cerberus Intervention') {
+    for (const cid of s.enemies ?? ['cerberus_cruiser', 'cerberus_frigate']) {
       const ok = await follow(cid);
       if (ok) {
         await page.waitForTimeout(1800);

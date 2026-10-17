@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { buildAllianceCarrier, buildAllianceCruiser, buildAllianceDreadnought, buildAllianceFighter, buildAllianceFrigate } from './alliance';
 import { buildAsariCruiser, buildAsariDreadnought, buildDestinyAscension } from './asari';
 import { buildCerberusCruiser, buildCerberusDreadnought, buildCerberusFighter, buildCerberusFrigate } from './cerberus';
+import { buildGethCruiser, buildGethDreadnought, buildGethFighter, buildGethFrigate } from './geth';
+import { buildQuarianCruiser, buildQuarianFighter, buildQuarianHeavy, buildQuarianLiveship } from './quarian';
 import { buildHarbinger, buildReaperCapital, buildReaperDestroyer } from './reaper';
 import { buildTurianCruiser, buildTurianDreadnought, buildTurianFighter, buildTurianFrigate } from './turian';
 import type { BuiltShip } from './types';
@@ -26,6 +28,14 @@ const BUILDERS: Record<string, () => BuiltShip> = {
   cerberus_cruiser: buildCerberusCruiser,
   cerberus_frigate: buildCerberusFrigate,
   cerberus_fighter: buildCerberusFighter,
+  geth_dreadnought: buildGethDreadnought,
+  geth_cruiser: buildGethCruiser,
+  geth_frigate: buildGethFrigate,
+  geth_fighter: buildGethFighter,
+  quarian_liveship: buildQuarianLiveship,
+  quarian_heavy: buildQuarianHeavy,
+  quarian_cruiser: buildQuarianCruiser,
+  quarian_fighter: buildQuarianFighter,
   reaper_capital: buildReaperCapital,
   reaper_destroyer: buildReaperDestroyer,
   harbinger: buildHarbinger,

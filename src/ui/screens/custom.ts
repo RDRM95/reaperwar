@@ -20,9 +20,11 @@ export const FACTION_DEFAULTS: Record<CustomFaction, { name: string; formation: 
   turian: { name: 'Hierarchy battle group', formation: 'line_abreast', counts: { turian_dreadnought: 8, turian_cruiser: 16, turian_frigate: 28 } },
   asari: { name: 'Republics fleet', formation: 'defensive_screen', counts: { destiny_ascension: 1, asari_dreadnought: 3, asari_cruiser: 14 } },
   cerberus: { name: 'Cerberus strike fleet', formation: 'strike_wedge', counts: { cerberus_dreadnought: 0, cerberus_cruiser: 10, cerberus_frigate: 16 } },
+  geth: { name: 'Geth Consensus fleet', formation: 'strike_wedge', counts: { geth_dreadnought: 1, geth_cruiser: 10, geth_frigate: 16 } },
+  quarian: { name: 'Migrant Fleet', formation: 'defensive_screen', counts: { quarian_liveship: 1, quarian_heavy: 4, quarian_cruiser: 16 } },
   reaper: { name: 'Reaper harvest group', formation: 'strike_wedge', counts: { reaper_capital: 4, reaper_destroyer: 8, harbinger: 0 } },
 };
-const CUSTOM_FACTIONS: CustomFaction[] = ['alliance', 'turian', 'asari', 'cerberus', 'reaper'];
+const CUSTOM_FACTIONS: CustomFaction[] = ['alliance', 'turian', 'asari', 'cerberus', 'geth', 'quarian', 'reaper'];
 
 const DEFAULT_INPUT: CustomBattleInput = {
   seed: 42,

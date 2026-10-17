@@ -124,7 +124,7 @@ describe('battle simulation', () => {
   });
 
   it('every scenario builds under every preset', () => {
-    for (const s of ['battle_of_earth', 'defence_of_palaven', 'fall_of_thessia', 'cerberus_intervention', 'alliance_fleet_engagement', 'prime_apex_sol_defence', 'prime_apex_palaven_defence', 'cerberus_ascendant_harbinger']) {
+    for (const s of ['battle_of_earth', 'defence_of_palaven', 'fall_of_thessia', 'cerberus_intervention', 'rannoch_campaign', 'battle_of_the_citadel', 'alliance_fleet_engagement', 'prime_apex_sol_defence', 'prime_apex_palaven_defence', 'cerberus_ascendant_harbinger']) {
       for (const p of ['canon_me3', 'prepared_galaxy', 'humanity_ascendant', 'cerberus_reformed', 'reaper_escalation', 'prime_apex', 'cerberus_ascendant']) {
         const cfg = getScenario(s).build(getPreset(p), 1, {});
         const sim = new BattleSimulation(cfg);
@@ -153,6 +153,23 @@ describe('faction scenarios', () => {
       const fired = sim.events.some((e) => e.type === 'weapon_fired' && sim.getShip(e.shipId)?.faction === faction);
       expect(fired).toBe(true);
     }
+  });
+  it('Rannoch outcomes change sides and apply the Reaper upgrade only in the war case', () => {
+    const war = buildScenario('rannoch_campaign', 'canon_me3', 2, { outcome: 'war' });
+    const plain = buildScenario('rannoch_campaign', 'canon_me3', 2, { outcome: 'war_unupgraded' });
+    const peace = buildScenario('rannoch_campaign', 'canon_me3', 2, { outcome: 'peace' });
+    expect(war.fleets.find((f) => f.faction === 'geth')?.techOverride?.kineticBarrierStrength).toBe(1.4);
+    expect(plain.fleets.find((f) => f.faction === 'geth')?.techOverride).toBeUndefined();
+    expect(peace.fleets.find((f) => f.faction === 'geth')?.side).toBe('A');
+    expect(peace.fleets.some((f) => f.faction === 'reaper')).toBe(true);
+    const sim = new BattleSimulation(war);
+    const geth = sim.ships.find((s) => s.classId === 'geth_cruiser')!;
+    const simPlain = new BattleSimulation(plain);
+    const gethPlain = simPlain.ships.find((s) => s.classId === 'geth_cruiser')!;
+    expect(geth.maxBarriers).toBeCloseTo(gethPlain.maxBarriers * 1.4, 3);
+    // The override never touches the quarians or the shared canon rules.
+    expect(sim.ships.find((s) => s.classId === 'quarian_cruiser')!.maxBarriers).toBe(simPlain.ships.find((s) => s.classId === 'quarian_cruiser')!.maxBarriers);
+    expect(getPreset('canon_me3').factionOverrides.geth).toBeUndefined();
   });
   it('the Destiny Ascension world-state choice adds or removes the flagship', () => {
     const withShip = buildScenario('fall_of_thessia', 'canon_me3', 1, { ascension: 'present' });
