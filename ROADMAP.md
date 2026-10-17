@@ -11,7 +11,7 @@ Phases follow the project brief. ✅ done · 🔶 partial · ⬜ not started.
 | 5 | AU rule engine | ✅ (18 tech multipliers, special tech, strategic variables, validated import/export, editor) |
 | 6 | Canon vs AU comparison mode | ✅ |
 | 7 | Galactic campaign map | 🔶 interactive map, 15 systems, relays, fleets, system intel, orders |
-| 8 | Strategic warfare simulation (ticks, production, losses, Crucible, indoctrination) | ✅ weekly ticks, Reaper AI, harvest, ground war, production, research projects, refugee pressure, political events, reinforcements, Crucible, morale, indoctrination, Cerberus Ascendant post-war reconstruction (2186–2206); negotiated diplomacy is represented by cooperation and events |
+| 8 | Strategic warfare simulation (ticks, production, losses, Crucible, indoctrination) | ✅ weekly ticks, Reaper AI, harvest, ground war, production, research projects, refugee pressure, political events, reinforcements, Crucible, morale, indoctrination, Council war summits with decisions, Cerberus Ascendant post-war reconstruction (2186–2206) |
 | 9 | Codex and intelligence systems | ✅ codex, fleet database, Reaper intelligence panel |
 | 10 | Additional timelines and scenarios (Palaven, Thessia, Rannoch, Citadel, Final Battle of Earth, Cerberus Intervention, Prime/Apex Palaven) | ✅ all listed scenarios; Final Battle of Earth takes the surviving fleets from a saved campaign |
 | 11 | Campaign progression and strategic AI | 🔶 Reaper target selection with competence, allied reinforcement AI, final push on the Citadel |
@@ -19,7 +19,7 @@ Phases follow the project brief. ✅ done · 🔶 partial · ⬜ not started.
 
 ## Next recommended tasks
 
-1. **Campaign depth**: negotiated diplomacy (war summits with choices), more event chains (rachni, Council composition).
+1. **Campaign depth**: bilateral negotiation with individual governments, krogan and quarian political chains, Cerberus coup events.
 2. **Performance**: simplified mid-range hull meshes, instanced rendering for identical hulls, aggregate distant formations.
 3. **Touch**: two-finger pan, compact HUD layout for phones.
 4. **Model polish**: turian and asari detail passes, textures via procedural normal maps.

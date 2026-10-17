@@ -8,7 +8,7 @@ import type { BattleConfig, BattleResult, FleetSpec } from '@/simulation/types';
 import type { RuleSet } from '@/timelines/rules';
 import { getSystem, neighbours, relayPath, SYSTEMS, type SystemId } from './galaxy';
 import type { Allegiance, CampaignEvent, CampaignFleet, CampaignState, FactionStatus, PendingEngagement, SystemState } from './state';
-import { crucibleRateModifier, groundWar, indoctrinationModifier, liberationClear, politicalPhase, refugeePhase, researchPhase, researchTech } from './depth';
+import { crucibleRateModifier, groundWar, indoctrinationModifier, liberationClear, politicalPhase, refugeePhase, researchPhase, researchTech, resolveSummit, type SummitChoice } from './depth';
 
 /**
  * Strategic campaign engine. One tick ≈ one week of the war. Fleets move
@@ -116,6 +116,13 @@ export function createCampaign(opts: CampaignOptions): CampaignState {
     factions[f] = { faction: f, morale: 0.7, productionPool: 0, lost: 0, built: 0, cooperation: Math.min(1, 0.35 + rules.strategic.alliedCoordination * 0.6) };
   }
   factions.alliance.cooperation = 1;
+  // Council composition (ME1): the old Council survives with the Destiny Ascension and trusts
+  // joint command more; a human-led Council drives Alliance production but strains the others.
+  if (ws.ascension === 'absent') {
+    for (const id of ['turian', 'asari', 'salarian'] as const) factions[id].cooperation = Math.max(0.1, factions[id].cooperation - 0.05);
+  } else {
+    for (const id of ['turian', 'asari', 'salarian'] as const) factions[id].cooperation = Math.min(1, factions[id].cooperation + 0.05);
+  }
 
   const fs = rules.fleetStrength;
   const k = (base: Record<string, number>, mult: number): Record<string, number> => scaleCounts(base, mult);
@@ -563,12 +570,18 @@ export function resolvePhase(state: CampaignState, opts: { interactive: boolean 
     }
     autoResolved.push(autoResolve(state, eng));
   }
-  economyPhase(state);
+  economyPhase(state, opts.interactive);
   checkOutcome(state);
   return { autoResolved };
 }
 
-function economyPhase(state: CampaignState): void {
+/** Resolve a pending Council war summit (interactive campaigns). */
+export function decideSummit(state: CampaignState, choice: SummitChoice): void {
+  if (!state.summit) return;
+  resolveSummit(state, choice, (kind, text, system) => log(state, kind, text, system));
+}
+
+function economyPhase(state: CampaignState, interactive = false): void {
   const rules = state.rules;
   const logger = (kind: CampaignEvent['kind'], text: string, system?: SystemId) => log(state, kind, text, system);
   // Harvest and the ground war.
@@ -609,7 +622,7 @@ function economyPhase(state: CampaignState): void {
     const fs = state.factions[f];
     const owns = SYSTEMS.filter((s) => (s.owner === f || (f === 'turian' && s.owner === 'council')) && state.systems[s.id].controller === 'allied');
     const output = owns.reduce((a, s) => a + s.industry * state.systems[s.id].industry, 0);
-    const mult = rules.fleetStrength[f] * (0.6 + 0.4 * fs.morale) * 3.2;
+    const mult = rules.fleetStrength[f] * (0.6 + 0.4 * fs.morale) * 3.2 * (f === 'alliance' && state.worldState.ascension === 'absent' ? 1.1 : 1);
     fs.productionPool += output * mult;
     const hasFleet = state.fleets.some((x) => x.faction === f && x.allegiance === 'allied');
     if (!hasFleet && f !== 'cerberus') continue;
@@ -662,7 +675,7 @@ function economyPhase(state: CampaignState): void {
   // Depth: refugees, research, politics.
   refugeePhase(state, refugeeLoad, logger);
   researchPhase(state, logger);
-  politicalPhase(state, logger);
+  politicalPhase(state, logger, interactive);
   state.warAssets = computeWarAssets(state);
 }
 

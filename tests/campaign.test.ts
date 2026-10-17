@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { advanceTick, applyEngagementResult, buildEngagement, createCampaign, fleetShipCount, fleetsAt, orderMove, reaperFleetValue, withdrawFromEngagement } from '@/campaign/engine';
+import { advanceTick, applyEngagementResult, buildEngagement, createCampaign, decideSummit, fleetShipCount, fleetsAt, orderMove, reaperFleetValue, withdrawFromEngagement } from '@/campaign/engine';
 import { RELAYS, SYSTEMS, neighbours, relayPath } from '@/campaign/galaxy';
 import { BattleSimulation } from '@/simulation/battle';
 import { getPreset } from '@/timelines/presets';
 import { advanceQuarter, createPostWar, dismantle, setAllocation, requiredConventionalFleet } from '@/campaign/postwar';
 import { buildScenario } from '@/scenarios';
-import { effectiveGround, normaliseCampaign, researchTech, setResearch } from '@/campaign/depth';
+import { crucibleRateModifier, effectiveGround, normaliseCampaign, researchModifier, researchTech, setResearch } from '@/campaign/depth';
 
 describe('galaxy', () => {
   it('every system is reachable from Sol', () => {
@@ -186,6 +186,38 @@ describe('campaign depth', () => {
     expect(fixed.systems.sol.ground).toBe(1);
     advanceTick(fixed, { interactive: false });
     expect(fixed.tick).toBe(1);
+  });
+});
+
+describe('diplomacy and 2183 world states', () => {
+  it('raises a war summit every twelve weeks in interactive campaigns and applies the decision', () => {
+    const st = createCampaign({ seed: 16, rules: getPreset('canon_me3'), worldState: {} });
+    // Keep the Reapers away from the Citadel so the summit can convene.
+    for (let i = 0; i < 12 && !st.summit; i++) {
+      advanceTick(st, { interactive: true });
+      if (st.pending) withdrawFromEngagement(st, st.pending);
+    }
+    expect(st.summit?.number).toBe(1);
+    const before = st.refugees;
+    st.refugees = 0.8;
+    decideSummit(st, 'refugees');
+    expect(st.summit).toBeUndefined();
+    expect(st.refugees).toBeCloseTo(0.5, 5);
+    expect(researchModifier(st)).toBe(0.6);
+    void before;
+    // AI-run campaigns resolve summits themselves.
+    const ai = createCampaign({ seed: 16, rules: getPreset('canon_me3'), worldState: {} });
+    for (let i = 0; i < 12; i++) advanceTick(ai, { interactive: false });
+    expect(ai.summit).toBeUndefined();
+    expect(ai.events.some((e) => e.text.includes('War summit 1'))).toBe(true);
+  });
+
+  it('rachni workers and Council composition change the war', () => {
+    const saved = createCampaign({ seed: 17, rules: getPreset('canon_me3'), worldState: { rachni: 'saved', ascension: 'present' } });
+    const killed = createCampaign({ seed: 17, rules: getPreset('canon_me3'), worldState: { rachni: 'killed', ascension: 'absent' } });
+    expect(crucibleRateModifier(saved)).toBeGreaterThan(crucibleRateModifier(killed));
+    expect(saved.factions.turian.cooperation).toBeGreaterThan(killed.factions.turian.cooperation);
+    expect(killed.fleets.some((f) => f.counts.destiny_ascension > 0)).toBe(false);
   });
 });
 

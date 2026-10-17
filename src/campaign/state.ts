@@ -99,6 +99,8 @@ export interface CampaignState {
   flags: Record<string, number>;
   events: CampaignEvent[];
   pending?: PendingEngagement;
+  /** A Council war summit awaiting the player's decision (interactive campaigns). */
+  summit?: { tick: number; number: number };
   outcome?: { kind: 'victory' | 'defeat'; reason: string; tick: number };
   worldState: Record<string, string>;
   nextFleetId: number;

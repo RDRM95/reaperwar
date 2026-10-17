@@ -23,6 +23,7 @@ test.describe('Galactic campaign', () => {
       if (await endTurn.isDisabled()) break;
       await endTurn.click();
       await page.waitForTimeout(150);
+      if (await page.locator('[data-action="summit-choice"]').first().isVisible()) await page.locator('[data-action="summit-choice"]').first().click();
       if (await page.locator('[data-action="auto-resolve"]').isVisible()) {
         prompted = true;
         break;

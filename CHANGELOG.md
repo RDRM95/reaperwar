@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.0 — War summits and 2183 world states
+
+- Council war summits every twelve weeks while the Citadel holds: interactive campaigns pause for a decision (demand fleet commitments, pool Crucible resources, prioritise refugees) with twelve-week effects; AI-run campaigns press for fleets.
+- Rachni queen world state (spared: rachni workers speed the Crucible by 8 %) and Council composition from the Destiny Ascension outcome (old Council: Council races cooperate more; human-led Council: Alliance production +10 %, others −5 % cooperation).
+- Campaign setup exposes both choices; tests cover summit timing, decisions and the new world states (83 unit tests).
+
 ## 0.9.0 — Level of detail and model detail pass
 
 - Distance-based level of detail: close ships render fully; at range windows, accents, lights and engine glow sprites are dropped; far ships (and fighters beyond 90 units) collapse into one shared point cloud. Toggle in Settings. Final Battle of Earth (206 ships): draw calls fall from about 1,500 to about 590 in the tactical view (`scripts/perf.mjs`).

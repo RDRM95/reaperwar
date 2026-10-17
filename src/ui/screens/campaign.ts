@@ -1,9 +1,9 @@
 import type { App } from '../app';
 import { el, fmtNum, setChildren } from '../dom';
 import { RELAYS, SYSTEMS, getSystem, type SystemId } from '@/campaign/galaxy';
-import { advanceTick, autoResolve, buildEngagement, campaignReaperAssessment, fleetPoints, fleetShipCount, fleetsAt, orderMove, reaperFleetValue, resolvePhase, setPosture, withdrawFromEngagement } from '@/campaign/engine';
+import { advanceTick, autoResolve, buildEngagement, campaignReaperAssessment, decideSummit, fleetPoints, fleetShipCount, fleetsAt, orderMove, reaperFleetValue, resolvePhase, setPosture, withdrawFromEngagement } from '@/campaign/engine';
 import type { CampaignFleet, CampaignState } from '@/campaign/state';
-import { effectiveGround, getProject, RESEARCH_PROJECTS, researchOutput, setResearch } from '@/campaign/depth';
+import { effectiveGround, getProject, RESEARCH_PROJECTS, researchOutput, setResearch, SUMMIT_OPTIONS } from '@/campaign/depth';
 import { FACTIONS } from '@/data/factions';
 import { getShipClass } from '@/data/ships';
 import { storage } from '@/core/storage';
@@ -202,8 +202,8 @@ export function renderCampaign(app: App, state: CampaignState): HTMLElement {
       ]),
       el('div', { class: 'spacer' }),
       el('div', { class: 'row' }, [
-        el('button', { class: 'btn primary', 'data-action': 'end-turn', disabled: !!state.outcome || !!state.pending, onclick: () => runTicks(1) }, 'End week →'),
-        el('button', { class: 'btn', disabled: !!state.outcome || !!state.pending, onclick: () => runTicks(4) }, '+4 weeks'),
+        el('button', { class: 'btn primary', 'data-action': 'end-turn', disabled: !!state.outcome || !!state.pending || !!state.summit, onclick: () => runTicks(1) }, 'End week →'),
+        el('button', { class: 'btn', disabled: !!state.outcome || !!state.pending || !!state.summit, onclick: () => runTicks(4) }, '+4 weeks'),
         el('button', { class: 'btn', onclick: () => {
           save();
           app.toast('CAMPAIGN SAVED');
@@ -338,6 +338,30 @@ export function renderCampaign(app: App, state: CampaignState): HTMLElement {
       );
       return;
     }
+    if (state.summit) {
+      const s = state.summit;
+      modalHost.append(
+        el('div', { class: 'screen transparent', style: { background: 'rgba(6,9,15,0.7)', alignItems: 'center', justifyContent: 'center' } }, [
+          el('div', { class: 'panel orange', style: { width: '640px' } }, [
+            el('div', { class: 'panel-title' }, 'COUNCIL WAR SUMMIT'),
+            el('h2', {}, `Summit ${s.number} · week ${s.tick}`),
+            el('p', { class: 'dim', style: { fontSize: '12px' } }, `The Council governments meet on the Citadel. Refugee pressure ${Math.round(state.refugees * 100)}% · Crucible ${state.crucible.available ? `${Math.round(state.crucible.progress * 100)}%` : 'n/a'} · cooperation ${['turian', 'asari', 'salarian'].map((f) => `${FACTIONS[f as 'turian'].shortName} ${Math.round(state.factions[f as 'turian'].cooperation * 100)}%`).join(', ')}.`),
+            ...SUMMIT_OPTIONS.map((o) =>
+              el('div', { class: 'entry-block' }, [
+                el('div', { class: 'row', style: { justifyContent: 'space-between' } }, [el('b', {}, o.label), el('button', { class: 'btn small primary', 'data-action': 'summit-choice', 'data-choice': o.id, onclick: () => {
+                  decideSummit(state, o.id);
+                  app.playUi('ui_confirm');
+                  save();
+                  renderAll();
+                } }, 'Choose')]),
+                el('div', { class: 'dim', style: { fontSize: '12px' } }, o.description),
+              ]),
+            ),
+          ]),
+        ]),
+      );
+      return;
+    }
     const p = state.pending;
     if (!p) return;
     const sys = getSystem(p.system);
@@ -459,7 +483,7 @@ export function renderCampaign(app: App, state: CampaignState): HTMLElement {
 export function renderCampaignSetup(app: App): HTMLElement {
   let timelineId = app.prefs.lastTimelineId;
   let seed = Math.floor(Math.random() * 100000);
-  const ws: Record<string, string> = { ascension: 'present', rannoch: 'war', crucible: 'use', genophage: 'cured' };
+  const ws: Record<string, string> = { ascension: 'present', rannoch: 'war', crucible: 'use', genophage: 'cured', rachni: 'saved' };
   const body = el('div', { class: 'screen-body' });
   const render = () => {
     const rules = app.getTimeline(timelineId);
@@ -483,7 +507,8 @@ export function renderCampaignSetup(app: App): HTMLElement {
         ]),
         el('div', { class: 'panel' }, [
           el('div', { class: 'panel-title' }, 'WORLD STATE (PLAYER-DEPENDENT ME3 OUTCOMES)'),
-          el('label', { class: 'field' }, ['Destiny Ascension (2183)', el('select', { onchange: (e: Event) => (ws.ascension = (e.target as HTMLSelectElement).value) }, [el('option', { value: 'present', selected: ws.ascension === 'present' }, 'Saved: serves with the Republics fleet'), el('option', { value: 'absent', selected: ws.ascension === 'absent' }, 'Lost at the Citadel')])]),
+          el('label', { class: 'field' }, ['Destiny Ascension and the Council (2183)', el('select', { onchange: (e: Event) => (ws.ascension = (e.target as HTMLSelectElement).value) }, [el('option', { value: 'present', selected: ws.ascension === 'present' }, 'Saved: the old Council survives (Council races +5 % cooperation)'), el('option', { value: 'absent', selected: ws.ascension === 'absent' }, 'Lost: a human-led Council (Alliance production +10 %, others −5 % cooperation)')])]),
+          el('label', { class: 'field' }, ['Rachni queen (2183)', el('select', { onchange: (e: Event) => (ws.rachni = (e.target as HTMLSelectElement).value) }, [el('option', { value: 'saved', selected: ws.rachni === 'saved' }, 'Spared: rachni workers aid the Crucible (+8 %)'), el('option', { value: 'killed', selected: ws.rachni === 'killed' }, 'Killed: no rachni workers')])]),
           el('label', { class: 'field' }, ['Geth–quarian conflict', el('select', { onchange: (e: Event) => (ws.rannoch = (e.target as HTMLSelectElement).value) }, [el('option', { value: 'war', selected: ws.rannoch === 'war' }, 'At war: neither fleet joins the alliance'), el('option', { value: 'peace', selected: ws.rannoch === 'peace' }, 'Peace: both fleets join the war')])]),
           el('label', { class: 'field' }, ['Genophage cure', el('select', { onchange: (e: Event) => (ws.genophage = (e.target as HTMLSelectElement).value) }, [el('option', { value: 'cured', selected: ws.genophage === 'cured' }, 'Cure deployed: the Union keeps its fleets at home'), el('option', { value: 'sabotaged', selected: ws.genophage === 'sabotaged' }, 'Cure sabotaged: the Salarian First Fleet joins the war')])]),
           rules.strategic.crucibleAvailable && rules.strategic.catalystOperational

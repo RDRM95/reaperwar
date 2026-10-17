@@ -20,7 +20,7 @@
 
 ## Campaign
 
-- Ground war, research, refugees and politics are abstract tracks (0–1 values and event triggers); there is no ground battle simulation and no negotiated diplomacy. Production is a point pool per faction.
+- Ground war, research, refugees and politics are abstract tracks (0–1 values and event triggers); there is no ground battle simulation. Diplomacy is a three-option Council summit every twelve weeks, not bilateral negotiation. Production is a point pool per faction.
 - The Terminus mercenary fleet event uses Alliance-pattern hulls (no Terminus hull family yet) and is labelled an estimate in the log.
 - Engagements cap each side at 70 ships by scaling counts; losses are scaled back proportionally.
 - Autosave each week plus named slots (Saved Games screen); slots are browser-local unless exported from Settings.

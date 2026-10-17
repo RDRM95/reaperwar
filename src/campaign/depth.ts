@@ -47,7 +47,7 @@ export function researchOutput(state: CampaignState): number {
     if (st.controller !== 'allied') continue;
     out += s.industry * st.industry * (s.homeworldOf === 'salarian' ? 2 : 1);
   }
-  return out * 0.1 * (0.8 + 0.4 * state.rules.strategic.alliedCoordination);
+  return out * 0.1 * (0.8 + 0.4 * state.rules.strategic.alliedCoordination) * researchModifier(state);
 }
 
 export function setResearch(state: CampaignState, id: string | undefined): { ok: boolean; reason?: string } {
@@ -163,7 +163,11 @@ export function refugeePhase(state: CampaignState, popLossIndexWeighted: number,
 }
 
 /** Crucible construction multiplier from research and refugee pressure. */
-export const crucibleRateModifier = (state: CampaignState): number => (hasResearch(state, 'crucible_schematics') ? 1.25 : 1) * (1 - 0.3 * state.refugees);
+export const crucibleRateModifier = (state: CampaignState): number =>
+  (hasResearch(state, 'crucible_schematics') ? 1.25 : 1) * (1 - 0.3 * state.refugees) * (state.worldState.rachni === 'saved' ? 1.08 : 1) * (summitActive(state, 'crucible') ? 1.25 : 1);
+
+/** Research output multiplier from summit decisions. */
+export const researchModifier = (state: CampaignState): number => (summitActive(state, 'refugees') ? 0.6 : 1);
 
 /** Indoctrination growth multiplier from research. */
 export const indoctrinationModifier = (state: CampaignState): number => (hasResearch(state, 'indoctrination_screening') ? 0.5 : 1);
@@ -174,7 +178,40 @@ type Logger = (kind: CampaignEvent['kind'], text: string, system?: SystemId) => 
 
 const cooldownReady = (state: CampaignState, flag: string, ticks: number): boolean => state.flags[flag] === undefined || state.tick - state.flags[flag] >= ticks;
 
-export function politicalPhase(state: CampaignState, log: Logger): void {
+export type SummitChoice = 'fleets' | 'crucible' | 'refugees';
+
+export const SUMMIT_OPTIONS: { id: SummitChoice; label: string; description: string }[] = [
+  { id: 'fleets', label: 'Demand fleet commitments', description: 'Every government commits more hulls away from home (+12 % cooperation), at the cost of home-front morale among the Council races.' },
+  { id: 'crucible', label: 'Pool Crucible resources', description: 'Shared yards and Prothean data accelerate the Crucible by a quarter for the next twelve weeks; cooperation improves slightly.' },
+  { id: 'refugees', label: 'Prioritise the refugees', description: 'Open the wards and the colony worlds: refugee pressure falls sharply and Council trust rises, but research slows for twelve weeks.' },
+];
+
+/** Apply a summit decision. Used by the UI and by AI-run campaigns. */
+export function resolveSummit(state: CampaignState, choice: SummitChoice, log: Logger): void {
+  const n = state.summit?.number ?? Math.max(1, Math.floor(state.tick / 12));
+  state.summit = undefined;
+  state.flags[`summit_${choice}`] = state.tick;
+  switch (choice) {
+    case 'fleets':
+      for (const f of Object.values(state.factions)) f.cooperation = Math.min(1, f.cooperation + 0.12);
+      for (const id of ['turian', 'asari', 'salarian'] as const) state.factions[id].morale = Math.max(0.1, state.factions[id].morale - 0.04);
+      log('political', `War summit ${n}: the Council governments agree to broader fleet commitments. Home fronts grumble.`, 'widow');
+      break;
+    case 'crucible':
+      for (const f of Object.values(state.factions)) f.cooperation = Math.min(1, f.cooperation + 0.04);
+      log('political', `War summit ${n}: Crucible construction is pooled across the Council yards for the next twelve weeks.`, 'widow');
+      break;
+    case 'refugees':
+      state.refugees = Math.max(0, state.refugees - 0.3);
+      for (const f of Object.values(state.factions)) f.cooperation = Math.min(1, f.cooperation + 0.03);
+      log('political', `War summit ${n}: the Citadel wards and colony worlds open to refugees. Research programmes lose staff for twelve weeks.`, 'widow');
+      break;
+  }
+}
+
+const summitActive = (state: CampaignState, choice: SummitChoice): boolean => state.flags[`summit_${choice}`] !== undefined && state.tick - state.flags[`summit_${choice}`] < 12;
+
+export function politicalPhase(state: CampaignState, log: Logger, interactive = false): void {
   const rng = new Rng(state.seed * 31 + state.tick * 17 + 5);
   const ws = state.worldState;
   // Krogan muster: the genophage decision decides the ground war on two homeworlds.
@@ -187,10 +224,12 @@ export function politicalPhase(state: CampaignState, log: Logger): void {
       log('ground', 'The genophage is cured. Urdnot Wrex ships krogan clans to Palaven and Earth: ground forces on both homeworlds are reinforced.');
     }
   }
-  // Council summit: shared command when the Citadel is secure.
-  if (state.tick % 12 === 0 && state.tick > 0 && state.systems.widow.controller === 'allied') {
-    for (const f of Object.values(state.factions)) f.cooperation = Math.min(1, f.cooperation + 0.06);
-    log('political', 'Council war summit on the Citadel: the member governments agree to broader fleet commitments.', 'widow');
+  // Council summit: every twelve weeks while the Citadel is secure. Interactive
+  // campaigns pause for a decision; AI-run campaigns press for fleet commitments.
+  if (state.tick % 12 === 0 && state.tick > 0 && state.systems.widow.controller === 'allied' && !state.summit) {
+    const number = Math.floor(state.tick / 12);
+    if (interactive) state.summit = { tick: state.tick, number };
+    else resolveSummit(state, 'fleets', log);
   }
   // Indoctrinated officials.
   for (const s of SYSTEMS) {
