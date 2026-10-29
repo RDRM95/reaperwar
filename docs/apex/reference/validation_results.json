@@ -1,0 +1,49 @@
+{
+  "status": "passed",
+  "checks": [
+    "Alliance totals",
+    "all coalition faction and class sums",
+    "1287 heavy mobile combatants",
+    "612 platforms excluded from mobile counts",
+    "all Reaper campaign accounting",
+    "weapon and source references",
+    "damage-channel fractions",
+    "reference and AU kinetic calculations",
+    "isolated shield benchmark"
+  ],
+  "energy_results": {
+    "reference_DKE_kt": 38.720423040152966,
+    "Titan_kinetic_kt": 47.80114722753346,
+    "Nova_core_kinetic_kt": 107.55258126195028,
+    "legacy_Nova_relativistic_kt": 2164.322444424587,
+    "million_tonne_0_01c_tt": 1.074118775088945,
+    "million_tonne_0_1c_tt": 108.21612222122934
+  },
+  "isolated_barrier_trials": {
+    "2": {
+      "destroyed": false,
+      "time_s": null,
+      "barrier_dke": 4.0,
+      "structure_dke": 4.0
+    },
+    "3": {
+      "destroyed": true,
+      "time_s": 18,
+      "barrier_dke": 0.0,
+      "structure_dke": 0
+    },
+    "4": {
+      "destroyed": true,
+      "time_s": 8,
+      "barrier_dke": 0.0,
+      "structure_dke": 0
+    }
+  },
+  "limits": [
+    "No return fire or manoeuvre in isolated trial",
+    "No full fleet simulation",
+    "No victory probability calculated",
+    "No industrial throughput proof",
+    "No integration with an existing simulator"
+  ]
+}

@@ -1,0 +1,2621 @@
+{
+  "schema_version": "1.0.0",
+  "title": "Mass Effect Apex simulator reference dataset",
+  "date": "2026-10-29",
+  "not_a_completed_simulation": true,
+  "integration_status": "Reference data for adaptation; no existing simulator code was provided or modified.",
+  "evidence_policy": {
+    "canon": "Only explicitly labelled canon fields claim released-game support.",
+    "au_lock": "Inherited user continuity or accepted working number.",
+    "au_proposal": "New implementation detail or reconciled count.",
+    "sim": "Tunable gameplay value, not a measured physical quantity.",
+    "derived": "Arithmetic from stated inputs; inherits their uncertainty.",
+    "unknown": "Use JSON null; never substitute a convenient lore number."
+  },
+  "units": {
+    "length": "m unless field says km",
+    "mass": "metric tonnes unless field says kg",
+    "energy": "kilotonnes TNT equivalent for physical yields; DKE for model damage",
+    "time": "s",
+    "DKE_reference_kt": 38.720423040152966,
+    "kt_joules": 4184000000000.0,
+    "speed_of_light_m_s": 299792458.0,
+    "barrier_warning": "DKE capacity is equivalent loading in a game model, not literal stored shield energy."
+  },
+  "canon_inventory": {
+    "status": "CANON_OR_UNKNOWN",
+    "reaper_total": null,
+    "alliance_total_2186": null,
+    "dreadnoughts_2183": {
+      "turian": 37,
+      "asari": 21,
+      "salarian": 16,
+      "alliance": 6,
+      "alliance_additional_under_construction": 1
+    },
+    "dreadnoughts_2185": {
+      "turian": 39,
+      "asari": 20,
+      "salarian": 16,
+      "alliance": 8
+    },
+    "sources": [
+      "C01",
+      "C03"
+    ],
+    "quarian_all_hulls_approx": 50000,
+    "quarian_source": "C06",
+    "warning": "Migrant Fleet count includes civilian and habitation craft. No canonical complete fleet census is supplied."
+  },
+  "continuity": {
+    "status": "AU_LOCK",
+    "shepard_never_dies": true,
+    "prime_morality": "Paragon coalition leadership and Renegade decisiveness",
+    "javik_recovered_2183": true,
+    "jenkins_survives": true,
+    "nihlus_survives": true,
+    "saren_survives": true,
+    "saren_irreversible_indoctrination_prevented": true,
+    "mordin_survives_early_cure": true,
+    "quarian_geth_early_peace": true,
+    "legion_survives": true,
+    "edi_survives": true,
+    "geth_survive": true,
+    "illusive_man_unindoctrinated": true,
+    "compromising_early_artefact_exposure_removed": true,
+    "cerberus_destroy_aligned": true,
+    "destroy_aligned_definition": "Destroy Reaper combat forces; not the Crucible Destroy ending.",
+    "reaper_control": false,
+    "crucible_exists_in_this_version": false,
+    "catalyst_encounter": false,
+    "galaxy_wide_disable_pulse": false,
+    "treaty_farixen_suspended": true,
+    "bahak_civilian_losses": 0,
+    "automatic_victory": false
+  },
+  "weapons": [
+    {
+      "id": "W_DN",
+      "name": "Reference dreadnought spinal accelerator",
+      "physical": {
+        "status": "CANON",
+        "projectile_mass_kg": 20,
+        "projectile_velocity_km_s": 4025,
+        "kinetic_yield_kt_calculated": 38.720423040152966,
+        "calculation_status": "DERIVED",
+        "sources": [
+          "C01"
+        ]
+      },
+      "sim": {
+        "status": "SIM",
+        "cadence_s": 2,
+        "cadence_status": "CANON",
+        "useful_range_km": [
+          10000,
+          80000
+        ],
+        "damage_dke": 1.0,
+        "kinetic_fraction": 1.0,
+        "thermal_fraction": 0.0,
+        "heat_per_shot": 0.08,
+        "magazine_shots": 200,
+        "requires_bow_solution": true
+      }
+    },
+    {
+      "id": "W_CA",
+      "name": "Heavy cruiser spinal accelerator",
+      "physical": {
+        "status": "AU_PROPOSAL",
+        "projectile_mass_kg": 8,
+        "projectile_velocity_km_s": 2500,
+        "kinetic_yield_kt_calculated": 5.975143403441683,
+        "calculation_status": "DERIVED",
+        "sources": []
+      },
+      "sim": {
+        "status": "SIM",
+        "cadence_s": 2.5,
+        "cadence_status": "SIM",
+        "useful_range_km": [
+          3000,
+          35000
+        ],
+        "damage_dke": 0.1543150341422013,
+        "kinetic_fraction": 1.0,
+        "thermal_fraction": 0.0,
+        "heat_per_shot": 0.08,
+        "magazine_shots": 200,
+        "requires_bow_solution": true
+      }
+    },
+    {
+      "id": "W_CL",
+      "name": "Patrol cruiser spinal accelerator",
+      "physical": {
+        "status": "AU_PROPOSAL",
+        "projectile_mass_kg": 5,
+        "projectile_velocity_km_s": 2000,
+        "kinetic_yield_kt_calculated": 2.390057361376673,
+        "calculation_status": "DERIVED",
+        "sources": []
+      },
+      "sim": {
+        "status": "SIM",
+        "cadence_s": 3,
+        "cadence_status": "SIM",
+        "useful_range_km": [
+          1000,
+          25000
+        ],
+        "damage_dke": 0.06172601365688052,
+        "kinetic_fraction": 1.0,
+        "thermal_fraction": 0.0,
+        "heat_per_shot": 0.08,
+        "magazine_shots": 200,
+        "requires_bow_solution": true
+      }
+    },
+    {
+      "id": "W_FF",
+      "name": "Frigate spinal accelerator",
+      "physical": {
+        "status": "AU_PROPOSAL",
+        "projectile_mass_kg": 1,
+        "projectile_velocity_km_s": 1200,
+        "kinetic_yield_kt_calculated": 0.17208413001912046,
+        "calculation_status": "DERIVED",
+        "sources": []
+      },
+      "sim": {
+        "status": "SIM",
+        "cadence_s": 2,
+        "cadence_status": "SIM",
+        "useful_range_km": [
+          100,
+          8000
+        ],
+        "damage_dke": 0.004444272983295397,
+        "kinetic_fraction": 1.0,
+        "thermal_fraction": 0.0,
+        "heat_per_shot": 0.08,
+        "magazine_shots": 200,
+        "requires_bow_solution": true
+      }
+    },
+    {
+      "id": "W_COR",
+      "name": "Auxiliary corvette accelerator",
+      "physical": {
+        "status": "AU_PROPOSAL",
+        "projectile_mass_kg": 0.25,
+        "projectile_velocity_km_s": 800,
+        "kinetic_yield_kt_calculated": 0.019120458891013385,
+        "calculation_status": "DERIVED",
+        "sources": []
+      },
+      "sim": {
+        "status": "SIM",
+        "cadence_s": 3,
+        "cadence_status": "SIM",
+        "useful_range_km": [
+          10,
+          4000
+        ],
+        "damage_dke": 0.0004938081092550441,
+        "kinetic_fraction": 1.0,
+        "thermal_fraction": 0.0,
+        "heat_per_shot": 0.08,
+        "magazine_shots": 200,
+        "requires_bow_solution": true
+      }
+    },
+    {
+      "id": "W_TITAN",
+      "name": "Project Titan penetrator kinetic stage",
+      "physical": {
+        "status": "AU_PROPOSAL",
+        "projectile_mass_kg": 25,
+        "projectile_velocity_km_s": 4000,
+        "kinetic_yield_kt_calculated": 47.80114722753346,
+        "calculation_status": "DERIVED",
+        "sources": []
+      },
+      "sim": {
+        "status": "SIM",
+        "cadence_s": 6,
+        "cadence_status": "SIM",
+        "useful_range_km": [
+          10000,
+          100000
+        ],
+        "damage_dke": 1.2345202731376104,
+        "kinetic_fraction": 1.0,
+        "thermal_fraction": 0.0,
+        "heat_per_shot": 0.08,
+        "magazine_shots": 200,
+        "requires_bow_solution": true
+      }
+    },
+    {
+      "id": "W_NOVA_CORE",
+      "name": "Nova Array core accelerator",
+      "physical": {
+        "status": "AU_PROPOSAL",
+        "projectile_mass_kg": 25,
+        "projectile_velocity_km_s": 6000,
+        "kinetic_yield_kt_calculated": 107.55258126195028,
+        "calculation_status": "DERIVED",
+        "sources": []
+      },
+      "sim": {
+        "status": "SIM",
+        "cadence_s": 6,
+        "cadence_status": "SIM",
+        "useful_range_km": [
+          10000,
+          100000
+        ],
+        "damage_dke": 2.7776706145596233,
+        "kinetic_fraction": 1.0,
+        "thermal_fraction": 0.0,
+        "heat_per_shot": 0.08,
+        "magazine_shots": 200,
+        "requires_bow_solution": true
+      }
+    },
+    {
+      "id": "W_THANIX",
+      "name": "Thanix strike mount",
+      "physical": {
+        "status": "CANON",
+        "description": "Sovereign-derived material and thermal attack; five-second cadence; no canonical yield",
+        "yield_kt": null,
+        "sources": [
+          "C01"
+        ],
+        "unknown_yield_is_not_zero": true
+      },
+      "sim": {
+        "status": "SIM",
+        "damage_dke": 0.35,
+        "cadence_s": 5,
+        "useful_range_km": [
+          100,
+          20000
+        ],
+        "kinetic_fraction": 0.7,
+        "thermal_fraction": 0.30000000000000004,
+        "heat_per_shot": 0.1,
+        "magazine_shots": 100,
+        "requires_bow_solution": false,
+        "cadence_status": "CANON_BASE_TECHNOLOGY"
+      }
+    },
+    {
+      "id": "W_THANIX_HEAVY",
+      "name": "Heavy Thanix mount",
+      "physical": {
+        "status": "CANON_TECH_AU_MOUNT",
+        "description": "Thanix technology is canonical; this scaled mount and its damage are an AU model",
+        "yield_kt": null,
+        "sources": [
+          "C01"
+        ],
+        "unknown_yield_is_not_zero": true
+      },
+      "sim": {
+        "status": "SIM",
+        "damage_dke": 1.0,
+        "cadence_s": 5,
+        "useful_range_km": [
+          1000,
+          40000
+        ],
+        "kinetic_fraction": 0.7,
+        "thermal_fraction": 0.30000000000000004,
+        "heat_per_shot": 0.1,
+        "magazine_shots": 100,
+        "requires_bow_solution": false,
+        "cadence_status": "CANON_BASE_TECHNOLOGY"
+      }
+    },
+    {
+      "id": "W_TORPEDO",
+      "name": "Disruptor torpedo",
+      "physical": {
+        "status": "CANON",
+        "description": "Short-range anti-ship mass-field weapon; numerical damage and cadence are SIM",
+        "yield_kt": null,
+        "sources": [
+          "C01"
+        ],
+        "unknown_yield_is_not_zero": true
+      },
+      "sim": {
+        "status": "SIM",
+        "damage_dke": 0.7,
+        "cadence_s": 12,
+        "useful_range_km": [
+          0,
+          10
+        ],
+        "kinetic_fraction": 1.0,
+        "thermal_fraction": 0.0,
+        "heat_per_shot": 0.1,
+        "magazine_shots": 8,
+        "requires_bow_solution": false,
+        "projector_attack": true,
+        "interceptable": true,
+        "cold_launch_required": true
+      }
+    },
+    {
+      "id": "W_JAVELIN",
+      "name": "Javelin ship-mounted rack",
+      "physical": {
+        "status": "CANON",
+        "description": "Ship-mounted disruptor salvo system; not the infantry weapon",
+        "yield_kt": null,
+        "sources": [
+          "C01"
+        ],
+        "unknown_yield_is_not_zero": true
+      },
+      "sim": {
+        "status": "SIM",
+        "damage_dke": 1.3,
+        "cadence_s": 20,
+        "useful_range_km": [
+          0,
+          10
+        ],
+        "kinetic_fraction": 1.0,
+        "thermal_fraction": 0.0,
+        "heat_per_shot": 0.1,
+        "magazine_shots": 4,
+        "requires_bow_solution": false,
+        "projector_attack": true,
+        "interceptable": true,
+        "cold_launch_required": true
+      }
+    },
+    {
+      "id": "W_GARDIAN",
+      "name": "GARDIAN laser network",
+      "physical": {
+        "status": "CANON",
+        "description": "Heat-limited laser point defence; yield and engagement budget are SIM",
+        "yield_kt": null,
+        "sources": [
+          "C01"
+        ],
+        "unknown_yield_is_not_zero": true
+      },
+      "sim": {
+        "status": "SIM",
+        "damage_dke": 0.01,
+        "cadence_s": 1,
+        "useful_range_km": [
+          0,
+          10
+        ],
+        "kinetic_fraction": 0.0,
+        "thermal_fraction": 1.0,
+        "heat_per_shot": 0.1,
+        "magazine_shots": null,
+        "requires_bow_solution": false,
+        "point_defence": true
+      }
+    },
+    {
+      "id": "W_REAPER_MAIN",
+      "name": "Capital Reaper main weapon",
+      "physical": {
+        "status": "CANON",
+        "description": "Capital main weapon estimate is 132–454 kt; model selects 300 kt",
+        "yield_kt": [
+          132,
+          454
+        ],
+        "sources": [
+          "C02"
+        ],
+        "unknown_yield_is_not_zero": true
+      },
+      "sim": {
+        "status": "SIM",
+        "damage_dke": 7.7478492342116425,
+        "cadence_s": 6,
+        "useful_range_km": [
+          5000,
+          150000
+        ],
+        "kinetic_fraction": 0.65,
+        "thermal_fraction": 0.35,
+        "heat_per_shot": 0.1,
+        "magazine_shots": 100,
+        "requires_bow_solution": false,
+        "selected_packet_yield_kt": 300
+      }
+    },
+    {
+      "id": "W_REAPER_DESTROYER",
+      "name": "Reaper destroyer main weapon",
+      "physical": {
+        "status": "CANON",
+        "description": "Anti-ship main weapon; canonical numerical yield unknown",
+        "yield_kt": null,
+        "sources": [
+          "C02"
+        ],
+        "unknown_yield_is_not_zero": true
+      },
+      "sim": {
+        "status": "SIM",
+        "damage_dke": 0.3099139693684657,
+        "cadence_s": 2,
+        "useful_range_km": [
+          100,
+          40000
+        ],
+        "kinetic_fraction": 0.65,
+        "thermal_fraction": 0.35,
+        "heat_per_shot": 0.1,
+        "magazine_shots": 100,
+        "requires_bow_solution": false,
+        "selected_packet_yield_kt": 12
+      }
+    },
+    {
+      "id": "W_OCULUS",
+      "name": "Oculus strike weapons",
+      "physical": {
+        "status": "CANON",
+        "description": "Reaper combat drone armament; exact specification unknown",
+        "yield_kt": null,
+        "sources": [
+          "G02"
+        ],
+        "unknown_yield_is_not_zero": true
+      },
+      "sim": {
+        "status": "SIM",
+        "damage_dke": 0.006,
+        "cadence_s": 1,
+        "useful_range_km": [
+          0,
+          100
+        ],
+        "kinetic_fraction": 0.7,
+        "thermal_fraction": 0.30000000000000004,
+        "heat_per_shot": 0.1,
+        "magazine_shots": 100,
+        "requires_bow_solution": false
+      }
+    },
+    {
+      "id": "W_LIGHT_DEFENCE",
+      "name": "Auxiliary defensive mount",
+      "physical": {
+        "status": "AU_PROPOSAL",
+        "description": null,
+        "yield_kt": null,
+        "sources": [],
+        "unknown_yield_is_not_zero": true
+      },
+      "sim": {
+        "status": "SIM",
+        "damage_dke": 0.002,
+        "cadence_s": 2,
+        "useful_range_km": [
+          0,
+          1000
+        ],
+        "kinetic_fraction": 1.0,
+        "thermal_fraction": 0.0,
+        "heat_per_shot": 0.1,
+        "magazine_shots": 100,
+        "requires_bow_solution": false
+      }
+    }
+  ],
+  "hull_profiles": [
+    {
+      "id": "DN_STD",
+      "name": "Line dreadnought",
+      "role": "dreadnought",
+      "canon": {
+        "length_m": [
+          800,
+          1000
+        ],
+        "mass_t": null,
+        "barrier_capacity": null,
+        "hull_durability": null,
+        "sources": [
+          "C01"
+        ],
+        "crew_complement": null,
+        "maximum_acceleration_m_s2": null,
+        "combat_turn_rate_deg_s": null,
+        "maximum_sublight_speed_m_s": null,
+        "power_output_w": null
+      },
+      "design": {
+        "status": "AU_PROPOSAL",
+        "render_length_m": 900,
+        "bookkeeping_rest_mass_t": 6000000,
+        "notes": [],
+        "proposed_crew_complement": 2400
+      },
+      "sim": {
+        "status": "SIM",
+        "barrier_dke": 1.4,
+        "structure_dke": 1.0,
+        "barrier_recovery_dke_s": 0.06,
+        "pd_weighted_engagement_budget_s": 12,
+        "operational_readiness": 0.9,
+        "thermal_armour_coupling": 0.5,
+        "weapons": [
+          {
+            "weapon_id": "W_DN",
+            "channels": 1
+          },
+          {
+            "weapon_id": "W_GARDIAN",
+            "channels": 1
+          }
+        ],
+        "heat_capacity": 1.0,
+        "cooling_per_s": 0.025,
+        "heat_lockout_threshold": 0.95,
+        "recovery_requires_projectors": true,
+        "rebuild_destroyed_systems_in_combat": false,
+        "withdraw_structure_fraction": 0.25,
+        "mobility_rating": 0.2,
+        "mobility_rating_warning": "Relative game tuning only; not a physical acceleration or angular rate."
+      }
+    },
+    {
+      "id": "CA_HEAVY",
+      "name": "Heavy cruiser",
+      "role": "heavy_cruiser",
+      "canon": {
+        "length_m": null,
+        "mass_t": null,
+        "barrier_capacity": null,
+        "hull_durability": null,
+        "sources": [],
+        "crew_complement": null,
+        "maximum_acceleration_m_s2": null,
+        "combat_turn_rate_deg_s": null,
+        "maximum_sublight_speed_m_s": null,
+        "power_output_w": null
+      },
+      "design": {
+        "status": "AU_PROPOSAL",
+        "render_length_m": 650,
+        "bookkeeping_rest_mass_t": 1400000,
+        "notes": [],
+        "proposed_crew_complement": 600
+      },
+      "sim": {
+        "status": "SIM",
+        "barrier_dke": 0.65,
+        "structure_dke": 0.55,
+        "barrier_recovery_dke_s": 0.035,
+        "pd_weighted_engagement_budget_s": 10,
+        "operational_readiness": 0.9,
+        "thermal_armour_coupling": 0.5,
+        "weapons": [
+          {
+            "weapon_id": "W_CA",
+            "channels": 1
+          },
+          {
+            "weapon_id": "W_GARDIAN",
+            "channels": 1
+          }
+        ],
+        "heat_capacity": 1.0,
+        "cooling_per_s": 0.025,
+        "heat_lockout_threshold": 0.95,
+        "recovery_requires_projectors": true,
+        "rebuild_destroyed_systems_in_combat": false,
+        "withdraw_structure_fraction": 0.25,
+        "mobility_rating": 0.35,
+        "mobility_rating_warning": "Relative game tuning only; not a physical acceleration or angular rate."
+      }
+    },
+    {
+      "id": "CL_STD",
+      "name": "Patrol cruiser",
+      "role": "cruiser",
+      "canon": {
+        "length_m": null,
+        "mass_t": null,
+        "barrier_capacity": null,
+        "hull_durability": null,
+        "sources": [],
+        "crew_complement": null,
+        "maximum_acceleration_m_s2": null,
+        "combat_turn_rate_deg_s": null,
+        "maximum_sublight_speed_m_s": null,
+        "power_output_w": null
+      },
+      "design": {
+        "status": "AU_PROPOSAL",
+        "render_length_m": 450,
+        "bookkeeping_rest_mass_t": 600000,
+        "notes": [],
+        "proposed_crew_complement": 250
+      },
+      "sim": {
+        "status": "SIM",
+        "barrier_dke": 0.35,
+        "structure_dke": 0.25,
+        "barrier_recovery_dke_s": 0.025,
+        "pd_weighted_engagement_budget_s": 6,
+        "operational_readiness": 0.88,
+        "thermal_armour_coupling": 0.5,
+        "weapons": [
+          {
+            "weapon_id": "W_CL",
+            "channels": 1
+          },
+          {
+            "weapon_id": "W_GARDIAN",
+            "channels": 1
+          }
+        ],
+        "heat_capacity": 1.0,
+        "cooling_per_s": 0.025,
+        "heat_lockout_threshold": 0.95,
+        "recovery_requires_projectors": true,
+        "rebuild_destroyed_systems_in_combat": false,
+        "withdraw_structure_fraction": 0.25,
+        "mobility_rating": 0.45,
+        "mobility_rating_warning": "Relative game tuning only; not a physical acceleration or angular rate."
+      }
+    },
+    {
+      "id": "FF_STD",
+      "name": "Fleet frigate",
+      "role": "frigate",
+      "canon": {
+        "length_m": null,
+        "mass_t": null,
+        "barrier_capacity": null,
+        "hull_durability": null,
+        "sources": [],
+        "crew_complement": null,
+        "maximum_acceleration_m_s2": null,
+        "combat_turn_rate_deg_s": null,
+        "maximum_sublight_speed_m_s": null,
+        "power_output_w": null
+      },
+      "design": {
+        "status": "AU_PROPOSAL",
+        "render_length_m": 180,
+        "bookkeeping_rest_mass_t": 45000,
+        "notes": [],
+        "proposed_crew_complement": 45
+      },
+      "sim": {
+        "status": "SIM",
+        "barrier_dke": 0.12,
+        "structure_dke": 0.08,
+        "barrier_recovery_dke_s": 0.012,
+        "pd_weighted_engagement_budget_s": 4,
+        "operational_readiness": 0.86,
+        "thermal_armour_coupling": 0.5,
+        "weapons": [
+          {
+            "weapon_id": "W_FF",
+            "channels": 1
+          },
+          {
+            "weapon_id": "W_GARDIAN",
+            "channels": 1
+          }
+        ],
+        "heat_capacity": 1.0,
+        "cooling_per_s": 0.025,
+        "heat_lockout_threshold": 0.95,
+        "recovery_requires_projectors": true,
+        "rebuild_destroyed_systems_in_combat": false,
+        "withdraw_structure_fraction": 0.25,
+        "mobility_rating": 0.75,
+        "mobility_rating_warning": "Relative game tuning only; not a physical acceleration or angular rate."
+      }
+    },
+    {
+      "id": "FF_THANIX",
+      "name": "Thanix-refit frigate",
+      "role": "frigate",
+      "canon": {
+        "length_m": null,
+        "mass_t": null,
+        "barrier_capacity": null,
+        "hull_durability": null,
+        "sources": [
+          "C01"
+        ],
+        "crew_complement": null,
+        "maximum_acceleration_m_s2": null,
+        "combat_turn_rate_deg_s": null,
+        "maximum_sublight_speed_m_s": null,
+        "power_output_w": null
+      },
+      "design": {
+        "status": "AU_PROPOSAL",
+        "render_length_m": 180,
+        "bookkeeping_rest_mass_t": 48000,
+        "notes": [
+          "Actual retrofit variant; do not apply to every frigate automatically."
+        ],
+        "proposed_crew_complement": 50
+      },
+      "sim": {
+        "status": "SIM",
+        "barrier_dke": 0.12,
+        "structure_dke": 0.08,
+        "barrier_recovery_dke_s": 0.012,
+        "pd_weighted_engagement_budget_s": 4,
+        "operational_readiness": 0.86,
+        "thermal_armour_coupling": 0.5,
+        "weapons": [
+          {
+            "weapon_id": "W_THANIX",
+            "channels": 1
+          },
+          {
+            "weapon_id": "W_JAVELIN",
+            "channels": 1
+          },
+          {
+            "weapon_id": "W_GARDIAN",
+            "channels": 1
+          }
+        ],
+        "heat_capacity": 1.0,
+        "cooling_per_s": 0.025,
+        "heat_lockout_threshold": 0.95,
+        "recovery_requires_projectors": true,
+        "rebuild_destroyed_systems_in_combat": false,
+        "withdraw_structure_fraction": 0.25,
+        "mobility_rating": 0.75,
+        "mobility_rating_warning": "Relative game tuning only; not a physical acceleration or angular rate."
+      }
+    },
+    {
+      "id": "COR_AUX",
+      "name": "Auxiliary corvette",
+      "role": "corvette",
+      "canon": {
+        "length_m": null,
+        "mass_t": null,
+        "barrier_capacity": null,
+        "hull_durability": null,
+        "sources": [],
+        "crew_complement": null,
+        "maximum_acceleration_m_s2": null,
+        "combat_turn_rate_deg_s": null,
+        "maximum_sublight_speed_m_s": null,
+        "power_output_w": null
+      },
+      "design": {
+        "status": "AU_PROPOSAL",
+        "render_length_m": 85,
+        "bookkeeping_rest_mass_t": 9000,
+        "notes": [],
+        "proposed_crew_complement": 12
+      },
+      "sim": {
+        "status": "SIM",
+        "barrier_dke": 0.035,
+        "structure_dke": 0.025,
+        "barrier_recovery_dke_s": 0.004,
+        "pd_weighted_engagement_budget_s": 1,
+        "operational_readiness": 0.78,
+        "thermal_armour_coupling": 0.5,
+        "weapons": [
+          {
+            "weapon_id": "W_COR",
+            "channels": 1
+          }
+        ],
+        "heat_capacity": 1.0,
+        "cooling_per_s": 0.025,
+        "heat_lockout_threshold": 0.95,
+        "recovery_requires_projectors": true,
+        "rebuild_destroyed_systems_in_combat": false,
+        "withdraw_structure_fraction": 0.25,
+        "mobility_rating": 0.85,
+        "mobility_rating_warning": "Relative game tuning only; not a physical acceleration or angular rate."
+      }
+    },
+    {
+      "id": "CV_STD",
+      "name": "Fleet carrier",
+      "role": "carrier",
+      "canon": {
+        "length_m": null,
+        "mass_t": null,
+        "barrier_capacity": null,
+        "hull_durability": null,
+        "sources": [],
+        "crew_complement": null,
+        "maximum_acceleration_m_s2": null,
+        "combat_turn_rate_deg_s": null,
+        "maximum_sublight_speed_m_s": null,
+        "power_output_w": null
+      },
+      "design": {
+        "status": "AU_PROPOSAL",
+        "render_length_m": 900,
+        "bookkeeping_rest_mass_t": 4000000,
+        "notes": [],
+        "proposed_crew_complement": 2000
+      },
+      "sim": {
+        "status": "SIM",
+        "barrier_dke": 0.9,
+        "structure_dke": 0.65,
+        "barrier_recovery_dke_s": 0.04,
+        "pd_weighted_engagement_budget_s": 16,
+        "operational_readiness": 0.88,
+        "thermal_armour_coupling": 0.5,
+        "weapons": [
+          {
+            "weapon_id": "W_GARDIAN",
+            "channels": 1
+          }
+        ],
+        "heat_capacity": 1.0,
+        "cooling_per_s": 0.025,
+        "heat_lockout_threshold": 0.95,
+        "recovery_requires_projectors": true,
+        "rebuild_destroyed_systems_in_combat": false,
+        "withdraw_structure_fraction": 0.25,
+        "mobility_rating": 0.15,
+        "mobility_rating_warning": "Relative game tuning only; not a physical acceleration or angular rate.",
+        "embarked_craft_capacity": 48,
+        "strike_fraction": 0.5,
+        "interceptor_fraction": 0.5
+      }
+    },
+    {
+      "id": "AUX_ARMED",
+      "name": "Armed transport conversion",
+      "role": "auxiliary",
+      "canon": {
+        "length_m": null,
+        "mass_t": null,
+        "barrier_capacity": null,
+        "hull_durability": null,
+        "sources": [],
+        "crew_complement": null,
+        "maximum_acceleration_m_s2": null,
+        "combat_turn_rate_deg_s": null,
+        "maximum_sublight_speed_m_s": null,
+        "power_output_w": null
+      },
+      "design": {
+        "status": "AU_PROPOSAL",
+        "render_length_m": 500,
+        "bookkeeping_rest_mass_t": 900000,
+        "notes": [
+          "Capacity and structural penalties must reflect the actual conversion."
+        ],
+        "proposed_crew_complement": 90
+      },
+      "sim": {
+        "status": "SIM",
+        "barrier_dke": 0.15,
+        "structure_dke": 0.22,
+        "barrier_recovery_dke_s": 0.01,
+        "pd_weighted_engagement_budget_s": 2,
+        "operational_readiness": 0.72,
+        "thermal_armour_coupling": 0.5,
+        "weapons": [
+          {
+            "weapon_id": "W_CL",
+            "channels": 1
+          },
+          {
+            "weapon_id": "W_LIGHT_DEFENCE",
+            "channels": 1
+          }
+        ],
+        "heat_capacity": 1.0,
+        "cooling_per_s": 0.025,
+        "heat_lockout_threshold": 0.95,
+        "recovery_requires_projectors": true,
+        "rebuild_destroyed_systems_in_combat": false,
+        "withdraw_structure_fraction": 0.25,
+        "mobility_rating": 0.25,
+        "mobility_rating_warning": "Relative game tuning only; not a physical acceleration or angular rate."
+      }
+    },
+    {
+      "id": "PLATFORM_HEAVY",
+      "name": "Fixed heavy defence platform",
+      "role": "fixed_platform",
+      "canon": {
+        "length_m": null,
+        "mass_t": null,
+        "barrier_capacity": null,
+        "hull_durability": null,
+        "sources": [],
+        "crew_complement": null,
+        "maximum_acceleration_m_s2": null,
+        "combat_turn_rate_deg_s": null,
+        "maximum_sublight_speed_m_s": null,
+        "power_output_w": null
+      },
+      "design": {
+        "status": "AU_PROPOSAL",
+        "render_length_m": 1200,
+        "bookkeeping_rest_mass_t": 15000000,
+        "notes": [
+          "Fixed strategic position; no fleet-pursuit movement."
+        ],
+        "proposed_crew_complement": 1200
+      },
+      "sim": {
+        "status": "SIM",
+        "barrier_dke": 3.5,
+        "structure_dke": 4,
+        "barrier_recovery_dke_s": 0.08,
+        "pd_weighted_engagement_budget_s": 20,
+        "operational_readiness": 0.93,
+        "thermal_armour_coupling": 0.5,
+        "weapons": [
+          {
+            "weapon_id": "W_DN",
+            "channels": 2
+          },
+          {
+            "weapon_id": "W_GARDIAN",
+            "channels": 1
+          }
+        ],
+        "heat_capacity": 1.0,
+        "cooling_per_s": 0.025,
+        "heat_lockout_threshold": 0.95,
+        "recovery_requires_projectors": true,
+        "rebuild_destroyed_systems_in_combat": false,
+        "withdraw_structure_fraction": 0.25,
+        "mobility_rating": 0.0,
+        "mobility_rating_warning": "Relative game tuning only; not a physical acceleration or angular rate."
+      }
+    },
+    {
+      "id": "DN_VALKYRIE",
+      "name": "Normandy Valkyrie core profile",
+      "role": "dreadnought",
+      "canon": {
+        "length_m": null,
+        "mass_t": null,
+        "barrier_capacity": null,
+        "hull_durability": null,
+        "sources": [],
+        "crew_complement": null,
+        "maximum_acceleration_m_s2": null,
+        "combat_turn_rate_deg_s": null,
+        "maximum_sublight_speed_m_s": null,
+        "power_output_w": null
+      },
+      "design": {
+        "status": "AU_PROPOSAL",
+        "render_length_m": 2000,
+        "bookkeeping_rest_mass_t": 18000000,
+        "notes": [
+          "Length is AU LOCK, all engineering values are AU PROPOSAL or SIM.",
+          "One ship counted within Alliance 48 dreadnoughts.",
+          "Limited emission control, no planetary landing."
+        ],
+        "proposed_crew_complement": 3200
+      },
+      "sim": {
+        "status": "SIM",
+        "barrier_dke": 4,
+        "structure_dke": 2.5,
+        "barrier_recovery_dke_s": 0.14,
+        "pd_weighted_engagement_budget_s": 30,
+        "operational_readiness": 0.96,
+        "thermal_armour_coupling": 0.5,
+        "weapons": [
+          {
+            "weapon_id": "W_NOVA_CORE",
+            "channels": 1
+          },
+          {
+            "weapon_id": "W_THANIX_HEAVY",
+            "channels": 3
+          },
+          {
+            "weapon_id": "W_GARDIAN",
+            "channels": 1
+          }
+        ],
+        "heat_capacity": 1.0,
+        "cooling_per_s": 0.025,
+        "heat_lockout_threshold": 0.95,
+        "recovery_requires_projectors": true,
+        "rebuild_destroyed_systems_in_combat": false,
+        "withdraw_structure_fraction": 0.25,
+        "mobility_rating": 0.2,
+        "mobility_rating_warning": "Relative game tuning only; not a physical acceleration or angular rate."
+      }
+    },
+    {
+      "id": "DN_CERBERUS",
+      "name": "Black Fleet specialist dreadnought",
+      "role": "dreadnought",
+      "canon": {
+        "length_m": null,
+        "mass_t": null,
+        "barrier_capacity": null,
+        "hull_durability": null,
+        "sources": [],
+        "crew_complement": null,
+        "maximum_acceleration_m_s2": null,
+        "combat_turn_rate_deg_s": null,
+        "maximum_sublight_speed_m_s": null,
+        "power_output_w": null
+      },
+      "design": {
+        "status": "AU_PROPOSAL",
+        "render_length_m": 1000,
+        "bookkeeping_rest_mass_t": 7000000,
+        "notes": [
+          "Finite HADES payload inventory, no unlimited nuclear damage."
+        ],
+        "proposed_crew_complement": 2500
+      },
+      "sim": {
+        "status": "SIM",
+        "barrier_dke": 1.7,
+        "structure_dke": 1.2,
+        "barrier_recovery_dke_s": 0.075,
+        "pd_weighted_engagement_budget_s": 16,
+        "operational_readiness": 0.94,
+        "thermal_armour_coupling": 0.5,
+        "weapons": [
+          {
+            "weapon_id": "W_TITAN",
+            "channels": 1
+          },
+          {
+            "weapon_id": "W_THANIX_HEAVY",
+            "channels": 1
+          },
+          {
+            "weapon_id": "W_GARDIAN",
+            "channels": 1
+          }
+        ],
+        "heat_capacity": 1.0,
+        "cooling_per_s": 0.025,
+        "heat_lockout_threshold": 0.95,
+        "recovery_requires_projectors": true,
+        "rebuild_destroyed_systems_in_combat": false,
+        "withdraw_structure_fraction": 0.25,
+        "mobility_rating": 0.2,
+        "mobility_rating_warning": "Relative game tuning only; not a physical acceleration or angular rate."
+      }
+    },
+    {
+      "id": "FTR_INTERCEPTOR",
+      "name": "Interceptor",
+      "role": "interceptor",
+      "canon": {
+        "length_m": null,
+        "mass_t": null,
+        "barrier_capacity": null,
+        "hull_durability": null,
+        "sources": [],
+        "crew_complement": null,
+        "maximum_acceleration_m_s2": null,
+        "combat_turn_rate_deg_s": null,
+        "maximum_sublight_speed_m_s": null,
+        "power_output_w": null
+      },
+      "design": {
+        "status": "AU_PROPOSAL",
+        "render_length_m": 15,
+        "bookkeeping_rest_mass_t": 20,
+        "notes": [],
+        "proposed_crew_complement": 1
+      },
+      "sim": {
+        "status": "SIM",
+        "barrier_dke": 0.002,
+        "structure_dke": 0.001,
+        "barrier_recovery_dke_s": 0.0002,
+        "pd_weighted_engagement_budget_s": 0,
+        "operational_readiness": 0.88,
+        "thermal_armour_coupling": 0.5,
+        "weapons": [
+          {
+            "weapon_id": "W_LIGHT_DEFENCE",
+            "channels": 1
+          }
+        ],
+        "heat_capacity": 1.0,
+        "cooling_per_s": 0.025,
+        "heat_lockout_threshold": 0.95,
+        "recovery_requires_projectors": true,
+        "rebuild_destroyed_systems_in_combat": false,
+        "withdraw_structure_fraction": 0.25,
+        "mobility_rating": 1.0,
+        "mobility_rating_warning": "Relative game tuning only; not a physical acceleration or angular rate."
+      }
+    },
+    {
+      "id": "FTR_TORPEDO",
+      "name": "Torpedo strike craft",
+      "role": "strike_craft",
+      "canon": {
+        "length_m": null,
+        "mass_t": null,
+        "barrier_capacity": null,
+        "hull_durability": null,
+        "sources": [],
+        "crew_complement": null,
+        "maximum_acceleration_m_s2": null,
+        "combat_turn_rate_deg_s": null,
+        "maximum_sublight_speed_m_s": null,
+        "power_output_w": null
+      },
+      "design": {
+        "status": "AU_PROPOSAL",
+        "render_length_m": 22,
+        "bookkeeping_rest_mass_t": 45,
+        "notes": [],
+        "proposed_crew_complement": 1
+      },
+      "sim": {
+        "status": "SIM",
+        "barrier_dke": 0.003,
+        "structure_dke": 0.002,
+        "barrier_recovery_dke_s": 0.0002,
+        "pd_weighted_engagement_budget_s": 0,
+        "operational_readiness": 0.86,
+        "thermal_armour_coupling": 0.5,
+        "weapons": [
+          {
+            "weapon_id": "W_TORPEDO",
+            "channels": 1
+          }
+        ],
+        "heat_capacity": 1.0,
+        "cooling_per_s": 0.025,
+        "heat_lockout_threshold": 0.95,
+        "recovery_requires_projectors": true,
+        "rebuild_destroyed_systems_in_combat": false,
+        "withdraw_structure_fraction": 0.25,
+        "mobility_rating": 0.9,
+        "mobility_rating_warning": "Relative game tuning only; not a physical acceleration or angular rate."
+      }
+    },
+    {
+      "id": "RR_CAP",
+      "name": "Sovereign-class Reaper",
+      "role": "capital_reaper",
+      "canon": {
+        "length_m": [
+          2000,
+          2000
+        ],
+        "mass_t": null,
+        "barrier_capacity": null,
+        "hull_durability": null,
+        "sources": [
+          "C02"
+        ],
+        "crew_complement": null,
+        "maximum_acceleration_m_s2": null,
+        "combat_turn_rate_deg_s": null,
+        "maximum_sublight_speed_m_s": null,
+        "power_output_w": null
+      },
+      "design": {
+        "status": "AU_PROPOSAL",
+        "render_length_m": 2000,
+        "bookkeeping_rest_mass_t": 20000000,
+        "notes": [
+          "Mass is a SIM placeholder; do not present as measured canon."
+        ],
+        "proposed_crew_complement": 0,
+        "crew_zero_means": "No conventional organic bridge crew; capital/destroyer machine intelligence is not counted as a crew complement."
+      },
+      "sim": {
+        "status": "SIM",
+        "barrier_dke": 6,
+        "structure_dke": 4,
+        "barrier_recovery_dke_s": 1.1,
+        "pd_weighted_engagement_budget_s": 32,
+        "operational_readiness": 0.99,
+        "thermal_armour_coupling": 0.5,
+        "weapons": [
+          {
+            "weapon_id": "W_REAPER_MAIN",
+            "channels": 1
+          },
+          {
+            "weapon_id": "W_GARDIAN",
+            "channels": 1
+          }
+        ],
+        "heat_capacity": 1.0,
+        "cooling_per_s": 0.025,
+        "heat_lockout_threshold": 0.95,
+        "recovery_requires_projectors": true,
+        "rebuild_destroyed_systems_in_combat": false,
+        "withdraw_structure_fraction": 0.15,
+        "mobility_rating": 0.3,
+        "mobility_rating_warning": "Relative game tuning only; not a physical acceleration or angular rate.",
+        "organic_fuel_requirement": false,
+        "organic_core_discharge_requirement": false,
+        "surface_mass_reduction_barrier_multiplier": 0.65,
+        "surface_multiplier_status": "SIM based on qualitative canon vulnerability"
+      }
+    },
+    {
+      "id": "RR_HARBINGER",
+      "name": "Harbinger scenario profile",
+      "role": "capital_reaper",
+      "canon": {
+        "length_m": null,
+        "mass_t": null,
+        "barrier_capacity": null,
+        "hull_durability": null,
+        "sources": [
+          "C02"
+        ],
+        "crew_complement": null,
+        "maximum_acceleration_m_s2": null,
+        "combat_turn_rate_deg_s": null,
+        "maximum_sublight_speed_m_s": null,
+        "power_output_w": null
+      },
+      "design": {
+        "status": "AU_PROPOSAL",
+        "render_length_m": 2200,
+        "bookkeeping_rest_mass_t": 30000000,
+        "notes": [
+          "Canonical exact size and power multiplier unknown.",
+          "Render size and 1.5x durability are SIM/AU choices.",
+          "Counts as one of the 2000 capitals, not an extra ship."
+        ],
+        "proposed_crew_complement": 0,
+        "crew_zero_means": "No conventional organic bridge crew; capital/destroyer machine intelligence is not counted as a crew complement."
+      },
+      "sim": {
+        "status": "SIM",
+        "barrier_dke": 9,
+        "structure_dke": 6,
+        "barrier_recovery_dke_s": 1.1,
+        "pd_weighted_engagement_budget_s": 40,
+        "operational_readiness": 0.99,
+        "thermal_armour_coupling": 0.5,
+        "weapons": [
+          {
+            "weapon_id": "W_REAPER_MAIN",
+            "channels": 1
+          },
+          {
+            "weapon_id": "W_GARDIAN",
+            "channels": 1
+          }
+        ],
+        "heat_capacity": 1.0,
+        "cooling_per_s": 0.025,
+        "heat_lockout_threshold": 0.95,
+        "recovery_requires_projectors": true,
+        "rebuild_destroyed_systems_in_combat": false,
+        "withdraw_structure_fraction": 0.15,
+        "mobility_rating": 0.3,
+        "mobility_rating_warning": "Relative game tuning only; not a physical acceleration or angular rate.",
+        "organic_fuel_requirement": false,
+        "organic_core_discharge_requirement": false,
+        "surface_mass_reduction_barrier_multiplier": 0.65,
+        "surface_multiplier_status": "SIM based on qualitative canon vulnerability"
+      }
+    },
+    {
+      "id": "RR_DESTROYER",
+      "name": "Reaper destroyer",
+      "role": "reaper_destroyer",
+      "canon": {
+        "length_m": [
+          160,
+          160
+        ],
+        "mass_t": null,
+        "barrier_capacity": null,
+        "hull_durability": null,
+        "sources": [
+          "C02"
+        ],
+        "crew_complement": null,
+        "maximum_acceleration_m_s2": null,
+        "combat_turn_rate_deg_s": null,
+        "maximum_sublight_speed_m_s": null,
+        "power_output_w": null
+      },
+      "design": {
+        "status": "AU_PROPOSAL",
+        "render_length_m": 160,
+        "bookkeeping_rest_mass_t": 120000,
+        "notes": [],
+        "proposed_crew_complement": 0,
+        "crew_zero_means": "No conventional organic bridge crew; capital/destroyer machine intelligence is not counted as a crew complement."
+      },
+      "sim": {
+        "status": "SIM",
+        "barrier_dke": 0.22,
+        "structure_dke": 0.16,
+        "barrier_recovery_dke_s": 0.018,
+        "pd_weighted_engagement_budget_s": 3,
+        "operational_readiness": 0.99,
+        "thermal_armour_coupling": 0.5,
+        "weapons": [
+          {
+            "weapon_id": "W_REAPER_DESTROYER",
+            "channels": 1
+          }
+        ],
+        "heat_capacity": 1.0,
+        "cooling_per_s": 0.025,
+        "heat_lockout_threshold": 0.95,
+        "recovery_requires_projectors": true,
+        "rebuild_destroyed_systems_in_combat": false,
+        "withdraw_structure_fraction": 0.15,
+        "mobility_rating": 0.8,
+        "mobility_rating_warning": "Relative game tuning only; not a physical acceleration or angular rate.",
+        "organic_fuel_requirement": false,
+        "organic_core_discharge_requirement": false
+      }
+    },
+    {
+      "id": "RR_TRANSPORT",
+      "name": "Reaper transport",
+      "role": "reaper_transport",
+      "canon": {
+        "length_m": [
+          200,
+          1000
+        ],
+        "mass_t": null,
+        "barrier_capacity": null,
+        "hull_durability": null,
+        "sources": [
+          "C02"
+        ],
+        "crew_complement": null,
+        "maximum_acceleration_m_s2": null,
+        "combat_turn_rate_deg_s": null,
+        "maximum_sublight_speed_m_s": null,
+        "power_output_w": null
+      },
+      "design": {
+        "status": "AU_PROPOSAL",
+        "render_length_m": 600,
+        "bookkeeping_rest_mass_t": null,
+        "notes": [
+          "Remote control dependency differs from self-aware capital ships."
+        ],
+        "proposed_crew_complement": 0,
+        "crew_zero_means": "No conventional organic bridge crew; capital/destroyer machine intelligence is not counted as a crew complement."
+      },
+      "sim": {
+        "status": "SIM",
+        "barrier_dke": 0.08,
+        "structure_dke": 0.12,
+        "barrier_recovery_dke_s": 0.005,
+        "pd_weighted_engagement_budget_s": 1,
+        "operational_readiness": 0.95,
+        "thermal_armour_coupling": 0.5,
+        "weapons": [
+          {
+            "weapon_id": "W_LIGHT_DEFENCE",
+            "channels": 1
+          }
+        ],
+        "heat_capacity": 1.0,
+        "cooling_per_s": 0.025,
+        "heat_lockout_threshold": 0.95,
+        "recovery_requires_projectors": true,
+        "rebuild_destroyed_systems_in_combat": false,
+        "withdraw_structure_fraction": 0.15,
+        "mobility_rating": 0.4,
+        "mobility_rating_warning": "Relative game tuning only; not a physical acceleration or angular rate.",
+        "organic_fuel_requirement": false,
+        "organic_core_discharge_requirement": false
+      }
+    },
+    {
+      "id": "RR_PROCESSOR",
+      "name": "Reaper processor",
+      "role": "reaper_processor",
+      "canon": {
+        "length_m": null,
+        "mass_t": null,
+        "barrier_capacity": null,
+        "hull_durability": null,
+        "sources": [
+          "C02"
+        ],
+        "crew_complement": null,
+        "maximum_acceleration_m_s2": null,
+        "combat_turn_rate_deg_s": null,
+        "maximum_sublight_speed_m_s": null,
+        "power_output_w": null
+      },
+      "design": {
+        "status": "AU_PROPOSAL",
+        "render_length_m": 800,
+        "bookkeeping_rest_mass_t": null,
+        "notes": [
+          "Canonical size unspecified; 800 m is a render placeholder."
+        ],
+        "proposed_crew_complement": 0,
+        "crew_zero_means": "No conventional organic bridge crew; capital/destroyer machine intelligence is not counted as a crew complement."
+      },
+      "sim": {
+        "status": "SIM",
+        "barrier_dke": 0.18,
+        "structure_dke": 0.4,
+        "barrier_recovery_dke_s": 0.008,
+        "pd_weighted_engagement_budget_s": 4,
+        "operational_readiness": 0.95,
+        "thermal_armour_coupling": 0.5,
+        "weapons": [
+          {
+            "weapon_id": "W_LIGHT_DEFENCE",
+            "channels": 1
+          }
+        ],
+        "heat_capacity": 1.0,
+        "cooling_per_s": 0.025,
+        "heat_lockout_threshold": 0.95,
+        "recovery_requires_projectors": true,
+        "rebuild_destroyed_systems_in_combat": false,
+        "withdraw_structure_fraction": 0.15,
+        "mobility_rating": 0.2,
+        "mobility_rating_warning": "Relative game tuning only; not a physical acceleration or angular rate.",
+        "organic_fuel_requirement": false,
+        "organic_core_discharge_requirement": false
+      }
+    },
+    {
+      "id": "SUPPORT_TANKER",
+      "name": "Coalition tanker",
+      "role": "support",
+      "canon": {
+        "length_m": null,
+        "mass_t": null,
+        "barrier_capacity": null,
+        "hull_durability": null,
+        "sources": [],
+        "crew_complement": null,
+        "maximum_acceleration_m_s2": null,
+        "combat_turn_rate_deg_s": null,
+        "maximum_sublight_speed_m_s": null,
+        "power_output_w": null
+      },
+      "design": {
+        "status": "AU_PROPOSAL",
+        "render_length_m": 500,
+        "bookkeeping_rest_mass_t": 500000,
+        "notes": [],
+        "proposed_crew_complement": 60
+      },
+      "sim": {
+        "status": "SIM",
+        "barrier_dke": 0.05,
+        "structure_dke": 0.15,
+        "barrier_recovery_dke_s": 0.003,
+        "pd_weighted_engagement_budget_s": 1,
+        "operational_readiness": 0.8,
+        "thermal_armour_coupling": 0.5,
+        "weapons": [
+          {
+            "weapon_id": "W_LIGHT_DEFENCE",
+            "channels": 1
+          }
+        ],
+        "heat_capacity": 1.0,
+        "cooling_per_s": 0.025,
+        "heat_lockout_threshold": 0.95,
+        "recovery_requires_projectors": true,
+        "rebuild_destroyed_systems_in_combat": false,
+        "withdraw_structure_fraction": 0.25,
+        "mobility_rating": 0.2,
+        "mobility_rating_warning": "Relative game tuning only; not a physical acceleration or angular rate."
+      }
+    },
+    {
+      "id": "SUPPORT_REPAIR",
+      "name": "Coalition repair vessel",
+      "role": "support",
+      "canon": {
+        "length_m": null,
+        "mass_t": null,
+        "barrier_capacity": null,
+        "hull_durability": null,
+        "sources": [],
+        "crew_complement": null,
+        "maximum_acceleration_m_s2": null,
+        "combat_turn_rate_deg_s": null,
+        "maximum_sublight_speed_m_s": null,
+        "power_output_w": null
+      },
+      "design": {
+        "status": "AU_PROPOSAL",
+        "render_length_m": 650,
+        "bookkeeping_rest_mass_t": 900000,
+        "notes": [],
+        "proposed_crew_complement": 450
+      },
+      "sim": {
+        "status": "SIM",
+        "barrier_dke": 0.1,
+        "structure_dke": 0.25,
+        "barrier_recovery_dke_s": 0.005,
+        "pd_weighted_engagement_budget_s": 2,
+        "operational_readiness": 0.85,
+        "thermal_armour_coupling": 0.5,
+        "weapons": [
+          {
+            "weapon_id": "W_LIGHT_DEFENCE",
+            "channels": 1
+          }
+        ],
+        "heat_capacity": 1.0,
+        "cooling_per_s": 0.025,
+        "heat_lockout_threshold": 0.95,
+        "recovery_requires_projectors": true,
+        "rebuild_destroyed_systems_in_combat": false,
+        "withdraw_structure_fraction": 0.25,
+        "mobility_rating": 0.2,
+        "mobility_rating_warning": "Relative game tuning only; not a physical acceleration or angular rate."
+      }
+    },
+    {
+      "id": "FF_SR1",
+      "name": "Normandy SR-1 Apex survival variant",
+      "role": "frigate",
+      "canon": {
+        "length_m": null,
+        "mass_t": null,
+        "barrier_capacity": null,
+        "hull_durability": null,
+        "sources": [
+          "G01"
+        ],
+        "crew_complement": null,
+        "maximum_acceleration_m_s2": null,
+        "combat_turn_rate_deg_s": null,
+        "maximum_sublight_speed_m_s": null,
+        "power_output_w": null
+      },
+      "design": {
+        "status": "AU_PROPOSAL",
+        "render_length_m": 155,
+        "bookkeeping_rest_mass_t": 15000,
+        "notes": [
+          "Canonical identity; render length and mass explicitly AU choices.",
+          "Temporary heat-storage stealth, not optical invisibility.",
+          "Retained after changed Collector encounter, no Lazarus destruction."
+        ],
+        "proposed_crew_complement": 45
+      },
+      "sim": {
+        "status": "SIM",
+        "barrier_dke": 0.15,
+        "structure_dke": 0.1,
+        "barrier_recovery_dke_s": 0.015,
+        "pd_weighted_engagement_budget_s": 5,
+        "operational_readiness": 0.96,
+        "thermal_armour_coupling": 0.5,
+        "weapons": [
+          {
+            "weapon_id": "W_FF",
+            "channels": 1
+          },
+          {
+            "weapon_id": "W_GARDIAN",
+            "channels": 1
+          }
+        ],
+        "heat_capacity": 1.0,
+        "cooling_per_s": 0.025,
+        "heat_lockout_threshold": 0.95,
+        "recovery_requires_projectors": true,
+        "rebuild_destroyed_systems_in_combat": false,
+        "withdraw_structure_fraction": 0.25,
+        "mobility_rating": 0.75,
+        "mobility_rating_warning": "Relative game tuning only; not a physical acceleration or angular rate."
+      }
+    },
+    {
+      "id": "FF_SR2",
+      "name": "Normandy SR-2 upgraded Apex variant",
+      "role": "frigate",
+      "canon": {
+        "length_m": null,
+        "mass_t": null,
+        "barrier_capacity": null,
+        "hull_durability": null,
+        "sources": [
+          "G02",
+          "G05"
+        ],
+        "crew_complement": null,
+        "maximum_acceleration_m_s2": null,
+        "combat_turn_rate_deg_s": null,
+        "maximum_sublight_speed_m_s": null,
+        "power_output_w": null
+      },
+      "design": {
+        "status": "AU_PROPOSAL",
+        "render_length_m": 216,
+        "bookkeeping_rest_mass_t": 50000,
+        "notes": [
+          "Canonical identity; render length and mass explicitly AU choices.",
+          "Apex procurement history does not require Shepard death."
+        ],
+        "proposed_crew_complement": 80
+      },
+      "sim": {
+        "status": "SIM",
+        "barrier_dke": 0.35,
+        "structure_dke": 0.2,
+        "barrier_recovery_dke_s": 0.03,
+        "pd_weighted_engagement_budget_s": 6,
+        "operational_readiness": 0.96,
+        "thermal_armour_coupling": 0.5,
+        "weapons": [
+          {
+            "weapon_id": "W_THANIX",
+            "channels": 2
+          },
+          {
+            "weapon_id": "W_GARDIAN",
+            "channels": 1
+          }
+        ],
+        "heat_capacity": 1.0,
+        "cooling_per_s": 0.025,
+        "heat_lockout_threshold": 0.95,
+        "recovery_requires_projectors": true,
+        "rebuild_destroyed_systems_in_combat": false,
+        "withdraw_structure_fraction": 0.25,
+        "mobility_rating": 0.75,
+        "mobility_rating_warning": "Relative game tuning only; not a physical acceleration or angular rate."
+      }
+    },
+    {
+      "id": "DN_ASCENSION",
+      "name": "Destiny Ascension model variant",
+      "role": "dreadnought",
+      "canon": {
+        "length_m": null,
+        "mass_t": null,
+        "barrier_capacity": null,
+        "hull_durability": null,
+        "sources": [
+          "G01"
+        ],
+        "crew_complement": null,
+        "maximum_acceleration_m_s2": null,
+        "combat_turn_rate_deg_s": null,
+        "maximum_sublight_speed_m_s": null,
+        "power_output_w": null
+      },
+      "design": {
+        "status": "AU_PROPOSAL",
+        "render_length_m": 1800,
+        "bookkeeping_rest_mass_t": 12000000,
+        "notes": [
+          "Canonical named ship; all numerical equipment, size and combat values here are AU/SIM."
+        ],
+        "proposed_crew_complement": 5000
+      },
+      "sim": {
+        "status": "SIM",
+        "barrier_dke": 2.4,
+        "structure_dke": 1.7,
+        "barrier_recovery_dke_s": 0.1,
+        "pd_weighted_engagement_budget_s": 24,
+        "operational_readiness": 0.94,
+        "thermal_armour_coupling": 0.5,
+        "weapons": [
+          {
+            "weapon_id": "W_DN",
+            "channels": 2
+          },
+          {
+            "weapon_id": "W_GARDIAN",
+            "channels": 1
+          }
+        ],
+        "heat_capacity": 1.0,
+        "cooling_per_s": 0.025,
+        "heat_lockout_threshold": 0.95,
+        "recovery_requires_projectors": true,
+        "rebuild_destroyed_systems_in_combat": false,
+        "withdraw_structure_fraction": 0.25,
+        "mobility_rating": 0.2,
+        "mobility_rating_warning": "Relative game tuning only; not a physical acceleration or angular rate."
+      }
+    },
+    {
+      "id": "DN_KWUNU",
+      "name": "Volus dreadnought Kwunu model variant",
+      "role": "dreadnought",
+      "canon": {
+        "length_m": null,
+        "mass_t": null,
+        "barrier_capacity": null,
+        "hull_durability": null,
+        "sources": [
+          "C11"
+        ],
+        "crew_complement": null,
+        "maximum_acceleration_m_s2": null,
+        "combat_turn_rate_deg_s": null,
+        "maximum_sublight_speed_m_s": null,
+        "power_output_w": null
+      },
+      "design": {
+        "status": "AU_PROPOSAL",
+        "render_length_m": 1000,
+        "bookkeeping_rest_mass_t": 6500000,
+        "notes": [
+          "Canonical Thanix main and broadside armament.",
+          "Numerical mount count, dimensions and performance are AU/SIM.",
+          "One ship included within minor-power dreadnought total."
+        ],
+        "proposed_crew_complement": 2000
+      },
+      "sim": {
+        "status": "SIM",
+        "barrier_dke": 1.6,
+        "structure_dke": 1.1,
+        "barrier_recovery_dke_s": 0.065,
+        "pd_weighted_engagement_budget_s": 16,
+        "operational_readiness": 0.92,
+        "thermal_armour_coupling": 0.5,
+        "weapons": [
+          {
+            "weapon_id": "W_THANIX_HEAVY",
+            "channels": 2
+          },
+          {
+            "weapon_id": "W_GARDIAN",
+            "channels": 1
+          }
+        ],
+        "heat_capacity": 1.0,
+        "cooling_per_s": 0.025,
+        "heat_lockout_threshold": 0.95,
+        "recovery_requires_projectors": true,
+        "rebuild_destroyed_systems_in_combat": false,
+        "withdraw_structure_fraction": 0.25,
+        "mobility_rating": 0.2,
+        "mobility_rating_warning": "Relative game tuning only; not a physical acceleration or angular rate."
+      }
+    },
+    {
+      "id": "DN_GETH",
+      "name": "Geth dreadnought model variant",
+      "role": "dreadnought",
+      "canon": {
+        "length_m": null,
+        "mass_t": null,
+        "barrier_capacity": null,
+        "hull_durability": null,
+        "sources": [
+          "G05"
+        ],
+        "crew_complement": null,
+        "maximum_acceleration_m_s2": null,
+        "combat_turn_rate_deg_s": null,
+        "maximum_sublight_speed_m_s": null,
+        "power_output_w": null
+      },
+      "design": {
+        "status": "AU_PROPOSAL",
+        "render_length_m": 1300,
+        "bookkeeping_rest_mass_t": 8500000,
+        "notes": [
+          "Canonical class; length, mass and combat multipliers are explicit AU choices.",
+          "Do not automatically import Reaper control upgrades into early-peace Apex."
+        ],
+        "proposed_crew_complement": 0
+      },
+      "sim": {
+        "status": "SIM",
+        "barrier_dke": 2.0,
+        "structure_dke": 1.4,
+        "barrier_recovery_dke_s": 0.085,
+        "pd_weighted_engagement_budget_s": 20,
+        "operational_readiness": 0.97,
+        "thermal_armour_coupling": 0.5,
+        "weapons": [
+          {
+            "weapon_id": "W_DN",
+            "channels": 1
+          },
+          {
+            "weapon_id": "W_GARDIAN",
+            "channels": 1
+          }
+        ],
+        "heat_capacity": 1.0,
+        "cooling_per_s": 0.025,
+        "heat_lockout_threshold": 0.95,
+        "recovery_requires_projectors": true,
+        "rebuild_destroyed_systems_in_combat": false,
+        "withdraw_structure_fraction": 0.25,
+        "mobility_rating": 0.2,
+        "mobility_rating_warning": "Relative game tuning only; not a physical acceleration or angular rate."
+      }
+    },
+    {
+      "id": "COLLECTOR_CRUISER",
+      "name": "Collector cruiser model variant",
+      "role": "collector_cruiser",
+      "canon": {
+        "length_m": null,
+        "mass_t": null,
+        "barrier_capacity": null,
+        "hull_durability": null,
+        "sources": [
+          "G02"
+        ],
+        "crew_complement": null,
+        "maximum_acceleration_m_s2": null,
+        "combat_turn_rate_deg_s": null,
+        "maximum_sublight_speed_m_s": null,
+        "power_output_w": null
+      },
+      "design": {
+        "status": "AU_PROPOSAL",
+        "render_length_m": 1000,
+        "bookkeeping_rest_mass_t": 4000000,
+        "notes": [
+          "Canonical identity. Numerical specification and proxy weapon profile are SIM.",
+          "A weapon proxy is not a claim that Collectors mount a turian Thanix cannon."
+        ],
+        "proposed_crew_complement": null
+      },
+      "sim": {
+        "status": "SIM",
+        "barrier_dke": 1.8,
+        "structure_dke": 1.3,
+        "barrier_recovery_dke_s": 0.07,
+        "pd_weighted_engagement_budget_s": 18,
+        "operational_readiness": 0.96,
+        "thermal_armour_coupling": 0.5,
+        "weapons": [
+          {
+            "weapon_id": "W_THANIX_HEAVY",
+            "channels": 1
+          }
+        ],
+        "heat_capacity": 1.0,
+        "cooling_per_s": 0.025,
+        "heat_lockout_threshold": 0.95,
+        "recovery_requires_projectors": true,
+        "rebuild_destroyed_systems_in_combat": false,
+        "withdraw_structure_fraction": 0.25,
+        "mobility_rating": 0.35,
+        "mobility_rating_warning": "Relative game tuning only; not a physical acceleration or angular rate."
+      }
+    },
+    {
+      "id": "OCULUS_DRONE",
+      "name": "Oculus combat drone model variant",
+      "role": "combat_drone",
+      "canon": {
+        "length_m": null,
+        "mass_t": null,
+        "barrier_capacity": null,
+        "hull_durability": null,
+        "sources": [
+          "G02"
+        ],
+        "crew_complement": null,
+        "maximum_acceleration_m_s2": null,
+        "combat_turn_rate_deg_s": null,
+        "maximum_sublight_speed_m_s": null,
+        "power_output_w": null
+      },
+      "design": {
+        "status": "AU_PROPOSAL",
+        "render_length_m": 12,
+        "bookkeeping_rest_mass_t": 12,
+        "notes": [
+          "Canonical identity; dimensions and mass are render/simulation placeholders."
+        ],
+        "proposed_crew_complement": 0
+      },
+      "sim": {
+        "status": "SIM",
+        "barrier_dke": 0.005,
+        "structure_dke": 0.004,
+        "barrier_recovery_dke_s": 0.0003,
+        "pd_weighted_engagement_budget_s": 0,
+        "operational_readiness": 0.99,
+        "thermal_armour_coupling": 0.5,
+        "weapons": [
+          {
+            "weapon_id": "W_OCULUS",
+            "channels": 1
+          }
+        ],
+        "heat_capacity": 1.0,
+        "cooling_per_s": 0.025,
+        "heat_lockout_threshold": 0.95,
+        "recovery_requires_projectors": true,
+        "rebuild_destroyed_systems_in_combat": false,
+        "withdraw_structure_fraction": 0.25,
+        "mobility_rating": 1.0,
+        "mobility_rating_warning": "Relative game tuning only; not a physical acceleration or angular rate."
+      }
+    }
+  ],
+  "named_hull_catalog": [
+    {
+      "name": "Everest class",
+      "identity_status": "CANON",
+      "instances": [
+        "Everest",
+        "Fuji",
+        "Elbrus"
+      ],
+      "model_profile": "DN_STD",
+      "model_values_status": "SIM_AU_NOT_OFFICIAL_CLASS_SPEC",
+      "sources": [
+        "C03"
+      ]
+    },
+    {
+      "name": "Kilimanjaro class",
+      "identity_status": "CANON",
+      "instances": [
+        "Kilimanjaro",
+        "Tai Shan",
+        "Shasta",
+        "Aconcagua",
+        "Orizaba"
+      ],
+      "model_profile": "DN_STD",
+      "model_values_status": "SIM_AU_NOT_OFFICIAL_CLASS_SPEC",
+      "sources": [
+        "C01",
+        "C03"
+      ]
+    },
+    {
+      "name": "Normandy SR-1",
+      "identity_status": "CANON",
+      "model_profile": "FF_SR1",
+      "model_values_status": "SIM_AU",
+      "sources": [
+        "G01"
+      ]
+    },
+    {
+      "name": "Normandy SR-2",
+      "identity_status": "CANON",
+      "model_profile": "FF_SR2",
+      "model_values_status": "SIM_AU",
+      "sources": [
+        "G02",
+        "G05"
+      ]
+    },
+    {
+      "name": "Destiny Ascension",
+      "identity_status": "CANON",
+      "model_profile": "DN_ASCENSION",
+      "model_values_status": "SIM_AU",
+      "sources": [
+        "G01"
+      ]
+    },
+    {
+      "name": "Volus dreadnought Kwunu",
+      "identity_status": "CANON",
+      "model_profile": "DN_KWUNU",
+      "model_values_status": "SIM_AU",
+      "sources": [
+        "C11"
+      ]
+    },
+    {
+      "name": "Geth dreadnought",
+      "identity_status": "CANON",
+      "model_profile": "DN_GETH",
+      "model_values_status": "SIM_AU",
+      "sources": [
+        "G05"
+      ]
+    },
+    {
+      "name": "Collector cruiser",
+      "identity_status": "CANON",
+      "model_profile": "COLLECTOR_CRUISER",
+      "model_values_status": "SIM_AU",
+      "sources": [
+        "G02"
+      ]
+    },
+    {
+      "name": "Oculus",
+      "identity_status": "CANON",
+      "model_profile": "OCULUS_DRONE",
+      "model_values_status": "SIM_AU",
+      "sources": [
+        "G02"
+      ]
+    },
+    {
+      "name": "Sovereign",
+      "identity_status": "CANON",
+      "model_profile": "RR_CAP",
+      "model_values_status": "SIM_AU_EXCEPT_LABELLED_CANON",
+      "sources": [
+        "G01",
+        "C02"
+      ]
+    },
+    {
+      "name": "Harbinger",
+      "identity_status": "CANON",
+      "model_profile": "RR_HARBINGER",
+      "model_values_status": "SIM_AU_EXCEPT_LABELLED_CANON",
+      "sources": [
+        "C02"
+      ]
+    },
+    {
+      "name": "Normandy Valkyrie",
+      "identity_status": "AU_LOCK",
+      "model_profile": "DN_VALKYRIE",
+      "model_values_status": "AU_LOCK_LENGTH_OTHERWISE_AU_PROPOSAL_SIM",
+      "sources": []
+    }
+  ],
+  "apex_alliance_establishment": {
+    "status": "AU_LOCK",
+    "administrative_fleets": 16,
+    "hulls": {
+      "dreadnought": 48,
+      "carrier": 144,
+      "cruiser_including_heavy": 1600,
+      "frigate": 7500,
+      "corvette": 4000,
+      "support": 2000
+    },
+    "warships": 13292,
+    "all_hulls": 15292,
+    "warships_committed_sol": 12800,
+    "warships_elsewhere": 492,
+    "valkyrie_included_in_dreadnoughts": 1,
+    "support_not_counted_as_warships": true
+  },
+  "sol_coalition": {
+    "status": "AU_PROPOSAL preserving inherited faction totals",
+    "factions": [
+      {
+        "id": "alliance",
+        "name": "Systems Alliance",
+        "status": "AU_PROPOSAL",
+        "classes": {
+          "dreadnought": 48,
+          "carrier": 144,
+          "heavy_cruiser": 240,
+          "cruiser": 1360,
+          "frigate": 7008,
+          "corvette": 4000
+        },
+        "warships": 12800,
+        "includes_support": false,
+        "includes_embarked_craft": false,
+        "notes": [
+          "Faction commitment 12800 is inherited Apex figure.",
+          "Includes 1 Valkyrie and 47 other dreadnoughts.",
+          "Heavy/other cruiser split is newly proposed."
+        ]
+      },
+      {
+        "id": "turian",
+        "name": "Turian Hierarchy",
+        "status": "AU_PROPOSAL",
+        "classes": {
+          "dreadnought": 120,
+          "carrier": 80,
+          "heavy_cruiser": 280,
+          "cruiser": 920,
+          "frigate": 4000,
+          "corvette": 1800
+        },
+        "warships": 7200,
+        "includes_support": false,
+        "includes_embarked_craft": false
+      },
+      {
+        "id": "asari",
+        "name": "Asari commands",
+        "status": "AU_PROPOSAL",
+        "classes": {
+          "dreadnought": 60,
+          "carrier": 40,
+          "heavy_cruiser": 120,
+          "cruiser": 680,
+          "frigate": 2600,
+          "corvette": 1400
+        },
+        "warships": 4900,
+        "includes_support": false,
+        "includes_embarked_craft": false
+      },
+      {
+        "id": "salarian",
+        "name": "Salarian Union",
+        "status": "AU_PROPOSAL",
+        "classes": {
+          "dreadnought": 32,
+          "carrier": 80,
+          "heavy_cruiser": 64,
+          "cruiser": 424,
+          "frigate": 1800,
+          "corvette": 1200
+        },
+        "warships": 3600,
+        "includes_support": false,
+        "includes_embarked_craft": false
+      },
+      {
+        "id": "quarian_geth",
+        "name": "Quarian and geth joint command",
+        "status": "AU_PROPOSAL",
+        "classes": {
+          "dreadnought": 48,
+          "carrier": 96,
+          "heavy_cruiser": 110,
+          "cruiser": 546,
+          "frigate": 2000,
+          "corvette": 1000
+        },
+        "warships": 3800,
+        "includes_support": false,
+        "includes_embarked_craft": false
+      },
+      {
+        "id": "krogan_command",
+        "name": "Krogan assault and escort command",
+        "status": "AU_PROPOSAL",
+        "classes": {
+          "dreadnought": 0,
+          "carrier": 40,
+          "heavy_cruiser": 20,
+          "cruiser": 180,
+          "frigate": 1200,
+          "corvette": 960
+        },
+        "warships": 2400,
+        "includes_support": false,
+        "includes_embarked_craft": false,
+        "notes": [
+          "Coalition-assigned, purchased and chartered vessels with mixed crews; not 2400 newly built indigenous krogan warships."
+        ]
+      },
+      {
+        "id": "batarian",
+        "name": "Batarian survivor commands",
+        "status": "AU_PROPOSAL",
+        "classes": {
+          "dreadnought": 20,
+          "carrier": 20,
+          "heavy_cruiser": 50,
+          "cruiser": 310,
+          "frigate": 1000,
+          "corvette": 500
+        },
+        "warships": 1900,
+        "includes_support": false,
+        "includes_embarked_craft": false
+      },
+      {
+        "id": "other",
+        "name": "Other coalition members",
+        "status": "AU_PROPOSAL",
+        "classes": {
+          "dreadnought": 7,
+          "carrier": 20,
+          "heavy_cruiser": 30,
+          "cruiser": 243,
+          "frigate": 600,
+          "corvette": 500
+        },
+        "warships": 1400,
+        "includes_support": false,
+        "includes_embarked_craft": false
+      },
+      {
+        "id": "cerberus",
+        "name": "Cerberus Black Fleet",
+        "status": "AU_PROPOSAL",
+        "classes": {
+          "dreadnought": 12,
+          "carrier": 12,
+          "heavy_cruiser": 26,
+          "cruiser": 70,
+          "frigate": 200,
+          "corvette": 100
+        },
+        "warships": 420,
+        "includes_support": false,
+        "includes_embarked_craft": false,
+        "notes": [
+          "New reconciliation: old faction rows summed to 38000; this separate command supplies the missing 420."
+        ]
+      }
+    ],
+    "class_totals": {
+      "dreadnought": 347,
+      "carrier": 532,
+      "heavy_cruiser": 940,
+      "cruiser": 4733,
+      "frigate": 20408,
+      "corvette": 11460
+    },
+    "mobile_warships": 38420,
+    "heavy_mobile_combatants": 1287,
+    "fixed_heavy_platforms": 612,
+    "fixed_platforms_excluded_from_mobile_total": true,
+    "embarked_craft_nominal": 25536,
+    "other_species_global_totals_unknown": true,
+    "support_allocation_required": true
+  },
+  "reaper_campaign": {
+    "status": "AU_LOCK for initial force; AU_PROPOSAL for regional accounting",
+    "canon_census": null,
+    "initial": {
+      "capital": 2000,
+      "destroyer": 40000,
+      "transport": 8000,
+      "processor": 3000
+    },
+    "initial_total": 53000,
+    "alpha_loss_fraction": 0.25,
+    "alpha_loss_fraction_status": "Inherited high-success AU assumption, requires physical concentration in lethal region",
+    "alpha_losses": {
+      "capital": 500,
+      "destroyer": 10000,
+      "transport": 2000,
+      "processor": 750
+    },
+    "post_alpha": {
+      "capital": 1500,
+      "destroyer": 30000,
+      "transport": 6000,
+      "processor": 2250
+    },
+    "regional_losses_before_sol": {
+      "capital": 420,
+      "destroyer": 8500,
+      "transport": 500,
+      "processor": 200
+    },
+    "sol_commitment": {
+      "capital": 480,
+      "destroyer": 12000,
+      "transport": 1800,
+      "processor": 750
+    },
+    "active_elsewhere": {
+      "capital": 600,
+      "destroyer": 9500,
+      "transport": 3700,
+      "processor": 1300
+    },
+    "harbinger_included_in_capitals": true,
+    "sol_combat_vessels": 12480,
+    "sol_noncombat_specialists": 2550,
+    "pre_sol_regional_losses_are_scenario_inputs_not_tested_outputs": true
+  },
+  "readiness_distribution": {
+    "status": "SIM",
+    "veteran": {
+      "fraction": 0.25,
+      "execution_weight": 1.0
+    },
+    "regular": {
+      "fraction": 0.45,
+      "execution_weight": 0.85
+    },
+    "reserve_conversion": {
+      "fraction": 0.3,
+      "execution_weight": 0.6
+    },
+    "warning": "Execution weights alter readiness and handling, not the physical yield of an identical gun."
+  },
+  "retrofit_allocation": {
+    "status": "SIM",
+    "thanix_frigate_fraction": 0.3,
+    "thanix_heavy_cruiser_fraction": 0.35,
+    "hades_capable_dreadnoughts": 12,
+    "rule": "Allocate actual variants before spawning. Fractions are proposals; no automatic universal upgrade."
+  },
+  "special_systems": {
+    "hades_penetrator": {
+      "status": "AU_PROPOSAL",
+      "kinetic_weapon_id": "W_TITAN",
+      "optional_internal_payload_kt": 350,
+      "internal_payload_dke": 9.039157439913582,
+      "enabled_core": true,
+      "requires_confirmed_hull_penetration": true,
+      "payload_survival_assumption": true,
+      "default_special_rounds_per_capable_hull": 12,
+      "no_full_internal_damage_on_interception_or_barrier_deflection": true,
+      "space_effect": "Directional coupling, radiation and fragments; no atmospheric blast sphere."
+    },
+    "legacy_nova": {
+      "status": "AU_HIGH_POWER",
+      "enabled_core": false,
+      "projectile_mass_kg": 20,
+      "velocity_fraction_c": 0.1,
+      "calculated_relativistic_yield_kt": 2164.322444424587,
+      "model_cycle_s": 60,
+      "model_magazine_shots": 12,
+      "warning": "Canon does not establish the power, recoil or field solution. 0.1c is the numerical example, not a claim of literal near-c velocity."
+    },
+    "drive_attack": {
+      "status": "AU_PROPOSAL",
+      "enabled_canon": false,
+      "enabled_apex_core": true,
+      "max_attempts_sol": 3,
+      "commitment_window_s": 40,
+      "commitment_window_tuning_s": [
+        20,
+        60
+      ],
+      "pre_interception_completion_probability": 0.25,
+      "target_kill_on_confirmed_completion": true,
+      "deposited_energy_is_a_model_input": true,
+      "gigaton_tier_deposited_yield_gt_range": [
+        1,
+        300
+      ],
+      "exceptional_teraton_tier_tt_range": [
+        0.1,
+        1.0
+      ],
+      "conditions": [
+        "working_propulsion_path",
+        "terminal_command_decision",
+        "target_alignment",
+        "friendly_corridor_clear",
+        "intercept_and_evasion_tests_passed"
+      ],
+      "teraton_tier_far_from_inhabited_regions": true,
+      "no_automatic_spherical_multikill": true,
+      "canon_ftl_collision_formula": null,
+      "arithmetic_examples": {
+        "rest_mass_kg": 1000000000.0,
+        "sublight_0_01c_energy_tt": 1.074118775088945,
+        "sublight_0_1c_energy_tt": 108.21612222122934,
+        "warning": "Ordinary rest-mass examples only. Effective mass and FTL energy coupling are unknown."
+      }
+    }
+  },
+  "tactical_model": {
+    "status": "SIM",
+    "recommended_step_s": 0.25,
+    "projectile_resolution": "analytic interception or adaptive substeps, not endpoint-only overlap",
+    "range_is_firing_solution_envelope": true,
+    "spinal_orientation_required": true,
+    "sensor_delay": true,
+    "qec_is_not_omniscience": true,
+    "heat_and_ammunition_enabled": true,
+    "system_damage_enabled": true,
+    "local_autonomy_on_link_loss": true,
+    "harbinger_death_disables_others": false,
+    "saren_feedback_repeated_for_other_reapers": false,
+    "barrier_recovery_after_volley": true,
+    "reference_calibration": "All hits, synchronised volleys, no return fire or manoeuvre, fixed kinetic DKE packets. This calibrates shields only."
+  },
+  "presets": {
+    "canon_me3_reference": {
+      "status": "REFERENCE",
+      "use_apex_inventory": false,
+      "unknown_totals_remain_user_inputs": true,
+      "titan_hades": false,
+      "valkyrie": false,
+      "legacy_nova": false,
+      "drive_attack": false,
+      "crucible_resolution_outside_tactical_model": true
+    },
+    "apex_core_sol": {
+      "status": "AU",
+      "use_apex_inventory": true,
+      "load_pre_sol_campaign_losses": true,
+      "alpha_loss_fraction": 0.25,
+      "titan_hades": true,
+      "valkyrie": true,
+      "legacy_nova": false,
+      "drive_attack": true,
+      "crucible": false,
+      "victory_is_not_preselected": true
+    },
+    "apex_legacy_high_power": {
+      "status": "AU_HIGH_POWER",
+      "use_apex_inventory": true,
+      "legacy_nova": true,
+      "drive_attack": true,
+      "exceptional_teraton_events": true,
+      "crucible": false,
+      "victory_is_not_preselected": true
+    }
+  },
+  "sensitivity_axes": {
+    "alpha_loss_fraction": [
+      0.0,
+      0.1,
+      0.25
+    ],
+    "execution_weight_multiplier": [
+      0.75,
+      1.0,
+      1.1
+    ],
+    "reaper_sol_capitals": [
+      360,
+      480,
+      720
+    ],
+    "reaper_sol_destroyers": [
+      9000,
+      12000,
+      18000
+    ],
+    "fixed_platform_availability": [
+      0.25,
+      0.5,
+      1.0
+    ],
+    "titan_hades_enabled": [
+      false,
+      true
+    ],
+    "valkyrie_enabled": [
+      false,
+      true
+    ],
+    "drive_attacks_enabled": [
+      false,
+      true
+    ],
+    "conservation_rule": "Changing Alpha losses or Sol commitment requires recomputing post-Alpha inventory and active-elsewhere counts. Do not add reinforcements from nowhere."
+  },
+  "story_targets_not_simulated_outputs": {
+    "coalition_sol_mobile_hull_loss_fraction": [
+      0.15,
+      0.35
+    ],
+    "break_earth_orbital_control_days": [
+      1,
+      3
+    ],
+    "major_earth_liberation": "weeks",
+    "remaining_reaper_pursuit": "additional months",
+    "victory_probability": null
+  },
+  "validation_scope": {
+    "inventory_arithmetic": true,
+    "energy_arithmetic": true,
+    "isolated_barrier_benchmark": true,
+    "full_tactical_simulation": false,
+    "campaign_ensemble": false,
+    "industrial_feasibility_proof": false,
+    "existing_app_integration": false
+  },
+  "sources": {
+    "C01": {
+      "primary": "Mass Effect trilogy codex: Ships and Vehicles",
+      "url": "https://masseffect.fandom.com/wiki/Codex/Ships_and_Vehicles",
+      "type": "primary_game_text_transcription",
+      "retrieval": "searchable transcription; direct fetch blocked"
+    },
+    "C02": {
+      "primary": "Mass Effect 3 codex: The Reapers",
+      "url": "https://masseffect.fandom.com/wiki/Codex/The_Reapers",
+      "type": "primary_game_text_transcription",
+      "retrieval": "searchable transcription; direct fetch blocked"
+    },
+    "C03": {
+      "primary": "Mass Effect codex: Starships Dreadnought, legacy numerical variant",
+      "url": "https://www.gamebanshee.com/cgi-bin/search/banshee_search.pl?_cgifunction=search&_layout=masseffect_codex_page&masseffect_codex.entry=%22starships%3A+dreadnought%22",
+      "type": "primary_game_text_transcription",
+      "warning": "2 kg and 283 km/s do not equal the printed 38 kt; do not use these inputs"
+    },
+    "C04": {
+      "primary": "Mass Effect codex: Treaty of Farixen",
+      "url": "https://www.gamebanshee.com/cgi-bin/search/banshee_search.pl?_cgifunction=search&_layout=masseffect_codex_page&masseffect_codex.entry=%22treaty+of+farixen%22",
+      "type": "primary_game_text_transcription"
+    },
+    "C05": {
+      "primary": "Mass Effect codex: Space Combat General Tactics",
+      "url": "https://www.gamebanshee.com/cgi-bin/search/banshee_search.pl?_cgifunction=search&_layout=masseffect_codex_page&masseffect_codex.entry=space+combat%3A+general+tactics",
+      "type": "primary_game_text_transcription"
+    },
+    "C06": {
+      "primary": "Mass Effect codex: Quarians and Migrant Fleet",
+      "url": "https://masseffect.fandom.com/wiki/Codex/Aliens%3A_Non-Council_Races",
+      "type": "primary_game_text_transcription"
+    },
+    "C07": {
+      "primary": "Mass Effect trilogy codex: Kinetic Barriers",
+      "url": "https://masseffect.fandom.com/wiki/Codex/Weapons%2C_Armor_and_Equipment",
+      "type": "primary_game_text_transcription"
+    },
+    "C08": {
+      "primary": "Mass Effect trilogy codex: Communications and QEC",
+      "url": "https://masseffect.fandom.com/wiki/Codex/Technology",
+      "type": "primary_game_text_transcription"
+    },
+    "C09": {
+      "primary": "Mass Effect 2 and 3 codex: Cerberus and The Illusive Man",
+      "url": "https://masseffect.fandom.com/wiki/Codex/Organizations",
+      "type": "primary_game_text_transcription"
+    },
+    "C10": {
+      "primary": "Mass Effect codex: Citadel Conventions",
+      "url": "https://masseffect.fandom.com/wiki/Codex/Citadel_and_Galactic_Government",
+      "type": "primary_game_text_transcription"
+    },
+    "C11": {
+      "primary": "Mass Effect 3 war asset: Volus Dreadnought Kwunu",
+      "url": "https://masseffect.fandom.com/wiki/War_Assets/Alien",
+      "type": "primary_game_text_transcription"
+    },
+    "G01": {
+      "primary": "Mass Effect released game: Eden Prime, Virmire, Ilos, Citadel finale",
+      "type": "released_game",
+      "url": null
+    },
+    "G02": {
+      "primary": "Mass Effect 2 released game: opening, EDI conversations, Reaper IFF, suicide mission",
+      "type": "released_game",
+      "url": null
+    },
+    "G03": {
+      "primary": "Mass Effect 2 Arrival released DLC",
+      "type": "released_game",
+      "url": null
+    },
+    "G04": {
+      "primary": "Mass Effect Evolution, released Dark Horse comic",
+      "type": "released_comic",
+      "url": null
+    },
+    "G05": {
+      "primary": "Mass Effect 3 and From Ashes released game content",
+      "type": "released_game",
+      "url": null
+    }
+  }
+}
