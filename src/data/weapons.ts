@@ -515,7 +515,7 @@ export const WEAPONS: Record<string, WeaponDef> = {
     arc: 12,
     provenance: {
       value:
-        'Alternate-universe weapon. Advanced spinal accelerator firing dense HADES penetrator rounds designed to breach Reaper plating. Not part of the Mass Effect trilogy.',
+        'Alternate-universe weapon. Advanced spinal accelerator firing HADES rounds: dense penetrators with a nuclear warhead that detonates after breaching Reaper plating. Not part of the Mass Effect trilogy.',
       provenance: 'AU_MODIFIED',
       note: 'Prime/Apex timeline only.',
     },

@@ -217,7 +217,7 @@ export const CODEX: CodexEntry[] = [
     category: 'Weapons',
     title: 'HADES rounds and hyper-mass accelerators (AU)',
     canon: ['These weapons do not exist in the Mass Effect trilogy.'],
-    au: { prime_apex: ['Prime/Apex AU weapons: dense penetrator rounds that bypass half of a target’s armour and pierce barriers more efficiently, fired from advanced spinal accelerators at roughly three times canon slug energy. They are what make Reaper capital ships killable in this timeline.'] },
+    au: { prime_apex: ['Prime/Apex AU weapons: HADES rounds are dense kinetic penetrators carrying a nuclear warhead fused to detonate after penetration, fired from advanced spinal accelerators at roughly three times canon slug energy. The penetrator bypasses half of a target’s armour and pierces barriers more efficiently; the warhead burns inside the hull. They are what make Reaper capital ships killable in this timeline.'] },
   },
   // ------------------------------------------------------------- Technology
   {

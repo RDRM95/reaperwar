@@ -147,7 +147,7 @@ export const PRIME_APEX: RuleSet = {
   historyChanges: [
     'Shepard combines Paragon and Renegade strengths; diplomacy and strategy succeed beyond normal limits.',
     'Alliance industrial base and R&D expanded massively after Sovereign; Turian Hierarchy follows.',
-    'HADES penetrator rounds enter service: kinetic rounds bypass half of Reaper armour and pierce barriers more efficiently.',
+    'HADES rounds enter service: kinetic penetrators with a nuclear warhead that detonates after penetration; they bypass half of Reaper armour and pierce barriers more efficiently.',
     'Hyper-mass accelerators refit all Alliance and Turian dreadnoughts (AU weapon, ~3× canon slug energy).',
     'Barriers, armour, sensors and fleet coordination substantially improved.',
     'Cerberus Black Fleet optionally cooperates with Shepard and the Alliance; Cerberus remains Cerberus.',

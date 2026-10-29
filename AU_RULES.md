@@ -6,7 +6,7 @@ A timeline is a `RuleSet` (`src/timelines/rules.ts`): plain JSON, validated on i
 
 - `organic` / `reaper`: 18 technology multipliers (mass accelerator damage/penetration/range, fire rate, heat capacity, barrier strength/regen, armour, hull, speed, sensors, electronic warfare, accuracy, fighter strength, torpedo damage, GARDIAN effectiveness, beam damage, crew quality). Canon = 1.
 - `factionOverrides`: per-faction partial multipliers merged over `organic`.
-- `special`: hyper-mass accelerators (dreadnought spinal gun → `apex_hyper_ma`), HADES rounds (kinetic rounds ignore 50 % of armour; barriers absorb only 60 % as much), Thanix availability (canon / fleet-wide cruiser refit / none), Reaper command vulnerability (each capital loss degrades Reaper coordination for ~30 s), indoctrination disabled.
+- `special`: hyper-mass accelerators (dreadnought spinal gun → `apex_hyper_ma`), HADES rounds (kinetic penetrators with a nuclear warhead that detonates after penetration: rounds ignore 50 % of armour; barriers absorb only 60 % as much), Thanix availability (canon / fleet-wide cruiser refit / none), Reaper command vulnerability (each capital loss degrades Reaper coordination for ~30 s), indoctrination disabled.
 - `fleetStrength`: per-faction multipliers on scenario ship counts (ignored when a scenario is built with `fleet_scaling: fixed`, which comparison mode uses).
 - `strategic`: allied coordination (crew effectiveness), Reaper competence, indoctrination effectiveness, Reaper reinforcements, conventional victory possible, Crucible available, Shepard alive/effectiveness, Illusive Man indoctrinated, Cerberus stance, Harbinger/Catalyst operational, homeworld independence.
 

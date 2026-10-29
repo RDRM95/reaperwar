@@ -66,7 +66,7 @@ export function renderTimelines(app: App, params?: { editId?: string }): HTMLEle
     const st = rules.strategic;
     return el('div', { class: 'col' }, [
       bool('Hyper-mass accelerators', () => s.hyperMassAccelerators, (v) => (s.hyperMassAccelerators = v), 'AU weapon: replaces dreadnought spinal guns with ~3× yield accelerators.'),
-      bool('HADES rounds', () => s.hadesRounds, (v) => (s.hadesRounds = v), 'AU ammunition: kinetic rounds bypass 50% of armour and pierce barriers more efficiently.'),
+      bool('HADES rounds', () => s.hadesRounds, (v) => (s.hadesRounds = v), 'AU ammunition: kinetic penetrators with a nuclear warhead; they bypass 50% of armour and pierce barriers more efficiently.'),
       el('label', { class: 'field' }, ['Thanix availability', editable
         ? el('select', { onchange: (e: Event) => (s.thanixAvailability = (e.target as HTMLSelectElement).value as typeof s.thanixAvailability) }, ['canon', 'fleetwide', 'none'].map((o) => el('option', { value: o, selected: s.thanixAvailability === o }, o)))
         : el('span', {}, s.thanixAvailability), el('small', {}, 'canon: Normandy only · fleetwide: cruisers refit · none: removed')]),
