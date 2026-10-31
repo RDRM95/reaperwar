@@ -11,3 +11,6 @@ playwright/.cache/
 e2e-screenshots/
 *.log
 .vite/
+
+# Scratch analysis scripts written by audit agents are never committed.
+scripts/_*
