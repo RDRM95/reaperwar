@@ -1,8 +1,8 @@
 # CODE_MAP — Reaper War Simulator (for the Apex implementation agents)
 
-Snapshot of `main` at commit `e4abd7e` (v0.11.0), 29 Oct 2026. Line numbers refer to that state; re-grep the function name if a file has moved on. Everything here was read from the code, not from the docs' claims; where the two disagree the code is reported and the disagreement is noted.
+Snapshot of `main` at commit `01b1fef` (v0.11.0), 29 Oct 2026. `01b1fef` only adds `docs/apex/reference/` on top of `e4abd7e`; no file under `src/`, `tests/` or `e2e/` changed between the two, so every line number below holds for both. Line numbers refer to that state; re-grep the function name if a file has moved on. Everything here was read from the code, not from the docs' claims; where the two disagree the code is reported and the disagreement is noted. Sections 0-7 were written on `e4abd7e` and spot-checked again on `01b1fef` (every sampled line reference in §1-§7 matched); §8, §9 and Appendix A were added on `01b1fef`.
 
-Verified on this snapshot: `npx vitest run` → 9 files, **83 tests passed** (60 s wall, 134 s CPU); Playwright suite is **8 tests** (5 in `e2e/game.spec.ts`, 3 in `e2e/campaign.spec.ts`). `git status` is clean.
+Verified on this snapshot: `npx vitest run` → 9 files, **83 tests passed** (62 s wall, 140 s CPU; exit code 0 with the verbose reporter). One of two runs also printed `Errors 1 error` with a bare `listOnTimeout`/`processTimers` stack after all 83 tests had passed and the next run was clean, so treat a stray unhandled-timer error as a possible flake, not as a failing test. Playwright suite is **8 tests** (5 in `e2e/game.spec.ts`, 3 in `e2e/campaign.spec.ts`). The partial draft of this file (sections 0-7) was committed as `e318d2e` ("Add the V2 code map analysis (in progress)"); the completed version is the working-tree change on top of it, and no source file differs from `01b1fef`.
 
 ## 0. Conventions and layout
 
@@ -13,7 +13,7 @@ Verified on this snapshot: `npx vitest run` → 9 files, **83 tests passed** (60
 - **Units**: catalogue values are "nominal km / km·s⁻¹"; the sim multiplies every distance and speed by `BATTLESPACE_SCALE = 0.4` (`src/simulation/constants.ts:9`, imported as `S`). Ship lengths are *not* scaled. Render units: `KM = 10`, `M = 0.01` (`src/rendering/geometry.ts:9-10`), i.e. 1 render unit = 100 m; a 2 km Reaper is 20 units long while a nominal 42 km gun range is 16.8 sim-km = 168 units.
 - **Damage unit**: 1 Everest/Kilimanjaro slug = 1000 points (`src/data/weapons.ts:10-13`). The pack's DKE (38.72 kt) maps 1:1000 (lead decision D2).
 - Provenance tags: `src/core/provenance.ts` — `Provenance = 'CANON_CONFIRMED' | 'CANON_INFERRED' | 'SIMULATION_ESTIMATE' | 'AU_MODIFIED'` (L7-11), `Sourced<T>` (L13-18), helpers `canon/inferred/estimate` (L20-34), `PROVENANCE_LABEL` (L36-41). No helper exists for `AU_MODIFIED`; `apex_hyper_ma` writes the object literally (`weapons.ts:516-521`). UI badge classes: `provenanceBadge()` in `src/ui/dom.ts:46-50` → `.badge.canon|inferred|estimate|au` (`src/style.css:74-79`, also `.badge.custom`).
-- Docs that state project rules: `README.md`, `ARCHITECTURE.md`, `AU_RULES.md`, `LORE_REFERENCE.md` (canon anchors to check the pack against), `KNOWN_ISSUES.md`, `CHANGELOG.md`, `ROADMAP.md`, `docs/V2_CINEMATIC_BRIEF.md` (§2 beat sheet, §3 showcase, §4 effects, §5 roster/design lock-down, §6 acceptance). `docs/apex/reference/` holds the four pack files (see Appendix A). `docs/design/` does not exist yet (D12).
+- Docs that state project rules: `README.md`, `ARCHITECTURE.md`, `AU_RULES.md`, `LORE_REFERENCE.md` (canon anchors to check the pack against), `KNOWN_ISSUES.md`, `CHANGELOG.md`, `ROADMAP.md`, `docs/V2_CINEMATIC_BRIEF.md` (§2 beat sheet, §3 showcase, §4 effects, §5 roster/design lock-down, §6 acceptance). `docs/apex/reference/` holds the pack (four data/guide files plus its own `README.md`; see Appendix A). `docs/design/` does not exist yet (D12).
 
 Directory map (line counts): `src/simulation/{battle 1008, ai 326, damage 105, formations 147, reaperIntel 107, results 66, types 320, constants 9}`, `src/data/{ships 922, weapons 530, factions 364, types 116}`, `src/timelines/{rules 288, presets 269, schema 194}`, `src/scenarios/{index 656, comparison 143}`, `src/rendering/{battleView 545, effects 443, environment 399, cameras 209, geometry 147, materials 89, lod 33, ships/* 1244}`, `src/ui/{app 681, dom 50, overlay 149, screens/* 2103}`, `src/campaign/{engine 740, depth 286, postwar 218, galaxy 126, state 107}`, `src/codex/entries 316`, `src/core/{storage 171, saves 80, vec3 80, rng 62, provenance 41}`, `src/audio/engine 268`, `src/main 12`.
 
@@ -355,4 +355,418 @@ Layout `.hud > .hud-top, .hud-left, .hud-right, .hud-bottom, .subtitle, toastHos
 
 `AU_RULES.md:24` and `README.md:31` describe the preset by its current name and list; `CHANGELOG.md` is append-only.
 
-<!-- CONTINUE -->
+Note on how campaign engagements are decided: `autoResolve(state, pending)` (`engine.ts:380-386`) builds the engagement with `buildEngagement` and runs the **real** `BattleSimulation` to completion, then `applyEngagementResult`. Only `preservationWithdrawals` (L531-558) uses a formula (`techFactor`, L546). So every campaign test that advances weeks until an outcome is also a battle-balance test (see §9.3).
+
+---
+
+## 8. Current balance numbers
+
+### 8.1 Battlespace scale: exactly what is multiplied by `S`
+
+- `BATTLESPACE_SCALE = 0.4` (`src/simulation/constants.ts:9`). It is imported only by `simulation/battle.ts:28` (as `S`), `simulation/ai.ts:6` (as `S`) and `simulation/formations.ts:4`. Nothing in `data/`, `timelines/`, `scenarios/`, `rendering/` or `ui/` scales anything: the catalogue, `applyRulesToWeapon`, the Fleet Database (`ui/screens/database.ts:59` prints `w.range` straight from `applyRulesToWeapon`) and the custom-battle distance slider all speak **nominal** km.
+- Scaled once, at ship creation (`battle.ts:182`): `def.range *= S`, `def.projectileSpeed *= S`, so `WeaponState.def` holds **scaled** values (a 42 km / 30 km·s⁻¹ dreadnought gun becomes 16.8 km / 12 km·s⁻¹; flight time to maximum range is unchanged, 1.4 s). `battle.ts:225-228`: `maxSpeed`, `acceleration`, `sensorRange` × S; `turnRate` deg→rad, not scaled. `lengthKm = lengthM/1000` (L201) and `radiusKm = max(0.02, lengthKm/2)` (L216) are **not** scaled: hit spheres keep true size inside a 0.4× battlespace, so projectile collisions are relatively more generous than nominal.
+- Positions: `deployFleet` L106-107 (`initialOrder.position`, `anchor = spec.position * S`), `issueOrders` L287 (`patch.position * S`), fighter launch slot L469. Formation slots use `k = max(S, 0.55) = 0.55` (`formations.ts:47`, and `capSpacing` L58), so formations are compressed less than ranges.
+- Rule distances: escape at `110*S` = 44 km, retreat escape `80*S` = 32 km (`battle.ts:905, 915`); AI anchor step `50*S` (`ai.ts:185`), withdraw offset `60*S` (L198-199), `maxLag = 12*S` (L225), run-away `40*S` (L285).
+- `hitProbability(shooter, target, weapon, dist, closingSpeed)` is called with sim-km `dist` and the scaled `def` (`battle.ts:676`), so `dist/range` is scale-free. `tests/damage.test.ts` uses the unscaled weapon from `applyRulesToWeapon` with a nominal `dist = 10`; both are consistent.
+- Geometry that follows: the Reaper capital beam (44 → 17.6 sim km) out-ranges every organic gun except `ascension_main` (48 → 19.2) and ties the 44 km dreadnought guns (asari, salarian, geth, `apex_hyper_ma`); the destroyer beam (30 → 12 sim km) is out-ranged by every cruiser main (36-40).
+
+### 8.2 Ship classes (`src/data/ships.ts`; 31 classes, the same set as `BUILDERS`)
+
+Columns: hull / armour / barriers / regen (per s); speed km·s⁻¹ / accel km·s⁻² / turn °·s⁻¹ / sensors km (nominal); sig = `signature`; ecm; crew = `crewQuality`; pts = `pointValue`. Every numeric stat is `estimate(...)` (SIMULATION_ESTIMATE) except the lengths marked ᶜ (`canon`) or ⁱ (`inferred`). Design provenance: ᴰᶜ canon, ᴰⁱ inferred, ᴰᵉ estimate. Hardpoints are `weaponId×count`, broadsides as `port+starboard` (facing ±90°, arc 120°); offsets are metres along x right / y up / z forward (`data/types.ts:68-76`).
+
+| class (lines) | faction · role | len m | hull | arm | barr | regen | spd | acc | turn | sens | sig | ecm | crew | pts | hardpoints | hangar |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `alliance_fighter` ᴰᶜ (13-39) | alliance · fighter | 18 | 30 | 2 | 25 | 4 | 3.4 | 1.4 | 90 | 30 | 0.06 | 0.1 | 1.0 | 4 | `fighter_gun`×2, `fighter_torpedo`×1 | |
+| `alliance_frigate` ᴰⁱ (40-68) | alliance · frigate | 170ⁱ | 520 | 12 | 450 | 14 | 1.4 | 0.32 | 22 | 60 | 0.35 | 0.2 | 1.0 | 20 | `alliance_frigate_main`×1, `disruptor_torpedo`×2, `gardian`×2 | |
+| `alliance_frigate_thanix` ᴰᶜ (69-96) | alliance · frigate | 216ⁱ | 700 | 14 | 520 | 16 | 1.6 | 0.4 | 26 | 80 | 0.3 | 0.6 | 1.3 | 32 | `alliance_thanix`×1, `disruptor_torpedo`×2, `gardian`×2 | |
+| `alliance_cruiser` ᴰⁱ (97-126) | alliance · cruiser | 520 | 2400 | 45 | 1600 | 28 | 0.9 | 0.16 | 9 | 70 | 1.0 | 0.15 | 1.0 | 80 | `alliance_cruiser_main`×1, `alliance_broadside` 2+2, `gardian`×4 | |
+| `alliance_dreadnought` ᴰᶜ (127-157) | alliance · dreadnought | 888ⁱ | 9000 | 130 | 5200 | 55 | 0.65 | 0.09 | 4.5 | 90 | 1.9 | 0.15 | 1.05 | 320 | `alliance_dn_main`×1 (z 420), `alliance_broadside` 4+4, `gardian`×8 | |
+| `alliance_carrier` ᴰᶜ (158-187) | alliance · carrier | 900 | 7000 | 90 | 3800 | 45 | 0.6 | 0.08 | 4 | 100 | 1.9 | 0.2 | 1.0 | 300 | `alliance_broadside` 3+3, `gardian`×10 | `alliance_fighter`×24 |
+| `turian_fighter` ᴰⁱ (190-215) | turian · fighter | 17 | 32 | 2 | 24 | 4 | 3.5 | 1.5 | 95 | 30 | 0.06 | 0.1 | 1.1 | 4 | `fighter_gun`×2, `fighter_torpedo`×1 | |
+| `turian_frigate` ᴰⁱ (216-242) | turian · frigate | 160 | 560 | 16 | 420 | 14 | 1.35 | 0.32 | 22 | 60 | 0.33 | 0.15 | 1.1 | 20 | `alliance_frigate_main`×1, `disruptor_torpedo`×2, `gardian`×2 | |
+| `turian_cruiser` ᴰⁱ (243-270) | turian · cruiser | 560 | 2600 | 55 | 1500 | 26 | 0.88 | 0.16 | 9 | 70 | 1.0 | 0.12 | 1.1 | 84 | `turian_cruiser_main`×1, `alliance_broadside` 2+2, `gardian`×4 | |
+| `turian_dreadnought` ᴰⁱ (271-298) | turian · dreadnought | 950 | 9500 | 150 | 5000 | 55 | 0.62 | 0.09 | 4.5 | 90 | 1.9 | 0.12 | 1.15 | 330 | `turian_dn_main`×1, `alliance_broadside` 4+4, `gardian`×8 | |
+| `salarian_fighter` ᴰⁱ (301-326) | salarian · fighter | 18 | 28 | 1 | 26 | 5 | 3.7 | 1.6 | 100 | 36 | 0.05 | 0.2 | 1.1 | 4 | `fighter_gun`×2, `fighter_torpedo`×1 | |
+| `salarian_frigate` ᴰⁱ (327-353) | salarian · frigate | 150 | 480 | 12 | 460 | 16 | 1.45 | 0.36 | 24 | 90 | 0.12 | 0.5 | 1.15 | 24 | `stg_frigate_main`×1, `disruptor_torpedo`×2, `gardian`×2 | |
+| `salarian_cruiser` ᴰⁱ (354-382) | salarian · cruiser | 520 | 2300 | 40 | 1900 | 32 | 0.98 | 0.19 | 10 | 95 | 0.85 | 0.4 | 1.1 | 90 | `salarian_cruiser_main`×1, `alliance_broadside` 2+2, `gardian`×4 | `salarian_fighter`×4 |
+| `salarian_dreadnought` ᴰⁱ (383-410) | salarian · dreadnought | 860 | 8200 | 105 | 5800 | 60 | 0.68 | 0.1 | 5.5 | 120 | 1.8 | 0.4 | 1.1 | 335 | `salarian_dn_main`×1, `alliance_broadside` 4+4, `gardian`×8 | |
+| `asari_cruiser` ᴰⁱ (413-440) | asari · cruiser | 500 | 2200 | 35 | 2200 | 36 | 0.95 | 0.18 | 10 | 80 | 0.95 | 0.25 | 1.05 | 86 | `asari_cruiser_main`×1, `alliance_broadside` 2+2, `gardian`×4 | |
+| `asari_dreadnought` ᴰⁱ (441-468) | asari · dreadnought | 900 | 8500 | 110 | 6800 | 70 | 0.66 | 0.1 | 5 | 100 | 1.9 | 0.25 | 1.05 | 340 | `asari_dn_main`×1, `alliance_broadside` 4+4, `gardian`×8 | |
+| `destiny_ascension` ᴰᶜ (469-496) | asari · dreadnought | 1600ⁱ | 20000 | 200 | 14000 | 120 | 0.55 | 0.08 | 3.5 | 120 | 2.8 | 0.25 | 1.2 | 1100 | `ascension_main`×1 (z 740), `alliance_broadside` 6+6, `gardian`×12 | |
+| `cerberus_fighter` ᴰⁱ (499-524) | cerberus · fighter | 17 | 30 | 2 | 28 | 5 | 3.5 | 1.5 | 92 | 32 | 0.06 | 0.15 | 1.0 | 4 | `fighter_gun`×2, `fighter_torpedo`×1 | |
+| `cerberus_frigate` ᴰⁱ (525-551) | cerberus · frigate | 180 | 600 | 14 | 520 | 16 | 1.5 | 0.36 | 24 | 70 | 0.33 | 0.35 | 1.05 | 24 | `cerberus_frigate_main`×1, `disruptor_torpedo`×2, `gardian`×2 | |
+| `cerberus_cruiser` ᴰⁱ (552-579) | cerberus · cruiser | 560 | 2500 | 48 | 1900 | 30 | 0.92 | 0.17 | 9.5 | 80 | 1.0 | 0.3 | 1.05 | 86 | `cerberus_cruiser_main`×1, `alliance_broadside` 2+2, `gardian`×4 | |
+| `cerberus_dreadnought` ᴰᵉ (580-607) | cerberus · dreadnought | 900 | 8800 | 125 | 5400 | 60 | 0.65 | 0.09 | 4.5 | 100 | 1.9 | 0.3 | 1.05 | 320 | `alliance_dn_main`×1, `alliance_broadside` 4+4, `gardian`×8 | |
+| `geth_fighter` ᴰⁱ (610-635) | geth · fighter | 16 | 28 | 2 | 30 | 6 | 3.8 | 1.7 | 110 | 34 | 0.05 | 0.1 | 1.2 | 4 | `fighter_gun`×2, `fighter_torpedo`×1 | |
+| `geth_frigate` ᴰⁱ (636-662) | geth · frigate | 150 | 500 | 14 | 520 | 18 | 1.5 | 0.38 | 26 | 70 | 0.3 | 0.2 | 1.2 | 22 | `alliance_frigate_main`×1, `disruptor_torpedo`×2, `gardian`×2 | |
+| `geth_cruiser` ᴰⁱ (663-690) | geth · cruiser | 520 | 2400 | 45 | 1900 | 34 | 0.95 | 0.18 | 10 | 80 | 1.0 | 0.2 | 1.2 | 86 | `geth_cruiser_main`×1, `alliance_broadside` 2+2, `gardian`×4 | |
+| `geth_dreadnought` ᴰᶜ (691-719) | geth · dreadnought | 1100ⁱ | 10500 | 140 | 5800 | 65 | 0.62 | 0.09 | 4.5 | 110 | 2.0 | 0.2 | 1.25 | 360 | `geth_dn_main`×1 (z 520), `alliance_broadside` 4+4, `gardian`×8 | `geth_fighter`×12 |
+| `quarian_fighter` ᴰⁱ (722-747) | quarian · fighter | 18 | 30 | 2 | 22 | 4 | 3.3 | 1.4 | 88 | 30 | 0.06 | 0.1 | 1.05 | 4 | `fighter_gun`×2, `fighter_torpedo`×1 | |
+| `quarian_cruiser` ᴰⁱ (748-775) | quarian · cruiser | 480 | 2200 | 40 | 1500 | 26 | 0.85 | 0.15 | 9 | 70 | 1.0 | 0.1 | 1.0 | 76 | `alliance_cruiser_main`×1, `alliance_broadside` 2+2, `gardian`×4 | |
+| `quarian_heavy` ᴰⁱ (776-803) | quarian · dreadnought | 820 | 7800 | 100 | 4200 | 48 | 0.58 | 0.08 | 4 | 80 | 1.9 | 0.1 | 1.0 | 260 | `quarian_heavy_main`×1, `alliance_broadside` 3+3, `gardian`×6 | |
+| `quarian_liveship` ᴰᶜ (804-829) | quarian · carrier | 2200ⁱ | 14000 | 60 | 3000 | 30 | 0.4 | 0.05 | 2.5 | 60 | 3.4 | 0.05 | 0.9 | 400 | `gardian`×10 | `quarian_fighter`×16 |
+| `reaper_destroyer` ᴰᶜ (832-857) | reaper · reaper_destroyer | 160ᶜ | 3200 | 160 | 6500 | 80 | 1.6 | 0.4 | 16 | 120 | 0.4 | 0.3 | 1.2 | 260 | `reaper_destroyer_beam`×1 (z 60, y −10), `reaper_point_defence`×3 | |
+| `reaper_capital` ᴰᶜ (858-885) | reaper · reaper_capital | 2000ᶜ | 32000 | 320 | 42000 | 240 | 0.8 | 0.14 | 6 | 160 | 3.2 | 0.35 | 1.3 | 2600 | `reaper_capital_beam`×1 + ×1 (two hardpoints, z 300, y −40), `reaper_point_defence`×8 | |
+| `harbinger` ᴰᶜ (886-913) | reaper · reaper_capital | 2400ⁱ | 44000 | 380 | 58000 | 300 | 0.75 | 0.13 | 5 | 200 | 3.6 | 0.4 | 1.5 | 4000 | `reaper_capital_beam`×3 (z 360), `reaper_point_defence`×10 | |
+
+Observations for the Apex work: `cerberus_dreadnought` is AU-only by its own description but its `designProvenance` is `estimate(...)` — the Database badge reads SIMULATION_ESTIMATE, not AU (D1 should make it `AU_MODIFIED`). Carriers are the only classes with `fighterComplement`; no Reaper class has one (D4 Oculus). `quarian_heavy` has role `dreadnought`, so it receives the hyper-MA substitution and counts as a capital. Only `reaper_destroyer`/`reaper_capital` lengths are `canon`; every pool value in the game is an estimate (LORE_REFERENCE.md §Simulation estimates).
+
+### 8.3 Weapons (`src/data/weapons.ts`; 26 entries)
+
+Columns: dmg = `damage` (per shot; **per second** for `thanix`/`reaper_beam`, applied in `SIM_DT` chunks — see 8.5), cd = `cooldown` s, range km / speed km·s⁻¹ (nominal; ∞ = hitscan), acc = `accuracy`, pen = `penetration`, heat per shot, arc °, flags: S = `antiSmall`, C = `antiCapital`. Provenance: ᶜ canon, ⁱ inferred, ᵉ estimate, ᴬ AU_MODIFIED.
+
+| weapon (lines) | kind / damageType | dmg | cd | range | speed | acc | pen | heat | extra | arc | flags |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `alliance_dn_main` ᶜ (26-45) | mass_accelerator / kinetic | 1000 | 4.0 | 42 | 30 | 0.72 | 0.85 | 18 | | 12 | C |
+| `alliance_broadside` ⁱ (46-65) | mass_accelerator / kinetic | 140 | 1.6 | 28 | 24 | 0.62 | 0.5 | 6 | | 120 | |
+| `alliance_cruiser_main` ⁱ (66-85) | mass_accelerator / kinetic | 320 | 3.0 | 36 | 26 | 0.68 | 0.7 | 14 | | 15 | C |
+| `alliance_frigate_main` ⁱ (86-105) | mass_accelerator / kinetic | 70 | 1.5 | 24 | 22 | 0.7 | 0.45 | 7 | | 30 | |
+| `disruptor_torpedo` ᶜ (106-127) | disruptor_torpedo / warhead | 260 | 9.0 | 18 | 2.2 | 0.9 | 0.9 | 4 | `missileHp` 12, `magazine` 8 | 180 | C |
+| `gardian` ᶜ (128-148) | gardian / laser | 14 | 0.35 | 6 | ∞ | 0.55 | 0.2 | 2 | `burst` 10 shots / 4 s | 360 | S |
+| `alliance_thanix` ᶜ (149-169) | thanix / thanix_stream | 420 /s | 6.0 | 26 | ∞ | 0.8 | 0.9 | 20 | `beamDuration` 1.6 (= 672 per burst) | 20 | C |
+| `fighter_gun` ᵉ (170-186) | mass_accelerator / kinetic | 6 | 0.25 | 4 | 14 | 0.5 | 0.2 | 1 | | 20 | S |
+| `fighter_torpedo` ᶜ (187-208) | disruptor_torpedo / warhead | 120 | 14.0 | 9 | 2.0 | 0.85 | 0.9 | 3 | `missileHp` 8, `magazine` 2 | 60 | C |
+| `reaper_capital_beam` ᶜ (211-231) | reaper_beam / reaper_beam | 1900 /s | 7.5 | 44 | ∞ | 0.93 | 1.0 | 0 | `beamDuration` 2.8 (= 5320 per burst) | 70 | C |
+| `reaper_destroyer_beam` ⁱ (232-252) | reaper_beam / reaper_beam | 520 /s | 6.5 | 30 | ∞ | 0.9 | 1.0 | 0 | `beamDuration` 2.4 (= 1248 per burst) | 80 | C |
+| `reaper_point_defence` ᵉ (253-273) | gardian / laser | 18 | 0.4 | 6.5 | ∞ | 0.42 | 0.3 | 0 | `burst` 14 / 3 s | 360 | S |
+| `turian_dn_main` ⁱ (276-292) | mass_accelerator / kinetic | 1050 | 3.8 | 42 | 30 | 0.74 | 0.85 | 18 | | 12 | C |
+| `turian_cruiser_main` ᵉ (293-309) | mass_accelerator / kinetic | 340 | 3.0 | 36 | 26 | 0.7 | 0.7 | 14 | | 15 | C |
+| `asari_dn_main` ⁱ (310-326) | mass_accelerator / kinetic | 1100 | 4.0 | 44 | 32 | 0.78 | 0.85 | 16 | | 14 | C |
+| `asari_cruiser_main` ᵉ (327-343) | mass_accelerator / kinetic | 330 | 2.9 | 38 | 28 | 0.74 | 0.72 | 13 | | 16 | C |
+| `salarian_dn_main` ⁱ (344-360) | mass_accelerator / kinetic | 1020 | 3.8 | 44 | 33 | 0.84 | 0.85 | 15 | | 14 | C |
+| `salarian_cruiser_main` ᵉ (361-377) | mass_accelerator / kinetic | 310 | 2.7 | 40 | 30 | 0.8 | 0.72 | 12 | | 16 | C |
+| `stg_frigate_main` ᵉ (378-394) | mass_accelerator / kinetic | 65 | 1.4 | 26 | 24 | 0.82 | 0.5 | 6 | | 30 | |
+| `ascension_main` ⁱ (395-411) | mass_accelerator / kinetic | 2600 | 4.5 | 48 | 36 | 0.8 | 0.95 | 20 | | 12 | C |
+| `cerberus_cruiser_main` ⁱ (412-428) | mass_accelerator / kinetic | 340 | 2.9 | 36 | 27 | 0.71 | 0.72 | 13 | | 15 | C |
+| `cerberus_frigate_main` ᵉ (429-445) | mass_accelerator / kinetic | 72 | 1.4 | 24 | 22 | 0.72 | 0.45 | 7 | | 30 | |
+| `geth_dn_main` ⁱ (448-464) | mass_accelerator / kinetic | 1150 | 3.8 | 44 | 32 | 0.8 | 0.88 | 16 | | 12 | C |
+| `geth_cruiser_main` ᵉ (465-481) | mass_accelerator / kinetic | 330 | 2.8 | 36 | 27 | 0.76 | 0.72 | 13 | | 15 | C |
+| `quarian_heavy_main` ⁱ (482-498) | mass_accelerator / kinetic | 700 | 4.2 | 38 | 26 | 0.66 | 0.75 | 18 | | 14 | C |
+| `apex_hyper_ma` ᴬ (501-522) | mass_accelerator / kinetic | 3200 | 4.5 | 44 | 48 | 0.78 | 1.4 | 24 | name "Hyper-mass accelerator (HADES rounds)" | 12 | C |
+
+Notes: `WeaponKind` also declares `'missile'` (`data/types.ts:22-28`) with no catalogue entry (`tryFire` treats it like a torpedo). `magazine`/`burst` exist only on the four weapons shown. `BARRIER_EFFICIENCY` (`weapons.ts:16-22`): kinetic 1.0, thanix_stream 0.45, reaper_beam 0.4, laser 0.0, warhead 0.25. Heat capacity is `100 × tech.heatCapacity` (`rules.ts:212`), decay 8 % of capacity per second (`battle.ts:448`); a dreadnought firing its 8 broadsides continuously generates 8×6/1.6 = 30 heat/s against 8/s decay, so `overheated` (L450, blocks every mount with `heat > 0` until 55 %, L449/L557) is a routine state in a close fight — relevant when the main-gun cadence drops to 2 s (18 heat per 2 s = 9/s on its own).
+
+### 8.4 Preset multipliers (`src/timelines/presets.ts`) and the effective Apex numbers
+
+| preset (lines) | organic tech ≠ 1 | reaper tech ≠ 1 | factionOverrides | special ≠ canon | fleetStrength ≠ 1 | strategic ≠ canon |
+| --- | --- | --- | --- | --- | --- | --- |
+| `canon_me3` (18-32, frozen) | — | — | — | — | — | — |
+| `prepared_galaxy` (35-54) | fireRate 1.1, accuracy 1.08, crew 1.1, barrierRegen 1.15 | — | — | thanix `fleetwide` | alliance 1.5, turian 1.4, asari 1.4, salarian 1.3 | alliedCoordination 0.85 |
+| `humanity_ascendant` (57-87) | — | — | alliance: MA dmg 1.5, MA pen 1.25, barriers 1.4, armour 1.3, hull 1.15, fireRate 1.15, sensors 1.3, accuracy 1.1 | thanix `fleetwide` | alliance 2.2, turian 0.95 | alliedCoordination 0.35 |
+| `cerberus_reformed` (90-113) | — | — | cerberus: sensors 1.2, EW 1.4, accuracy 1.1 | — | cerberus 2.0 | illusiveManIndoctrinated false, cerberusStance `cooperative`, alliedCoordination 0.6 |
+| `reaper_escalation` (116-134) | — | accuracy 1.08, barrierRegen 1.3, crew 1.15 | — | — | reaper 1.6 | reaperCompetence 1.3, indoctrination 1.3, reaperReinforcements 1.6 |
+| `prime_apex` (140-200) | see §3.2 (18 keys) | — | cerberus: EW 1.6, sensors 1.6 | hyperMA, hades, thanix `fleetwide`, reaperCommandVulnerability | alliance 2.0, turian 1.6, asari 1.3, salarian 1.3, cerberus 1.5 | see §3.2 |
+| `cerberus_ascendant` (207-239) | — | — | cerberus: sensors 1.3, EW 1.5, accuracy 1.1, crew 1.1 | indoctrinationDisabled true, reaperCommandVulnerability false | cerberus 1.6 | see §3.2 |
+
+Effective `prime_apex` values for an Alliance ship (`applyRulesToShip`/`applyRulesToWeapon`, §3.1), Reapers unchanged:
+
+- Kilimanjaro: hull 10 350, armour 169, barriers 7 020, regen 77/s, speed ×1.08, sensors 126 km, ecm 0.195, heat capacity 130, crew `1.05 × 1.15 × (1 − 0.08×0.5) × (0.9 + 0.2×0.9)` = 1.252 (canon: `1.05 × 0.92 × 1.0` = 0.966).
+- Spinal gun → `apex_hyper_ma`: damage 3200 × 1.25 = **4000**, penetration 1.4 × 1.3 = **1.82** (the armour term `max(0, 1.2 − pen)` is 0, so `armourBypass 0.5` changes nothing for this gun), range 44, cooldown 4.5 / 1.1 = 4.09 s, accuracy min(0.99, 0.78 × 1.1) = 0.858, `barrierEfficiencyMultiplier 0.6` → kinetic barrier efficiency 0.6.
+- Cruiser main → Thanix fleetwide: 420 × 1.4 × 1.35 = 793.8 /s for 1.6 s = **1270 per burst**, cooldown 5.5 / 1.1 = 5.0 s; Normandy Thanix 567 /s, 5.45 s. Broadside 175 (pen 0.65, cd 1.45), frigate gun 87.5 (pen 0.585), torpedo 364, GARDIAN 19.6, fighters ×1.3 on top. **Every** organic mass accelerator carries HADES (`armourBypass 0.5`, barrier ×0.6) under this preset (§3.1).
+
+### 8.5 Damage model (`src/simulation/damage.ts`) and housekeeping rules
+
+`applyDamage(target, raw, weapon, rng, now)` (L27-73), in order:
+
+1. `target.lastHitAt = now` (L30) — on **every** call, including each beam tick.
+2. Barriers: `eff = BARRIER_EFFICIENCY[damageType] × weapon.barrierEfficiencyMultiplier` (L33); `absorbed = min(barriers, raw × eff)`; `barriers −= absorbed`; `amount = raw − absorbed`; `barriersCollapsed` when `barriers ≤ 0.01` (L34-43). Kinetic rounds are therefore 100 % absorbed until the pool is empty (no leak), Reaper beams leak 60 %, Thanix 55 %, torpedoes 75 %, lasers 100 %.
+3. Armour: `armourEff = armour × (1 − armourBypass)`; `reduction = max(0, armourEff × max(0, 1.2 − penetration))` (L46-47); `hullDamage = clamp(amount − reduction, amount × 0.15, amount)` (L48-49) — a flat per-hit subtraction with a **15 % floor**. Ablation `armour −= hullDamage × 0.002` (L51).
+4. `hull −= hullDamage`, `stats.damageTaken += hullDamage` (L53-55).
+5. Subsystems: `severity = hullDamage / maxHull`; if `severity > 0.03` and `rng.chance(min(0.6, severity × 4))`, one of `engines|weapons|sensors` (`rng.pick`) drops by `min(0.5, severity × 3)`, floor 0.1 (L58-64). Effects: engines → `engineFactor = 0.25 + 0.75×engines` and turn rate (`battle.ts:392-440`), weapons → `wpnFactor = 0.4 + 0.6×weapons` on cooldown speed (L521, L548), sensors → `0.5 + 0.5×sensors` in `hitProbability` and missile interception (L670).
+6. Destruction at `hull ≤ 0` (L66-71). There is no critical-hit table beyond this.
+
+`hitProbability(shooter, target, weapon, dist, closingSpeed)` (L80-105): `rangeFactor = 1 − 0.45 × (dist/range)²`; profile `min(1.3, 0.55 + 1.2 × signature)` for `antiSmall` weapons, else `min(1.6, 1.05 × √signature)` and ×0.08 against fighters; `ecm = 1 − 0.6 × target.ecm`; `crew = 0.75 + 0.3 × shooter.crewQuality`; `sensors = 0.5 + 0.5 × shooter.subsystems.sensors`; `relSpeedPenalty = max(0.55, 1 − closingSpeed/projectileSpeed)` (1 for beams); product × `accuracy`, clamped to [0.01, 0.98]. `tryFire` multiplies by `coordination = 1 − 0.5 × fleet.coordinationPenalty` (`battle.ts:657, 676`).
+
+Beams: a burst is one hit roll up front, then `applyDamage(target, def.damage × dt, …)` every step while `beamRemaining > 0` (`battle.ts:524-535`), i.e. **56 chunks of 95** for the capital beam, 48 chunks of 26 for the destroyer beam, 32 chunks of 21 for Thanix. Because step 3 subtracts the armour term from each chunk, armour is far more effective against beams than against slugs (worked examples below) — a modelling artefact to keep in mind for D2/D3.
+
+Housekeeping (`battle.ts:442-451`): barriers regenerate `barrierRegen × dt` only while `time − lastHitAt > 3` s (L444-446), so a ship under any fire — including a beam that is still burning — never regenerates; heat decays `0.08 × heatCapacity × dt` (L448); `overheated` set above capacity, cleared below 55 % (L449-450). Dying ships stop instantly (no drifting hulks; `destroyShip`, L844).
+
+### 8.6 Worked examples and the measured D3 baseline
+
+Analytical, from 8.3-8.5 (canon, half of maximum range, `rangeFactor 0.8875`, closing speed negligible):
+
+- Kilimanjaro main gun vs Sovereign: `p = 0.72 × 0.8875 × 1.6 × 0.79 × 1.04 ≈ 0.84`. While barriers are up every hit is absorbed in full (42 000 pool = 42 hits ≈ 50 shots ≈ 200 s for one gun at 4 s cadence). Once down: `reduction = 320 × 0.35 = 112` → **888 hull per hit**, 32 000 hull = 36 hits.
+- Sovereign beam vs Kilimanjaro: `p` clamps to **0.98** (`0.93 × 0.8875 × 1.447 × 0.91 × 1.14`). Per 0.05 s chunk: 95 raw → 38 to barriers, 57 pass → `reduction 130 × 0.2 = 26` → 31 hull; with barriers down 69 hull. One 2.8 s burst: −2128 barriers and −1736 hull while barriers hold, −3864 hull once they are gone. A Kilimanjaro (5200/9000) therefore absorbs ~2.4 bursts before its barriers fail and ~1.2 more before the hull goes: ~3.7 single bursts, i.e. the Sovereign's two emitters (7.5 s cooldown) kill a dreadnought in about two paired volleys, 10-15 s.
+- Thanix vs any Reaper hull: per chunk 21 raw → 9.45 barriers, 11.55 pass → `reduction 320 × 0.3 = 96` (destroyer: `160 × 0.3 = 48`) ≫ 11.55 → **15 % floor**, 1.73 hull per chunk, **55 hull per 1.6 s burst** (plus 302 barrier). Under the current model Thanix only strips barriers against Reapers; the fleet-wide Thanix refit of Prime/Apex does not scale the result (the pack wants Thanix "rewarded against Reaper protection" — D2).
+- Alliance cruiser main vs destroyer: `p ≈ 0.68 × 0.8875 × 0.664 × 0.82 × 1.03 ≈ 0.33`; 320 per hit, 6500 barrier = ~21 hits ≈ 62 shots ≈ 3 min for one cruiser; hull hits 240 (reduction 80). Destroyer beam vs cruiser: `p ≈ 0.85`; per chunk 26 raw → 10.4 barriers, 15.6 pass → 6.6 hull (reduction 9); per burst −500 barriers/−317 hull, −816 hull once stripped: ~5 bursts (≈ 30 s) kill a cruiser. Frigate torpedo 260 → 65 absorbed, 195 pass, 147 hull against a destroyer (if it survives GARDIAN-style `reaper_point_defence`, `missileHp 12`).
+- Kilimanjaro vs destroyer: `p ≈ 0.36`; 944 hull per hit after 6500 barrier; ~10 hits ≈ 28 shots.
+
+Measured (headless, `buildCustomBattle`, `deep_space`, 60 km start, side A `line_abreast`, side B `capital_column`, `maxDuration 600`, seeds 1-8, both sides `mult 1`; script below; run on `01b1fef` in 5.6 s):
+
+| duel | A wins | Reaper barrier reached 0 (min %) | mean Reaper hull left | mean A losses | mean duration |
+| --- | --- | --- | --- | --- | --- |
+| 2 Kilimanjaro vs 1 Sovereign | 0/8 | 0/8 (75 %) | 100 % | 2.00 | 72 s |
+| 3 Kilimanjaro vs 1 Sovereign | 0/8 | 0/8 (52 %) | 100 % | 3.00 | 91 s |
+| 4 Kilimanjaro vs 1 Sovereign | 0/8 | 1/8 (0 %) | 98 % | 4.00 | 119 s |
+| 6 Kilimanjaro vs 1 Sovereign | 3/8 | 8/8 | 14 % | 5.50 | 148 s |
+| 8 Kilimanjaro vs 1 Sovereign | 8/8 | 8/8 | 0 % | 2.88 | 102 s |
+| 1 Alliance cruiser vs 1 destroyer | 0/8 | 0/8 (60 %) | 100 % | 1.00 | 87 s |
+| 2 Alliance cruisers vs 1 destroyer | 0/8 | 1/8 (0 %) | 96 % | 1.75 | 211 s |
+| 1 Kilimanjaro vs 1 destroyer | 8/8 | 8/8 | 0 % | 0.00 | 241 s |
+| 4 Alliance frigates vs 1 destroyer | 0/8 | 0/8 (62 %) | 98 % | 3.63 | 205 s |
+| 4 Kilimanjaro vs 1 Sovereign, `prime_apex` | 8/8 | 8/8 | 0 % | 0.13 | 53 s |
+| 2 Kilimanjaro vs 1 Sovereign, `prime_apex` | 5/8 | 5/8 | 5 % | 1.38 | 83 s |
+| 1 Alliance cruiser vs 1 destroyer, `prime_apex` | 0/8 | 0/8 (72 %) | 69 % | 1.00 | 163 s |
+
+Against the D3 target: today **four dreadnoughts never kill a Sovereign** (it takes eight to do so reliably, six for a coin-flip), and **a lone cruiser has no path to kill a destroyer** (two cruisers break its barrier once in eight runs; even a dreadnought needs four minutes). The pack's isolated trial (`validation_results.json`: 2 DN never, 3 DN in 18 s, 4 DN in 8 s, no return fire) is the shape the lead wants, scaled to our pools. Under `prime_apex` the opposite problem appears: two dreadnoughts beat a Sovereign five times in eight, and four lose 0.13 ships on average — the "four must not automatically survive" clause fails in the AU too.
+
+Probe, condensed from the script that produced the table (same construction, seeds and metrics; the full version loops over the twelve duels and prints one formatted line each). It is deterministic by seed, so it can become a `scripts/` probe or the skeleton of the D3 unit tests:
+
+```ts
+// node --import tsx/esm duel.mts   (run from the repo root; .mts so Node treats it as ESM)
+import { BattleSimulation } from '/home/user/reaperwar/src/simulation/battle';
+import { buildCustomBattle } from '/home/user/reaperwar/src/scenarios/index';
+const duel = (a: Record<string, number>, b: Record<string, number>, rulesId = 'canon_me3') => {
+  let wins = 0, down = 0, minFrac = 1, hull = 0, lost = 0, dur = 0;
+  for (const seed of [1, 2, 3, 4, 5, 6, 7, 8]) {
+    const sim = new BattleSimulation(buildCustomBattle({ seed, rulesId, environment: 'deep_space', startingDistanceKm: 60, maxDuration: 600,
+      sideA: { faction: 'alliance', name: 'A', formation: 'line_abreast', counts: a },
+      sideB: { faction: 'reaper', name: 'B', formation: 'capital_column', counts: b } }));
+    const reaper = sim.ships.find((s) => s.side === 'B')!;
+    let m = 1;
+    while (!sim.finished) { sim.step(); m = Math.min(m, reaper.barriers / reaper.maxBarriers); }
+    const r = sim.result!;
+    if (r.winner === 'A') wins++; if (m <= 0) down++; minFrac = Math.min(minFrac, m);
+    hull += reaper.hull / reaper.maxHull; lost += r.sides.A.destroyed; dur += r.duration;
+  }
+  console.log(JSON.stringify(a), 'vs', JSON.stringify(b), rulesId, { wins, down, minFrac, meanHull: hull / 8, meanLost: lost / 8, meanDur: dur / 8 });
+};
+duel({ alliance_dreadnought: 4 }, { reaper_capital: 1 });
+duel({ alliance_cruiser: 1 }, { reaper_destroyer: 1 });
+```
+
+### 8.7 What the calibration will have to move (and where)
+
+- Cadence: `alliance_dn_main.cooldown 4.0` (`weapons.ts:32`; canon text in its own provenance says 2 s), turian 3.8 (L282), asari 4.0 (L316), salarian 3.8 (L350), geth 3.8 (L454), quarian heavy 4.2 (L488), Ascension 4.5 (L401), `apex_hyper_ma` 4.5 (L507). `tests/damage.test.ts` never asserts a cooldown; `tests/timelines.test.ts:38` only asserts that canon leaves `damage` unchanged.
+- Throughput vs recovery: two Kilimanjaros at 2 s cadence land ≈ 0.84 hits/s ≈ 840 barrier damage/s; "two cannot overwhelm" needs the Sovereign's recovery (today 240/s and **suppressed while hit within 3 s**, `battle.ts:444`) to beat that while under fire — either a recovery that continues under fire (the pack's `barrier_recovery_after_volley: true`, Sovereign recovery 1.1 DKE/s = 1100/s) or a per-hit absorption cap. Three guns ≈ 1260/s must still gain ("growing load"), four ≈ 1680/s must win in tens of seconds, which also bounds the pool (42 000 today).
+- Return fire: with `p = 0.98` and two emitters the Sovereign kills a dreadnought every ~15 s, which is why four die before the barrier moves. A 2 s cadence alone will not change the 4-vs-1 verdict; expect to touch `reaper_capital_beam` (damage 1900, duration 2.8, cooldown 7.5, accuracy 0.93; L216-222), dreadnought pools (5200/130/9000), or both.
+- Cruiser vs destroyer: destroyer pools 6500/160/3200 (`ships.ts:839-841`) and the 15 % floor make the cruiser's 320-point slug meaningless; a credible kill path needs the destroyer barrier within reach of ~10-20 cruiser hits and the destroyer beam to need several bursts (today ~5), e.g. a destroyer barrier in the 2000-3000 range or a heavier cruiser round, while `tests/damage.test.ts:62-71` still wants frigate guns at < 30 % effectiveness against Reaper plating.
+- Tests that pin today's balance are listed in §9.3 with their thresholds; the canon reference engagement (`alliance_fleet_engagement`, fixed fleets, seeds 7 and 8) must still be a Reaper win with `reaperCapitalLost < 3` and Alliance `survivalPercent < 30`, and the same fleets under `prime_apex` must still annihilate the Reapers with at least one loss.
+
+---
+
+## 9. Test inventory
+
+### 9.1 Running them
+
+- Unit: `npm test` → `vitest run` (`vitest.config.ts`: `tests/**/*.test.ts`, `environment: 'node'`, `testTimeout: 60_000`, alias `@` → `src`). 9 files, 83 `it(...)` blocks (`battle 19, campaign 22, damage 9, timelines 12, ammo 5, rng 5, lod 4, salarian 4, saves 3`), ~62 s wall because the campaign and balance tests run whole battles. Typecheck: `npm run typecheck` (`tsc --noEmit`).
+- e2e: `npm run test:e2e` → Playwright (`playwright.config.ts`: `testDir ./e2e`, 120 s per test, no retries, 1920×1080, headless Chromium with `--use-gl=angle --use-angle=swiftshader --enable-unsafe-swiftshader --ignore-gpu-blocklist`; `webServer` runs `npm run build && npx vite preview --port 4173 --strictPort`, reused if already up). Both specs drive the sim through `window.reaperwar` (`src/main.ts:11`) instead of waiting on wall time.
+- CI (`.github/workflows/ci.yml`, every push/PR): `npm ci` → typecheck → `npm test` → `npm run build` (`VITE_BASE=/reaperwar/`) → `playwright install --with-deps chromium` → `npm run test:e2e`, Playwright report uploaded on failure. `deploy.yml` (push to `main`): typecheck → `npm test` → build → GitHub Pages; it does **not** run the e2e suite.
+
+### 9.2 Unit tests, file by file
+
+Sensitivity column: **HIGH** = asserts a balance outcome that a D2/D3 recalibration can flip; **MED** = runs battles but asserts only existence/ordering; **LOW** = structural, unaffected by numbers (unless noted).
+
+**`tests/rng.test.ts`** (47 lines) — `Rng` determinism (L6-10), seed independence (L11-17), uniform mean 0.48-0.52 over 20 000 draws (L18-29); `interceptPoint` leads a target (L33-42) and falls back to the target position when no solution exists (L43-46). LOW.
+
+**`tests/lod.test.ts`** (23) — `lodLevel` thresholds with `REDUCED_FACTOR`/`POINT_FACTOR` × length (L5-9), length scaling (L10-14), fighter distances (L15-19), `enabled=false` (L20-22). LOW (D11 may change `lod.ts` constants: the tests use the exported constants, so only a change of *shape* breaks them).
+
+**`tests/saves.test.ts`** (61) — slot CRUD with a canon campaign advanced one week and a `cerberus_ascendant` post-war state (L9-32: list, rename, load copy semantics, remove); overwrite by id, `turn === 1`, **`describeSave('campaign', st).rulesName === 'Prime/Apex — Successful Refuse'`** (L34-46, literal at L45 — renaming the preset breaks it); export/import round trip of slots (L48-60). LOW except the name literal; it runs `advanceTick` on a `prime_apex` campaign (week 1 only).
+
+**`tests/timelines.test.ts`** (127):
+
+| test (lines) | asserts | sensitivity |
+| --- | --- | --- |
+| canon has all multipliers at 1 and no special technology (9-18) | every `TECH_KEYS` of `CANON_ME3.organic/reaper` is 1; `special/fleetStrength/strategic` deep-equal `CANON_SPECIAL/CANON_FLEETS/CANON_STRATEGIC`; category `canon` | LOW — new keys must be added to the canon constants |
+| getPreset returns clones (20-27) | mutating a clone never changes `CANON_ME3` | LOW |
+| canon effective stats equal catalogue values for every ship class (29-43) | for every class: `applyRulesToShip` hull/barriers/armour equal the catalogue; for every hardpoint: `applyRulesToWeapon(...)` keeps `id`, `damage`, `armourBypass 0`, `barrierEfficiencyMultiplier 1` under canon | LOW for catalogue edits (it compares against the catalogue itself); breaks if canon ever substitutes or scales a weapon |
+| Prime/Apex rules do not leak into canon (47-54) | Apex DN gun `id === 'apex_hyper_ma'`, canon keeps `alliance_dn_main`; **`WEAPONS.alliance_dn_main.damage === 1000`** (L53) | HIGH for the damage unit: changing the slug's damage breaks it (D2 keeps 1000 = 1 DKE) |
+| Cerberus Ascendant vs Prime/Apex isolation (56-65) | `PRIME_APEX.strategic.shepardAlive true`, `cerberusStance 'cooperative'`, `catalystOperational true`; CA: false / `controls_reapers` / false; CA `hyperMassAccelerators false`, `hadesRounds false` | LOW; D1 keeps all of these |
+| Reaper technology unchanged in Prepared Galaxy and Prime/Apex (67-72) | `getPreset(id).reaper[k] === 1` for the two ids | LOW; add `apex_legacy` if its Reaper tech stays canon |
+| unique ids, non-canon presets declare history changes (74-78) | `PRESETS` ids unique; `historyChanges.length > 0` unless canon | LOW |
+| round-trips a preset through export/import (82-88) | `importRuleSet(exportRuleSet(PRIME_APEX))` → `organic/special/strategic` deep-equal | LOW but **every new `special`/`strategic` key must be in `validateRuleSet`** or this fails |
+| rejects invalid JSON and non-objects (90-94) | `ok === false` for `'{not json'`, `42`, `[]` | LOW |
+| clamps out-of-range values and drops unknown keys (96-114) | `massAcceleratorDamage 1000 → 10`; `bogus`/`klingon` dropped; `thanixAvailability 'everywhere' → 'canon'`; `controls_reapers` forces `catalystOperational false`; warnings non-empty; category `custom` | LOW; changing `TECH_RANGE` maxima changes the 10 |
+| imported sets cannot claim canon status (116-120) | category `custom`, id ≠ `canon_me3` | LOW |
+| custom timelines start identical to canon (122-126) | `makeCustom().organic` deep-equals `CANON_TECH` | LOW |
+
+**`tests/damage.test.ts`** (120) — `makeShip(classId, rules, side)` (L13-23) instantiates `alliance_fleet_engagement` under the given rules (rule-scaled fleets, no `fixed` flag), steps up to 120 ticks to find a launched fighter, and resets the pools; `weapon(id, faction, cls, rules)` (L25-26) is the unscaled `applyRulesToWeapon`.
+
+| test (lines) | asserts (with the arithmetic it relies on) | sensitivity |
+| --- | --- | --- |
+| kinetic rounds fully absorbed by barriers (29-36) | 70 raw frigate round vs full frigate barriers (450): `barrierDamage 70`, `hullDamage 0` | needs kinetic efficiency 1 and frigate barriers ≥ 70 |
+| a dreadnought slug destroys a frigate outright (38-44) | 1000 raw vs `alliance_frigate` at full 450/12/520: 550 through, reduction 12×0.35 = 4.2 → 546 ≥ 520 hull | **HIGH**: `barriers + hull + armour×(1.2−pen)` of the frigate must stay below the slug (today 974 vs 1000) |
+| a Reaper beam passes most of its energy through barriers (46-52) | 1000 raw vs cruiser: `barrierDamage ≈ 400` (exactly 0.4), `hullDamage > 500` (600 − 45×0.2 = 591) | **HIGH**: pins `BARRIER_EFFICIENCY.reaper_beam = 0.4` to 5 decimals and cruiser armour < 455 |
+| GARDIAN lasers ignore barriers (54-60) | 14 raw vs fighter: `barrierDamage 0`, hull > 0 | needs laser efficiency 0 |
+| armour reduces low-penetration damage vs Reaper plating (62-71) | Sovereign with barriers 0: frigate gun `hull/70 < 0.3` (reduction 320×0.75 = 240 > 70 → 15 % floor); DN slug `hull/1000 > 0.8` (1000 − 112 = 888) | **HIGH**: floor must stay < 0.3; `armour × (1.2 − 0.85)` of the Sovereign must stay < 200 (today 112) — an armour of 320 with pen 0.85 is at 56 % of the budget |
+| HADES rounds bypass armour and pierce barriers (73-86) | Apex DN gun: `substitutedFrom 'alliance_dn_main'`, `id 'apex_hyper_ma'`, `armourBypass > 0`; 1000 raw vs full-barrier Sovereign: canon `hull 0`, Apex `hull > 0` (barrier eff 0.6 → 400 pass) | **HIGH for D7**: moving HADES from the faction flag to a finite round must still make `applyRulesToWeapon(WEAPONS.alliance_dn_main, 'alliance', DN, PRIME_APEX)` report `armourBypass > 0` and a barrier multiplier < 1, or the test must change with it |
+| hit probability vs fighters and large targets (88-98) | DN gun at 10 km: vs fighter `< 0.1` (profile ×0.08), vs Sovereign `> 0.6` and `≤ 0.98` | MED: accuracy 0.72, `rangeFactor 0.9745`, the 1.6 profile cap, ecm 0.79 and crew 1.04 give ≈ 0.92 |
+| subsystems can be disabled by heavy hits (100-110) | 20 × 300-raw beam hits on a barrier-less cruiser produce ≥ 1 `subsystem` outcome (severity 291/2400 = 0.12 → chance 0.48) | MED |
+| effective ship stats scale with rule multipliers (112-119) | canon DN hull equals catalogue; Apex hull and barriers greater | LOW |
+
+**`tests/ammo.test.ts`** (74) — all on `battle_of_earth` (rule-scaled) except the last:
+
+| test (lines) | asserts | sensitivity |
+| --- | --- | --- |
+| torpedo tubes carry a magazine and stop firing when spent (7-21) | canon seed 3: frigate tubes `ammo === 8`; zeroing them → no further `disruptor_torpedo` `weapon_fired` for that frigate in 400 steps | LOW (gates at `battle.ts:556`) |
+| reports depleted magazines (23-31) | canon seed 5: all tubes set to 1 → `ammunition_depleted` within 2400 steps; that ship's tubes all 0 | MED (needs torpedoes to be fired within 120 s) |
+| fighters rearm after hangar time (33-52) | canon seed 5: a launched fighter with `carrierId` within 1200 steps; parked on the carrier with `rearming` → `rearming false`, `ammo === magazine`, `fighter_rearmed` within 400 steps (`REARM_SECONDS 12`) | LOW |
+| point-defence mounts pause after a burst (54-64) | canon seed 7: cruiser GARDIAN `burstLeft === 10`; some mount reaches `burstLeft ≤ 0 && burstRecover > 0` within 4000 steps | MED (needs PD to fire ≥ 10 shots in 200 s — missiles or fighters must appear) |
+| still deterministic with ammunition and bursts (66-73) | `alliance_fleet_engagement`, `prime_apex`, seed 8, rule-scaled: two runs give equal `destroyed` counts and `duration` | LOW (self-comparison) |
+
+**`tests/battle.test.ts`** (215) — `fixed = {fleet_scaling: 'fixed'}` (L10) is used on every reference-engagement test:
+
+| test (lines) | asserts | sensitivity |
+| --- | --- | --- |
+| deterministic (13-23) | canon seed 99, 1200 steps: equal event counts, last 200 events JSON-equal, equal `[id, hull, pos]` | LOW (self); any `Math.random` in the sim breaks it |
+| different seeds differ (25-33) | seeds 1 vs 2, 1500 steps: last 50 events differ | LOW |
+| Battle of Earth completes (35-49) | canon seed 42 (scaled): `finished`, `30 < duration ≤ 421`, > 5 `ship_destroyed`, `weapon_fired` of kind `reaper_beam` and `mass_accelerator`, `projectile_impact`, `barriers_down`, `reinforcement_arrival` (second wave T+55), `comms` | MED (a battle that ends before 30 s or after the cap without 6 kills fails) |
+| **canon: Reapers win the reference engagement** (51-59) | seeds 7 and 8, `alliance_fleet_engagement` fixed (8 DN, 1 CV, 16 CA, 30 FF, Normandy vs 4 cap + 8 dd): `winner 'B'`, `B.reaperCapitalLost < 3`, `A.survivalPercent < 30` | **HIGH** — the canon calibration target |
+| **Prime/Apex: the same fleets defeat the Reapers, at a cost** (61-69) | seeds 7 and 8: `winner 'A'`, `B.destroyed === B.deployed`, `A.destroyed > 0` | **HIGH** — the AU calibration target |
+| Reaper intelligence assessment (71-81) | seed 7: canon threat ∈ {NEGLIGIBLE, LOW, MODERATE, ELEVATED}, Apex ∈ {SEVERE, CRITICAL}; Apex `reaperCapitalLosses > canon` | **HIGH** (`reaperIntel.ts:50-56` thresholds) |
+| retreat ends the battle by withdrawal (83-90) | canon seed 5, 200 steps then `retreat`: reason matches `/withdrew\|destroyed/`, an `order_issued` event exists | LOW |
+| attack_target focuses the fleet (92-100) | after 100 steps > 60 % of `alliance-tf` non-fighters have `targetId` = the chosen destroyer | MED (depends on `chooseTarget` honouring `forcedTargetId`, `ai.ts:109-133`) |
+| fighters launch and torpedoes are fired (102-108) | canon seed 3, 1800 steps: fighters exist, `fighters_launched`, a `disruptor_torpedo` shot | MED |
+| custom battles build and run (110-124) | legacy `CustomBattleInput` shape: `A.deployed 12`, `B.deployed 2`, winner ∈ {A, B, draw} | LOW; D6 must keep this shape loading or update the call |
+| every scenario builds under every preset (126-135) | 10 scenario ids × 7 preset ids, 40 steps, `ships.length > 0` | LOW; **add new scenario/preset ids to the two literal lists** |
+| Cerberus Intervention sides (139-146) | canon: Cerberus side `B`, no Reapers; `cerberus_reformed`: Cerberus side `A` and Reapers present | LOW (D4 Cerberus world state must keep `cerberusStance` semantics) |
+| Palaven and Thessia complete with the new factions firing (147-156) | canon seed 3 fixed: a result, a turian/asari `weapon_fired` | MED |
+| Rannoch outcomes (157-173) | war: geth `techOverride.kineticBarrierStrength 1.4`, geth cruiser `maxBarriers` = 1.4× the unupgraded one, quarians untouched; peace: geth side `A` + Reapers | LOW |
+| Destiny Ascension world state (174-180) | `ascension present/absent` adds/removes the class | LOW |
+| formations: non-overlapping capital slots (184-189) | 4 dreadnoughts `line_abreast`: adjacent x gaps > 1.2 km | LOW |
+| formations: slot rotation (190-194) | `slotToWorld` with heading +x maps (0,0,5) to x≈5 | LOW |
+| comparison runs both timelines and explains (198-207) | canon vs `PRIME_APEX` seed 7 fixed: same seed and deployed count, > 10 metrics, explanation matches `/Hyper-mass accelerators/` | MED; the regex is tied to the wording in `explainDifferences` (`comparison.ts:113-116, 139-141`) |
+| identical rule sets yield identical results (208-214) | canon vs `getPreset('canon_me3')`: equal duration and losses, explanation matches `/identical/` | LOW |
+
+**`tests/salarian.test.ts`** (61):
+
+| test (lines) | asserts | sensitivity |
+| --- | --- | --- |
+| full hull family with models and provenance (10-22) | the four salarian classes exist, `hasModel`, `designProvenance CANON_INFERRED`; `SHIP_CLASS_LIST` has exactly 4 salarian classes; STG frigate `signature` ≤ every other organic non-fighter | LOW (adding a salarian class or a stealthier organic hull breaks it) |
+| Defence of Sur'Kesh under canon and Prime/Apex (24-32) | canon seed 5 `stg_warning early`: `duration > 0`, `A.destroyed > 0`; **`prime_apex` `B.destroyed > canon B.destroyed`**; `late` flank `arrivalTime 25` | MED-HIGH |
+| custom battles accept salarian fleets (34-47) | 2 Union DN + 6 CA + 8 STG vs 4 destroyers, canon, 60 km, 240 s: `duration > 0`, **`B.destroyed > 0`** | **HIGH-ish**: the salarian group must kill ≥ 1 destroyer inside 240 s (today it does; see 8.6 for how hard destroyers are) |
+| genophage world state (49-60) | campaign: `Salarian First Fleet` only when `sabotaged`; Third Fleet refuses `orderMove` to Sol when cured, First Fleet may move to `widow`; Final Battle default + `sabotaged` includes the First Fleet | LOW |
+
+**`tests/campaign.test.ts`** (275) — every `advanceTick` with a Reaper/allied contact calls `autoResolve` → a full `BattleSimulation` (§7 note), so the outcome tests are balance tests in disguise:
+
+| describe / test (lines) | asserts | sensitivity |
+| --- | --- | --- |
+| galaxy: every system reachable from Sol (11-13); relays reference known systems (14-21) | `relayPath` non-empty; `neighbours('sol')` includes `arcturus` | LOW |
+| engine: creates a canon campaign (25-36) | `kite_nest` Reaper-held, `sol` allied, Reaper fleets exist, `Alliance Fifth Fleet` player-controlled, **`crucible.available true`** under canon; Cerberus allegiance `cerberus` (canon) / `allied` (`cerberus_reformed`) | LOW; D1's `crucibleAvailable false` on `prime_apex` does not touch this |
+| world state adds quarian/geth fleets only with peace (38-44) | `rannoch war` no quarians; `peace` quarians + allied geth | LOW |
+| deterministic for a seed (46-53) | canon seed 9, 6 weeks: identical fleets/systems JSON | LOW (self) |
+| moves fleets along relays and refuses uncooperative orders (55-69) | Fifth Fleet route `['widow','athena']`; turian cooperation 0.2 refuses, 0.9 allows | LOW |
+| pauses on an engagement and resolves it (71-90) | vanguard placed at `sol`, interactive tick → `pending.system 'sol'`; `buildEngagement` → `earth_orbit`, Reaper side B, an `orbital defence` fleet; after the real battle **the Fifth Fleet lost ships or was destroyed**; `sol.lastBattle` set | MED (canon seed 3: the Fifth Fleet must lose ≥ 1 hull against the vanguard + defence group) |
+| withdrawal moves player fleets out (92-99) | after `withdrawFromEngagement` no player fleet at Sol | LOW |
+| **canon ends in defeat or a Crucible decision; Prime/Apex wins conventionally** (101-109) | canon seed 5 reaches **some** `outcome` by week 160; `prime_apex` seed 5 reaches `victory` by week 160; `reaperFleetValue(apex) < reaperFleetValue(canon) + 1` | **HIGH**: stronger canon fleets (2 s cadence) could leave canon without an outcome in 160 weeks; Apex must still destroy every Reaper fleet (no Crucible under D1) |
+| timelines without a Crucible cannot win through it (111-116) | `cerberus_ascendant`: `available false`, progress 0 after 20 weeks | LOW |
+| **refusing the Crucible forces a conventional outcome** (118-125) | `prime_apex` + `{crucible:'refuse'}`: `available false`, `victory` ≤ week 160, reason matches `/conventional\|Refuse/`, `reaperFleetValue 0` | **HIGH** (same battles as above; needs `conventionalVictoryPossible true`) |
+| round-trips through JSON (127-135) | `prepared_galaxy` seed 7: a JSON copy advances identically | LOW |
+| depth: ground forces slow the harvest, krogan muster (139-154) | population higher with ground 1 than 0 after 4 weeks at `exodus`; cured genophage sets `flags.krogan_muster`, `effectiveGround(trebia)` ≥ base, a `ground` event | MED |
+| depth: research changes allied technology (156-168) | `barrier_overcharge` completes within 60 weeks; `researchTech().kineticBarrierStrength ≈ organic × 1.15`; the Fifth Fleet's `techOverride` carries it into `buildEngagement` | LOW |
+| depth: refugees and political events (170-175) | `reaper_escalation` seed 14, ≤ 30 weeks: `refugees > 0`, a `political` event | MED |
+| depth: normalises saves from the first build (177-189) | stripped `research/refugees/flags/ground` restored by `normaliseCampaign`; `sol.ground 1`; one tick works | LOW; **migration point for D1 flag changes** |
+| diplomacy: war summit every twelve weeks (193-213) | interactive: `summit.number 1` within 12 weeks (engagements withdrawn); `decideSummit('refugees')` halves refugees to 0.5 and sets `researchModifier 0.6`; AI campaigns log `War summit 1` | LOW |
+| diplomacy: rachni and Council composition (215-221) | `crucibleRateModifier(saved) > killed`; turian cooperation higher with Ascension present; no `destiny_ascension` when absent | LOW |
+| post-war: twenty years deterministic (225-241); refuses dismantlement before readiness (242-251); fleet-first plan wins (252-261) | `cerberus_ascendant` post-war seeds 11/3/21: outcome within 80 quarters, identical metrics JSON, `controlledReapers 0` on victory | LOW (post-war uses its own model, `campaign/postwar.ts`) |
+| Final Battle of Earth uses campaign fleets (265-274) | default includes `harbinger`; linked `campaignAllied` JSON → first side-A fleet named `Survivors`; `campaignReaper` → `reaper_capital` count 2 | LOW; D4 must keep the `campaignAllied`/`campaignReaper` contract |
+
+### 9.3 Calibration sensitivity summary (what a D2/D3 change must re-verify)
+
+HIGH: `battle.test.ts` 51-59, 61-69, 71-81; `damage.test.ts` 38-44, 46-52, 62-71, 73-86; `timelines.test.ts` 47-54 (the 1000-point slug); `campaign.test.ts` 101-109, 118-125; `salarian.test.ts` 34-47. MED: `battle.test.ts` 35-49, 92-108, 147-156, 198-207; `ammo.test.ts` 23-31, 54-64; `salarian.test.ts` 24-32; `campaign.test.ts` 71-90, 139-154, 170-175. Everything else is structural. New mechanics (volley, beats, HADES warhead, drive attack, Oculus) need their own tests and, per §1.5, must keep `JSON.stringify(events)` deterministic.
+
+### 9.4 e2e tests and every selector they touch
+
+Helpers: `advance(page, seconds)` (`game.spec.ts:4-10`) loops `window.reaperwar.battle.sim.step()` until `sim.time` passes the target or `sim.finished`; `campaign.spec.ts:69-73` steps to `finished`. Both specs collect `pageerror`/console errors and expect none.
+
+**`e2e/game.spec.ts`**
+
+| test (lines) | selectors / text, in order (DOM source) |
+| --- | --- |
+| page starts, menu renders, no console errors (13-23) | `[data-menu="quick-battle"]` (`menu.ts:8-23` slug of the label); `.menu-title` contains `MASS EFFECT 3` (`menu.ts:26`) |
+| a complete Battle of Earth (25-74) | `[data-menu="quick-battle"]` → `[data-action="launch"]` (`briefing.ts:101`) → `[data-action="pause"]` (`hud.ts:274`); `#battle-canvas` has a `webgl2`/`webgl` context; `sim.ships.length > 20`; `[data-action="pause"]` gains `.active`; `[data-speed="4"]` `.active` (`hud.ts:275`, values from `SPEEDS`); `[data-camera="cinematic\|follow\|free\|projectile\|reaper\|command\|tactical"]` each `.active` (`hud.ts:280`, keys of `CAMERA_MODE_LABELS`); `[data-order="advance"]` `.active` (`hud.ts:83, 292`); `select >> nth=0` set to `strike_wedge` (**the formation select must stay the first `<select>` in the HUD**, `hud.ts:53-64`); `.ship-list .ship-row` first click (`hud.ts:183`) → `.target-panel` contains `SSV` (a named Alliance ship must be first in the list); `.ship-row` with text `Reaper destroyer` right-click → `.toast` contains `ATTACK` (`app.ts:138-148`); after 40 s > 10 `weapon_fired`; after +900 s `[data-action="results"]` visible (`hud.ts:365`) → `.result-banner` matches `/VICTORY\|DEFEAT\|DRAW/` (`results.ts:42`), `[data-action="replay"]` (`results.ts:57`) |
+| replay reproduces the same battle (76-92) | `input[type="number"]` filled `1234` (**the seed must stay the first number input on the briefing**, `briefing.ts:86`); `[data-action="launch"]`; run 900 s; `[data-action="results"]`; `.result-banner` text and the first `.screen-body p.dim` (summary line, `results.ts`) must be identical after `[data-action="replay"]` |
+| canon vs AU comparison (94-103) | `[data-menu="canon-vs-au-comparison"]` → `[data-action="run-comparison"]` (`comparison.ts:43`) → `[data-action="watch-b"]` visible within 60 s (`comparison.ts:68`); `.compare-table` text contains both `DEFEAT` and `VICTORY` (canon loses, `prime_apex` wins the reference engagement, seed 7, fixed fleets — **HIGH calibration sensitivity**); `text=Hyper-mass accelerators` visible (explanation wording, `comparison.ts:113-116, 139-141`) |
+| codex, database, timelines and custom battle render (105-125) | `[data-menu="codex"]` → `.codex-body` contains `established canon` (`codex.ts:8, 17`); `text=Main menu`; `[data-menu="fleet-database"]` → `.codex-body` contains `Armament` (`database.ts:13, 47`); `[data-menu="alternate-timelines"]` → `[data-timeline="prime_apex"]` (`timelines.ts:35-40`) → `.screen-body` contains `Homeworld Defence Rule` (`presets.ts:146, 154`); `[data-action="select-timeline"]` (`timelines.ts:167`); `.menu-info` contains `Prime/Apex` (`menu.ts:45-54`, the preset **name**); `[data-menu="custom-battle"]` → `[data-action="launch-custom"]` (`custom.ts:150`); `[data-count="sideB:reaper_capital"]` ← `0`, `[data-count="sideB:reaper_destroyer"]` ← `2` (`custom.ts:56-83`); launch → `[data-action="pause"]` |
+
+**`e2e/campaign.spec.ts`**
+
+| test (lines) | selectors / text, in order (DOM source) |
+| --- | --- |
+| starts a campaign, advances, resolves, persists (4-51) | `[data-menu="new-galactic-campaign"]` → `[data-action="start-campaign"]` (`campaign.ts:534`); `input[type="number"]` ← `77` (seed, `campaign.ts:506` — the only number input on the setup screen); `.galaxy-map` (`campaign.ts:24`); `.hud-clock` contains `WEEK 0` (`campaign.ts:189`); first `[data-fleet]` row click (`campaign.ts` system panel) → `.screen-body` contains `Alliance`; loop ≤ 12: `[data-action="end-turn"]` (`campaign.ts:205`, disabled while `outcome\|pending\|summit`), `[data-action="summit-choice"]` first (`campaign.ts:351`), stop when `[data-action="auto-resolve"]` (`campaign.ts:383`) appears and click it (gone within 60 s); `.hud-clock` matches `/WEEK [1-9]/`; `[data-action="save-slot-screen"]` (`campaign.ts:211`) → `[data-field="slot-name"]` ← `E2E slot`, `[data-action="save-slot"]` (`saves.ts:81`) → `[data-slot]` with that text; reload → `[data-menu="load-game"]` → `[data-action="load-autosave-campaign"]` visible (`saves.ts:32`), `[data-slot]`(E2E slot) `[data-action="load-slot"]` → `.galaxy-map`, `.hud-clock` first line equal |
+| a campaign engagement fought in 3D (53-80) | `[data-menu="new-galactic-campaign"]` → `[data-action="start-campaign"]`; `window.reaperwar.campaign.fleets` find `Reaper vanguard` → `location = 'sol'`, `reaperwar.show('campaign')`; `[data-action="end-turn"]` → `[data-action="fight-3d"]` (`campaign.ts:379`) → `[data-action="pause"]`; step to `finished`; `[data-action="results"]` → `[data-action="return-campaign"]` (`results.ts:60`) → `.galaxy-map`, `.screen-body` contains `Battle of Earth` (`campaign.ts:239`, `lastBattle.summary`) |
+| Cerberus Ascendant post-war plan (82-107) | `[data-menu="new-galactic-campaign"]` → `[data-action="start-postwar"]` (`campaign.ts:530`); `h1` contains `CERBERUS ASCENDANT`; `.hud-clock` contains `2186 Q1` (`postwar.ts:25`); `[data-action="dismantle"]` (`postwar.ts:65`) → `.toast` matches `/NOT READY/i`; `[data-programme="conventional_fleets"]` ← `30`; `text=+1 year` (`postwar.ts:39`) → `.hud-clock` `2187 Q1`; `[data-action="end-quarter"]` (`postwar.ts:30`) → `2187 Q2`; `text=Menu`; reload → `[data-menu="load-game"]` → `[data-action="load-autosave-postwar"]` → `h1` `CERBERUS ASCENDANT`, `.hud-clock` `2187 Q2` |
+
+Selector-stability rules that follow: keep `data-menu` slugs when relabelling menu items (or update both specs); keep the HUD's formation `<select>` first and the briefing/setup seed as the first `input[type="number"]`; a Showcase menu item (D5) adds a slug but breaks nothing; D6's multi-fleet custom screen must keep `data-count="sideB:<classId>"` inputs (or change `game.spec.ts:121-122`); D1 must keep `.menu-info` containing `Prime/Apex` and `[data-timeline="prime_apex"]`'s screen containing `Homeworld Defence Rule`, or edit `game.spec.ts:115, 118`.
+
+### 9.5 Scripts that exercise the app but are not tests
+
+`scripts/headless-battle.ts` (`npm run sim -- <scenario> <preset> <seed> [fixed|rules]`, prints winner, per-side losses by class, Reaper assessment and the first 12 kills); `scripts/perf.mjs` (`npm run perf`, Playwright-driven frame timing on the Final Battle); `scripts/screenshots.mjs` and `scripts/showcase.mjs` (Playwright, drive `window.reaperwar` for stills/clips). None run in CI.
+
+---
+
+## Appendix A. The Apex reference pack (`docs/apex/reference/`, commit `01b1fef`)
+
+User-supplied, ChatGPT-generated reference text. Per the project rules it is **not** canon authority: its `CANON` rows are claims to check against `LORE_REFERENCE.md` (and the codex text) before anything is tagged `CANON_CONFIRMED`; everything else it contains is AU or tunable.
+
+### A.1 Files
+
+| file | size | what it is | where the implementation agents will look |
+| --- | --- | --- | --- |
+| `README.md` | 3.2 KB | pack overview; continuity summary (no Crucible, Black Fleet, 38 420 warships at Sol, Reaper 2 000 capitals + 40 000 destroyers AU preset; Sol: 480 capitals + 12 000 destroyers) | D1/D13 captions |
+| `APEX_Fleet_Reference.md` | 53.6 KB, 13 sections | §1 evidence labels + locked rules (L9-43); §2 canon anchors C01-C11 (L44-80, table L48-59, technology rules L69-77); §3 roles/visual design, named ships (L81-148); §4 weapons and DKE (L149-191: damage unit L151-159, weapon table L165-178, **Titan/HADES L182-190**); §5 starting combat profiles (L192-238: table L196-209, **calibration rules L213-220**, faction modifiers L226-237); §6 **Valkyrie** (L239-264, legacy Nova L259-263); §7 Cerberus redemption (L265-283); §8 Sol order of battle (L284-323); §9 Reaper order of battle and campaign accounting (L324-383); §10 **drive sacrifices** (L384-416); §11 simulator process (L417-486: resolution order L425-434, formulas L436-444, large-fleet statistics L454-458, **presets L460-469**, victory/defeat L471-479); §12 continuity pitfalls (L487-502); §13 source register (L503+) | D2, D3, D7, D8, D9, D10, D13 |
+| `APEX_Montage_Prompts.md` | 42.4 KB, 8 sections | §1 creative direction (L11-49), §2 source prep (L50-70), §3 master prompts (L71-96), §4 24 shot cards (L97-388; **cards 16-23 at L279-374**, see A.6), §5 music cues (L389-409), §6 dialogue and caption bank (L410-489), §7 Resolve workflow (L490-523), §8 publication limits (L524+) | D4 beats, D5 scene data, D10 Reaper behaviours, D11 effects |
+| `apex_simulator_data.json` | 78.4 KB | `schema_version`, `evidence_policy`, `units` (DKE 38.72 kt), `canon_inventory`, `continuity`, `weapons[16]`, `hull_profiles[27]`, `named_hull_catalog[12]`, `apex_alliance_establishment`, `sol_coalition`, `reaper_campaign`, `readiness_distribution`, `retrofit_allocation`, `special_systems` (hades_penetrator, legacy_nova, drive_attack), `tactical_model`, `presets` (canon_me3_reference, apex_core_sol, apex_legacy_high_power), `sensitivity_axes`, `story_targets_not_simulated_outputs`, `validation_scope`, `sources` | D1 preset flags, D2 starting values, D7-D9 parameters |
+| `validation_results.json` | 1.3 KB | arithmetic checks; `energy_results` (DKE 38.72 kt, Titan 47.8 kt, Nova core 107.55 kt, legacy Nova 2164 kt); `isolated_barrier_trials` 2 DN never / 3 DN 18 s / 4 DN 8 s (no return fire); explicit `limits` | D3 target shape |
+
+### A.2 Label mapping (pack → `Provenance`, `src/core/provenance.ts:7-11`)
+
+`Sourced<T>` carries one tag plus a free `note`; when two pack labels apply, pick the tag by the first matching row and put the second label in `note`.
+
+| pack label (pack definition) | our tag | rule |
+| --- | --- | --- |
+| `CANON` — "a statement or quantity in the released games or their codex" | `CANON_CONFIRMED` **only after** the statement is found in the codex text and listed in `LORE_REFERENCE.md §Canon anchors`; otherwise `CANON_INFERRED` with `note: 'pack CANON claim, unverified'` | the pack cites fandom/gamebanshee transcriptions (`sources` C01-C11), which is secondary evidence |
+| `DERIVED` — arithmetic from stated inputs | `CANON_INFERRED` when every input is canon (e.g. 20 kg × 4 025 km/s → 38.72 kt); `AU_MODIFIED` when any input is AU (Titan 47.8 kt, Nova 107.6 kt) | the pack warns the inputs "can themselves be AU" |
+| `AU LOCK` — accepted working number of the user's project (Valkyrie 2 000 m, Alliance 15 292 hulls) | `AU_MODIFIED`, `note: 'AU LOCK'` | never shown under canon |
+| `AU PROPOSAL` — new specification supplied by the pack (Black Fleet 420 warships, Titan/HADES, drive attacks, Valkyrie core spec) | `AU_MODIFIED`, `note: 'AU PROPOSAL'` | lead decisions D1/D7-D9 adopt these; still AU |
+| `SIM` — tunable game parameter | `SIMULATION_ESTIMATE` for a value on a canon hull/weapon; `AU_MODIFIED` (+ `note: 'SIM calibration value'`) for a value that exists only in the AU (Valkyrie, Titan, Oculus profile) | D2: starting values, adapted, not copied |
+| `UNKNOWN` — canon gives no number | no value (JSON `null` in the pack); if the sim needs one, `SIMULATION_ESTIMATE` with `note: 'canon gives no value'` | never promote to canon |
+
+The JSON `evidence_policy` strings (`canon`, `au_lock`, `au_proposal`, `sim`, `derived`, `unknown`) are the same six labels in lower case; `named_hull_catalog[].model_values_status` uses compound labels (`SIM_AU`, `SIM_AU_EXCEPT_LABELLED_CANON`, `AU_LOCK_LENGTH_OTHERWISE_AU_PROPOSAL_SIM`) that resolve by the same rows. UI: `provenanceBadge()` (`ui/dom.ts:46-50`) already renders `AU_MODIFIED` as the orange `au` badge; codex AU blocks are keyed by preset id (`codex/entries.ts`), so every pack-derived entry needs `au.prime_apex` (and `au.apex_legacy`) text, never a `canon` block.
+
+### A.3 Id mapping and DKE comparison (pack `hull_profiles`/`weapons` → ours; 1 DKE = 1000 points, D2)
+
+| pack hull (barrier / structure / recovery, DKE) | ours (barrier / hull / armour / regen, points) | note |
+| --- | --- | --- |
+| `DN_STD` 1.4 / 1.0 / 0.06 | `alliance_dreadnought` 5200 / 9000 / 130 / 55 (turian 5000/9500/150, asari 6800/8500/110, salarian 5800/8200/105, geth 5800/10500/140) | our DN pools are ~4-9× the pack's relative to a slug; the pack has no armour pool (uses `thermal_armour_coupling 0.5`) |
+| `CA_HEAVY` 0.65 / 0.55 / 0.035 (gun `W_CA` 0.154 DKE / 2.5 s) | — no heavy-cruiser class; nearest `turian_cruiser`/`cerberus_cruiser` (340-point guns) | D6 presets may want one; D8 escorts |
+| `CL_STD` 0.35 / 0.25 / 0.025 (gun `W_CL` 0.062 DKE / 3 s) | `alliance_cruiser` 1600 / 2400 / 45 / 28, gun 320 / 3 s | our cruiser round is 5× the pack's |
+| `FF_STD` 0.12 / 0.08 (gun `W_FF` 0.0044 DKE / 2 s) | `alliance_frigate` 450 / 520 / 12 / 14, gun 70 / 1.5 s | our frigate round is 16× the pack's |
+| `FF_THANIX` (`W_THANIX` 0.35 DKE / 5 s + `W_JAVELIN` 1.3 DKE / 20 s, 4 rounds) | `alliance_frigate_thanix` (Thanix 672 per burst / 6 s + 2 torpedo tubes 260 × 8 rounds) | pack Thanix cadence 5 s is tagged `CANON_BASE_TECHNOLOGY` — verify (A.5) |
+| `CV_STD` 0.9 / 0.65, 48 craft | `alliance_carrier` 3800 / 7000 / 90 / 45, 24 `alliance_fighter` | |
+| `COR_AUX`, `AUX_ARMED`, `PLATFORM_HEAVY`, `SUPPORT_TANKER`, `SUPPORT_REPAIR`, `RR_TRANSPORT`, `RR_PROCESSOR`, `COLLECTOR_CRUISER`, `DN_KWUNU`, `FF_SR1` | — none | candidates for D4's statistical "distant engagement" layer and captions only (D13), not hulls |
+| `DN_VALKYRIE` 4.0 / 2.5 / 0.14 (`W_NOVA_CORE` 2.78 DKE / 6 s, `W_THANIX_HEAVY` ×3 at 1 DKE / 5 s, GARDIAN) | — new class (D8), role `dreadnought`, faction `alliance`, no `fighterComplement`; lineage of `alliance_frigate_thanix` for the builder (`rendering/ships/alliance.ts:182`) | `hyperMassAccelerators` substitution would replace its spinal gun — give the Nova its own id and exclude it from the hyper-MA predicate (`rules.ts:242-251`) |
+| `DN_CERBERUS` 1.7 / 1.2 / 0.075 (`W_TITAN` 1.23 DKE kinetic / 6 s + heavy Thanix) | `cerberus_dreadnought` 5400 / 8800 / 125 / 60, today armed with `alliance_dn_main` | D7: the Titan gun is `apex_hyper_ma` renamed; today it is fitted by substitution to **every** organic dreadnought, not only the Black Fleet |
+| `FTR_INTERCEPTOR` / `FTR_TORPEDO` | `*_fighter` (gun ×2 + 1 torpedo tube × 2 rounds) | ours combine both roles |
+| `RR_CAP` 6.0 / 4.0 / **1.1** (`W_REAPER_MAIN` 7.75 DKE packet / 6 s, 65 % kinetic + 35 % thermal) | `reaper_capital` 42000 / 32000 / 320 / 240, two beams 5.32 DKE per 2.8 s burst / 7.5 s | our Sovereign has 7× the pack's barrier (vs the slug) but a quarter of its recovery rate and none while under fire |
+| `RR_HARBINGER` 9.0 / 6.0 / 1.1 | `harbinger` 58000 / 44000 / 380 / 300, three beams | |
+| `RR_DESTROYER` 0.22 / 0.16 / 0.018 (`W_REAPER_DESTROYER` 0.31 DKE / 2 s) | `reaper_destroyer` 6500 / 3200 / 160 / 80, beam 1.25 DKE per 2.4 s burst / 6.5 s | our destroyer is ~30× tougher than the pack's relative to a slug — the cruiser-vs-destroyer target (D3) hinges on this row |
+| `OCULUS_DRONE` 0.005 / 0.004 (`W_OCULUS` 0.006 DKE / 1 s) | — new `reaper_oculus` fighter-role class + weapon (D4), launched through `fighterComplement` on Reaper classes (§2.3) | |
+| `DN_ASCENSION` 2.4 / 1.7 / 0.1 (`W_DN` ×2) | `destiny_ascension` 14000 / 20000 / 200 / 120, `ascension_main` 2600 | |
+| `DN_GETH` 2.0 / 1.4 / 0.085 | `geth_dreadnought` 5800 / 10500 / 140 / 65 | |
+| `FF_SR2` 0.35 / 0.2 / 0.03 (`W_THANIX` ×2) | `alliance_frigate_thanix` | |
+
+Weapons without a hull row above: `W_DN` = `alliance_dn_main` (1 DKE ✓; cadence **2 s CANON** vs our 4.0; pack `magazine_shots 200`, `heat_per_shot 0.08`, `requires_bow_solution true`); `W_TORPEDO` = `disruptor_torpedo` (0.7 DKE vs our 0.26; magazine 8 ✓; `interceptable`, `projector_attack`); `W_GARDIAN` = `gardian` (`point_defence`, no magazine); `W_LIGHT_DEFENCE`, `W_COR`, `W_JAVELIN` = none. `special_systems.hades_penetrator`: `kinetic_weapon_id W_TITAN`, optional 350 kt internal payload = **9.04 DKE after a confirmed penetration**, `default_special_rounds_per_capable_hull 12`, `retrofit_allocation.hades_capable_dreadnoughts 12`, no internal damage on interception/deflection. `special_systems.legacy_nova`: 20 kg at 0.1c = 2164 kt, `model_cycle_s 60`, `model_magazine_shots 12`, `enabled_core false`. `special_systems.drive_attack`: `enabled_canon false`, `enabled_apex_core true`, `max_attempts_sol 3`, `commitment_window_s 40` (tuning 20-60), `pre_interception_completion_probability 0.25`, `target_kill_on_confirmed_completion true`, conditions `working_propulsion_path, terminal_command_decision, target_alignment, friendly_corridor_clear, intercept_and_evasion_tests_passed`. `tactical_model`: `recommended_step_s 0.25` (ours 0.05), `harbinger_death_disables_others false` (= D10), `barrier_recovery_after_volley true`. `presets`: `canon_me3_reference` (all AU systems false), `apex_core_sol` (`titan_hades`, `valkyrie`, `drive_attack` true, `legacy_nova` false, `crucible` false, `alpha_loss_fraction 0.25`), `apex_legacy_high_power` (`legacy_nova`, `exceptional_teraton_events` true) — this is the D1 preset family; our `RuleSet.special` needs flags for `titanHades`, `valkyrie`, `driveAttacks`, `legacyNova` (schema route in §3.4).
+
+### A.4 Mass-scale numbers (D13: captions and strategic counters only)
+
+`README.md`/§8-§9: Alliance 15 292 hulls = 13 292 warships + 2 000 support (48 DN, 144 CV, 1 600 CA, 7 500 FF, 4 000 corvettes); Sol commitment **38 420 coalition warships + 612 fixed heavy platforms** (`sol_coalition.mobile_warships`, `fixed_heavy_platforms`, `heavy_mobile_combatants 1287`); Reaper AU census 2 000 capitals + 40 000 destroyers + 11 000 specialist (`reaper_campaign.initial`), Alpha ambush losses 25 %, Sol start 480 capitals + 12 000 destroyers (`sensitivity_axes.reaper_sol_capitals [360, 480, 720]`). The lead's "53,000 Reapers" is the 2 000 + 40 000 + 11 000 total. None of these are simulated hulls (`MAX_SHIPS_PER_SIDE = 70`, `engine.ts:23`); they belong in `BattleConfig.worldState` strings and HUD/scene captions labelled AU.
+
+### A.5 Pack "CANON" claims that must be verified before they are trusted
+
+Compared with `LORE_REFERENCE.md §Canon anchors` (our accepted list): already covered there — dreadnought 20 kg / 4 025 km/s / ~38 kt / 2 s (C01), Reaper capital ~2 km and 132-454 kt (C02), destroyer ~160 m (C02), Farixen ratios (C04), GARDIAN heat limits, disruptor torpedoes, Thanix origin, carriers. **Not yet in LORE_REFERENCE.md** (verify against the codex text, then add an anchor line, or keep `CANON_INFERRED`): the four-dreadnought benchmark "two resisted, three strain, four typically destroy" (C02, the D3 target — the lead has adopted it, so the anchor line must be added when the calibration lands); "a cruiser can kill a destroyer if it survives into effective range" (C02); dreadnought inventories 2183 (turian 37, asari 21, salarian 16, human 6 + 1) and 2185 (39, 20, 16, 8) (C01/C03); Thanix "five-second firing cycle" and "eleven months after the Citadel battle" (C01); Reaper transit "~30 light-years per day" (C02); quarian fleet ~50 000 vessels (C06). The pack itself flags the legacy "2 kg / 283 km/s" transcription (C03) as contradictory — do not use it.
+
+### A.6 Montage shot cards 16-23 (`APEX_Montage_Prompts.md`), the source of D5's first scene
+
+| card | lines | beat (what the sim must produce) | caption / line offered |
+| --- | --- | --- | --- |
+| 16 Hackett sees the coalition | 279-289 | layered arrival waves; foreground ships hold vectors while distant echelons complete transit | `38,420 WARSHIPS COMMITTED TO SOL` (AU; "must not imply a single instantaneous transit") |
+| 17 The Black Fleet joins the line | 291-299 | a Cerberus formation brakes into a gap beside Alliance ships and fires on a target already engaged by allied heavy guns | `CERBERUS BLACK FLEET — ALLIED IFF CONFIRMED` |
+| 18 Cerberus protects the Ascension | 301-309 | a damaged Cerberus heavy cruiser interposes between the Destiny Ascension and a Reaper attack, keeps firing, exposes the Reaper to the Ascension's salvo | none |
+| 19 Valkyrie earns its shot | 311-321 | escort torpedoes disrupt the target's protection; Valkyrie spinal round + three heavy Thanix channels hit the same damaged region in a tight interval; the Reaper fails at that region (D8 bonus-only-when-degraded rule) | `TARGET SOLUTION SHARED. FIRE CONCENTRATED.` |
+| 20 A Reaper meets the line | 323-333 | camera above/behind the Reaper looking down its vector; it kills a foreground escort, the formation opens around the wreck and keeps a common firing solution; the Reaper shifts to the most dangerous battery (D10 "kill the active gun platform") | `Your resistance will be corrected.` / `THE FORMATION DID NOT BREAK.` |
+| 21 Drive attack in the battle chaos | 335-347 | crippled Cerberus cruiser, one engine, cleared corridor far from Earth; blue-white drive flare, one abrupt flash, armour fragments along the collision vector; distant camera, silent; neighbours keep firing (D9) | `DAMPING FAILURE. TERMINAL VECTOR CONFIRMED.` / `BLACK FLEET DRIVE ATTACK — CAPITAL KILL CONFIRMED` |
+| 22 Harbinger continues fighting | 349-361 | damaged Harbinger rotates, destroys a threatening gunship, tries to reach a screened exit; allied units cover it; a second coordinated volley hits damaged machinery → limbs lose support, weapon cuts out; **other Reapers stay active** (D10) | `This cycle is not concluded.` / `HARVEST COMMAND VESSEL — MISSION KILL` ("mission kill is not confirmed destruction") |
+| 23 Shepard looks at the next target | 363-374 | reaction shot; tactical light changes as a major Reaper disappears from the display; then the next contact | `Mark the next one.` |
+
+Pack rules that bind the scene (cards' *Continuity* notes and `README.md`): captions are the only place for the 38 420 figure; the drive attack is one shown event, never a map-wide damage radius; Valkyrie uses the core spec (the near-c gun is a separately labelled option); Harbinger's fall does not switch off the others.
