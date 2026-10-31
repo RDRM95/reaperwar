@@ -64,3 +64,47 @@ The pace knob: a single `beatScale` (0.5–2.0) stretches or compresses the whol
 ## 7. References
 
 The assistant can research and write the textual descriptions (silhouettes, proportions, feature lists, cutscene beat order) from public descriptions. Visual study material — screenshots of the ships and of the Final Battle cutscene — is more useful when the person supplies it, because it can be looked at directly while modelling and it keeps the decision of what to study in the person's hands. Nothing supplied is committed to the repository.
+
+## 8. Feedback round 2 — combat feel, scale and new hull types (reworked prompt)
+
+The following are hard requirements added after the first recording test. Each is written as an outcome, the observed problem, and the acceptance check. Rule of cool still applies; everything must still read as Mass Effect; AU items keep their labels.
+
+### 8.1 Fleet movement must look like Mass Effect, not a spinning plate
+- **Observed:** ships spiral around each other and whole fleets rotate collectively, as if standing on an invisible turntable. Likely cause: the formation anchor re-aims at the enemy centroid every decision, so every slot swings around the anchor as a rigid body; when two fleets each do this they orbit one another, and the frigate/fighter "orbit" behaviours add individual spirals.
+- **Required:** fleets close along a bearing, decelerate into engagement range and **hold a line** (broadside or bow-on as doctrine dictates); the formation heading has a slow turn-rate limit (a few degrees per second) and stops re-aiming once the enemy is inside engagement range; individual ships keep station with damped steering (no circling), frigates flank in straight runs and turn-ins, fighters make strafing passes rather than orbits; Reapers advance in a loose 3D cluster and do not spiral.
+- **Check:** a headless trace of fleet heading and the angular momentum of each fleet about its anchor stays below a threshold during a Battle of Earth; recorded footage shows lines, not wheels.
+
+### 8.2 Three-dimensional, stacked formations with higher ship counts
+- **Required:** formations use the vertical axis: layered lines (dreadnoughts centre line, cruisers stacked above and below and on the flanks, frigates screening ahead in a curved shell, carriers behind and above), stacked wedges, boxes; Reaper formations as a descending 3D swarm with capitals in the core and destroyers in the shell.
+- **Required:** the per-side cap rises from 70 to at least 150 hulls (target 200) so Reaper/organic ratios look like Mass Effect (many organic hulls against few, enormous Reapers). This needs the simulation to stop being O(n²) per step (spatial hashing or sector lists for targeting and point defence, decision intervals staggered) and the renderer to lean on LOD, the far point cloud and instanced small craft.
+- **Check:** 200 vs 60 runs at ≥ 20 sim steps per wall-clock frame headless and the e2e Battle of Earth still completes.
+
+### 8.3 Kinetic barriers that envelop the hull
+- **Required:** the barrier visual is a slightly inflated copy of the ship's own hull silhouette (merged hull geometry scaled ~1.06–1.1, fresnel shader, hexagonal ripple spreading from the impact point), visible only on hit and on collapse; not a sphere.
+- **Check:** screenshot of a dreadnought under fire shows a hull-shaped shimmer with a ripple at the hit.
+
+### 8.4 Sound: mass accelerators and the "seismic" AU rounds
+- **Required (procedural Web Audio, nothing sampled):** mass-accelerator firing (sharp electromagnetic crack with a low thump), travel (brief whine Doppler-shifted for near passes), impact (metallic bang with debris crackle; barrier hits a crystalline "zap"); Reaper beams (deep rising drone); Thanix (molten roar). For AU organic rounds that exceed canon range and yield (hyper-mass accelerators, Titan/HADES, Nova Array) a **seismic-charge style** signature: a sharp crack, a fraction of a second of near-silence, then a huge delayed bass "bwaaam" with a long tail. Distance attenuation and a short light-before-sound delay for far shots.
+- **Check:** audio settings expose a "Seismic AU rounds" toggle; recording captures the delayed boom on a Titan shot.
+
+### 8.5 HADES nuclear effect
+- **Required:** on a penetrating HADES hit: hard white flash with a shadow pulse, a ring shock that distorts the background, internal venting from the hull for several seconds, and a secondary internal detonation sound. Described everywhere as a penetrator with a nuclear warhead.
+
+### 8.6 Nobody sits still, nobody runs
+- **Required:** no fleet-wide retreat off the map. Damaged ships perform a **tactical withdrawal**: fall back behind the line, regenerate barriers, re-engage. Reapers never retreat and never idle. Carriers and liveships keep distance but still manoeuvre and shoot. Orbital platforms rotate to bear. Every unit with a weapon in range is firing or moving to get a solution.
+- **Check:** headless trace: at no time after first contact are more than 10 % of a side's live ships both stationary and not firing for 10 s; no ship ever flags `escaped` except fighters recovered to a carrier.
+
+### 8.7 Misses and firing solutions
+- **Required:** a per-target **firing solution** that builds over seconds of continuous tracking (sensors, ECM, target acceleration and range all matter; a hard manoeuvre or barrier flare degrades it) and drives a realistic miss distribution: first salvoes mostly miss, long-range shots stream past the target and keep flying, near-misses flare the barrier edge. Spinal guns need a bow solution (arc) and a predicted intercept; broadsides fire more freely but miss more. Lots of visible misses at range; concentrated fire after solutions mature.
+- **Check:** hit rate at opening range below 25 %, rising above 60 % after 20 s of tracking on an unmanoeuvring target; replay determinism preserved.
+
+### 8.8 Reapers: bigger, blacker, more armoured, correct light colour
+- **Required:** hull near-black with graphite plating (no brown), layered armour plates on body and arms, deep crimson running lights, an orange-red aperture glow; a sensible scale increase so capitals look colossal next to dreadnoughts (canon 2 km vs ~0.9 km dreadnought ≈ 2.2:1 overall; body bulk up, arms longer) while destroyers stay 160 m; collision/hit radii follow the new size and balance is re-checked.
+- **Check:** side-by-side screenshot of a Kilimanjaro-class next to a Sovereign-class shows the 2.2:1 relation; Reaper palette values recorded in the design sheet.
+
+### 8.9 Super-dreadnoughts
+- **Required:** a `super_dreadnought` role for hulls near or at Reaper capital size: Destiny Ascension (canon, ~1.6 km), Normandy Valkyrie (AU, 2 km), and an AU "Apex super-dreadnought" line for the Alliance and Hierarchy (1.6–2 km, two spinal channels, heavy barriers) available in Apex presets and custom battles with AU labels.
+
+### 8.10 Fixed orbital defence platforms
+- **Required:** `fixed_platform` role: Mass Effect-tech orbital defence platforms in the spirit of Halo's ODPs and super-MACs — a station hull (1.2 km class) around one or two dreadnought-grade (or longer, heavier) mass accelerators, heavy barriers, GARDIAN clusters, no propulsion beyond slow orbital drift and slew-to-bear. They appear as Earth's and homeworlds' orbital defence (campaign defence index), in the Final Battle (Sol network: 612 platforms is an AU caption; a handful are simulated), in custom battles, and as a Showcase subject. Canon label: SIMULATION_ESTIMATE for existence as modelled; the super-MAC variant is AU.
+- **Check:** platform cannot be ordered to move; it slews at a few degrees per second; a Reaper assault on Earth engages the platforms first.
