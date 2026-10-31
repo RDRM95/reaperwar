@@ -99,7 +99,7 @@ The following are hard requirements added after the first recording test. Each i
 - **Check:** hit rate at opening range below 25 %, rising above 60 % after 20 s of tracking on an unmanoeuvring target; replay determinism preserved.
 
 ### 8.8 Reapers: bigger, blacker, more armoured, correct light colour
-- **Required:** hull near-black with graphite plating (no brown), layered armour plates on body and arms, deep crimson running lights, an orange-red aperture glow; a sensible scale increase so capitals look colossal next to dreadnoughts (canon 2 km vs ~0.9 km dreadnought ≈ 2.2:1 overall; body bulk up, arms longer) while destroyers stay 160 m; collision/hit radii follow the new size and balance is re-checked.
+- **Required:** hull near-black with graphite plating and a cold dark-blue sheen (no brown), layered armour plates on body and arms, thin pale-blue seams, deep crimson running lights, an orange-red aperture glow; a sensible scale increase so capitals look colossal next to dreadnoughts: lock the Sovereign-class at 2,000 m overall against a 1,000 m Kilimanjaro-class (2:1 in length and far bulkier; the body is a long tapering spine ~55–60 % of the length rising from a layered hood, arms ~40 %), destroyers stay 160 m; see docs/design/SCALE_REFERENCE.md for the owner-supplied chart notes; collision/hit radii follow the new size and balance is re-checked.
 - **Check:** side-by-side screenshot of a Kilimanjaro-class next to a Sovereign-class shows the 2.2:1 relation; Reaper palette values recorded in the design sheet.
 
 ### 8.9 Super-dreadnoughts
