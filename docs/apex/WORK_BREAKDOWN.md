@@ -1,0 +1,778 @@
+# V2 Work Breakdown — CORE, four parallel stages, INTEGRATION
+
+Status: **implementation plan, final.** 1 November 2026. Companion to `docs/apex/ADOPTION_PLAN.md` (the decisions and every number; cited below as **AP §n**). This document tells a team of agents, each working alone in its own git worktree, exactly which files it owns, which interfaces it may rely on, what to build in which order, which tests to add, how to know it is done and how to verify it. An agent with only this document, `ADOPTION_PLAN.md` and the code can execute its stage. Where this document and `ADOPTION_PLAN.md` disagree on a number, `ADOPTION_PLAN.md` wins; where they disagree on *who* does something, this document wins.
+
+Snapshot the plan was written against: branch `claude/mass-effect-reaper-war-simulator-fidrz2`, source unchanged since `01b1fef` (v0.11.0; `git diff --stat 01b1fef HEAD -- src tests e2e scripts` is empty): 83 Vitest tests in 9 files, 8 Playwright tests in 2 files, all green. `docs/apex/CODE_MAP.md` line numbers hold for this snapshot; re-grep the symbol if a file has moved.
+
+## 0. How to work
+
+### 0.1 Branches, worktrees, protocol
+
+- The integration branch is `claude/mass-effect-reaper-war-simulator-fidrz2`. A branch can be checked out in only one worktree, so: **CORE** works on the integration branch itself in the main checkout. When CORE is merged and green, each parallel stage creates its own branch from the head and its own worktree: `git worktree add ../reaperwar-A -b stage/A claude/mass-effect-reaper-war-simulator-fidrz2` (likewise `stage/B`, `stage/C`, `stage/D`), runs `npm ci` there (`node_modules` is per worktree), and never touches a file outside its ownership (§0.3). **INTEGRATION** merges `stage/A` → `stage/B` → `stage/C` → `stage/D` into the integration branch in that order (§6).
+- Commit small, commit often, one logical change per commit, message `stage(<CORE|A|B|C|D|INT>): <what>`; end every message with the attribution lines the session gives you. Do not push unless the user asks. Do not rebase a stage branch onto a moving integration branch; INTEGRATION merges.
+- Every stage ends with `npm run typecheck && npm test && npm run build` green in its own worktree, plus its own e2e spec when it has one (`npx playwright test e2e/<file>`; the webServer builds and serves on 4173, so run one Playwright process at a time per machine).
+- Project rules, restated because every agent must obey them without reading anything else: (1) canon by default, AU by choice — `canon_me3` changes only through the canon-anchored calibration of AP §3; every Apex object carries an AU label on every screen and codex entry (AP §15); (2) every catalogue value is a `Sourced<T>` with one of `CANON_CONFIRMED | CANON_INFERRED | SIMULATION_ESTIMATE | AU_MODIFIED` (pack labels map per AP §14.1); (3) no ripped assets — every model, texture, sound and string is original; the owner's screenshots are never committed; (4) determinism — `SIM_DT = 0.05`, every draw in `src/simulation`, `src/data`, `src/timelines`, `src/scenarios`, `src/campaign`, `src/showcase/scenes` comes from `sim.rng` or an `Rng` derived from `config.seed`; `Math.random` never enters those directories (CORE adds the lint test); render-side randomness uses seeded `Rng` instances; (5) honesty — nothing unimplemented is claimed; scenes that force events log and print them; limitations go to `KNOWN_ISSUES.md`; (6) the HADES wording rule (AP §7): "penetrator with a nuclear warhead" / "HADES penetrators", never the brief's forbidden "nuclear … mass rounds" wording (lint `tests/wording.test.ts`, CORE); (7) the existing 83 unit and 8 e2e tests stay green except the explicit changes in AP §16, and every new mechanic ships with tests.
+
+### 0.2 Stage map
+
+```
+CORE ──────────────► merge, green ──┬──► A  rendering effects, models, audio, governor ladder application
+(one agent, first)                  ├──► B  camera vocabulary, director, showcase mode, HUD/controller, app/menu
+                                    ├──► C  custom battle UI v2, briefing, results, campaign/timelines setup rows, orderOfBattle, style.css
+                                    └──► D  codex, database, docs, design sheets, silhouettes.json, e2e specs
+                                                     │
+                                    INTEGRATION ◄────┘  merge A→B→C→D, perf ladder, screenshots, silhouette MEASURE pass, changelog, version
+```
+
+CORE owns everything headless: shared types, rules and presets, the data catalogue, calibration, the beat scheduler and volley order, arrival kinematics, scripted specials, HADES burst, Oculus and hangar, drive attack, Reaper AI, movement, formations, spatial grid, firing solutions, tactical withdrawal, flights, platforms, super-dreadnoughts, the distant-engagement model, the custom-battle data model and presets, world-state resolution, the performance budget and governor ladder, the flagship events, the Normandy split, the campaign hooks, the perf scripts and every unit test under `tests/` for those modules. The four parallel stages have **disjoint file ownership** (§0.3) and depend on CORE only through the exported interfaces copied into their sections. A parallel stage never edits a CORE file; if it needs a CORE change it writes the request into `docs/apex/INTEGRATION_NOTES.md` (append-only, one bullet per request, owned by nobody) and works around it behind a local fallback until INTEGRATION.
+
+### 0.3 File ownership (exact; anything not listed is frozen for V2 and may only be touched by INTEGRATION)
+
+| Owner | Files |
+| --- | --- |
+| **CORE** | `src/simulation/**` (incl. new `beats.ts`, `volley.ts`, `arrival.ts`, `distant.ts`, `spatial.ts`, `movement.ts`, `solutions.ts`, `flights.ts`, `specials.ts`, `flagships.ts`, `constants.ts`, `profile.ts`); `src/data/**` (incl. new `apexScale.ts`, `transmissions.ts`); `src/timelines/**`; `src/scenarios/**` (incl. new `custom.ts`, `customPresets.ts`, `finalBattleBeats.ts`, `distantGroups.ts`, `worldState.ts`); `src/campaign/**`; `src/core/**` (incl. new `perfGovernor.ts`; `storage.ts` preference shapes); `scripts/headless-battle.ts`, `scripts/perf-sim.ts` (new), `scripts/calibration.ts` (new); `tests/**` except the files named for A, B and D below; `docs/apex/CALIBRATION_REPORT.md` (new); **integration stubs created once in T2 and then handed to their owners** (§1.3.14): `src/rendering/cameraDriver.ts` (types only, frozen afterwards), `CameraRig.setPose` + the `'shot'` mode in `src/rendering/cameras.ts` (→ B), `BattleView.attachDriver/driver/renderTime/resolveSubject` in `src/rendering/battleView.ts` (→ A), `App.measurePerfBudget` in `src/ui/app.ts` (→ B) |
+| **A** | `src/rendering/**` **except** `cameras.ts`, `shots.ts`, `director.ts` (B): `effects.ts` (+ new `effects/*.ts`, `billboards.ts`, `barrierShell.ts`, `distant.ts`, `instancer.ts`, `governorApply.ts`, `effects.css`), `battleView.ts` (A owns the file; B's two hooks are declared in §2.3 and are the only lines B may touch — INTEGRATION resolves them), `lod.ts`, `materials.ts`, `geometry.ts`, `environment.ts`, `ships/**` (incl. new `oculus.ts`, `valkyrie.ts`, `platforms.ts`, `heavyDreadnoughts.ts`); `src/audio/**` (incl. new `voices.ts`, `battleAudio.ts`); `src/ui/screens/settings.ts`; `tests/effectsPool.test.ts`, `tests/audio.test.ts`, `tests/lod.test.ts` (existing; A may extend it) |
+| **B** | `src/rendering/cameras.ts`, `src/rendering/shots.ts` (new), `src/rendering/director.ts` (new); `src/showcase/**` (new: `types.ts`, `player.ts`, `captions.ts`, `showcase.css`, `scenes/index.ts`, `scenes/apexRefuseAtSol.ts`); `src/ui/app.ts`, `src/ui/screens/menu.ts`, `src/ui/screens/hud.ts`, `src/ui/screens/showcase.ts` (new), `src/ui/overlay.ts`, `src/main.ts`, `index.html`; `tests/shots.test.ts`, `tests/showcase.test.ts`, `tests/director.test.ts` |
+| **C** | `src/ui/screens/custom.ts`, `src/ui/screens/briefing.ts`, `src/ui/screens/results.ts`, `src/ui/screens/campaign.ts` (setup rows only, §4.2), `src/ui/screens/timelines.ts` (special-flag rows only), `src/ui/components/orderOfBattle.ts` (new), `src/ui/components/perfWarning.ts` (new), `src/style.css`; `tests/orderOfBattle.test.ts` (pure helpers only) |
+| **D** | `src/codex/entries.ts`, `src/ui/screens/codex.ts`, `src/ui/screens/database.ts`; `docs/design/**` (`README.md`, one sheet per class, `silhouettes.json`); `README.md`, `CHANGELOG.md` (one new top section, INTEGRATION fills the version), `AU_RULES.md`, `LORE_REFERENCE.md`, `KNOWN_ISSUES.md`, `ROADMAP.md`, `ARCHITECTURE.md`; `docs/apex/CONTINUITY_CHECKLIST.md` (new); `e2e/showcase.spec.ts`, `e2e/custom.spec.ts`, `e2e/finalBattle.spec.ts` (new); `tests/silhouette.test.ts`, `tests/codex.test.ts`, `tests/wording.test.ts` (D owns the test files; CORE supplies the lint helper); `scripts/cinematic-shots.mjs` (new), `scripts/measure-silhouettes.ts` (new), `scripts/screenshots.mjs`, `scripts/showcase.mjs` |
+| **INTEGRATION** | merges; `scripts/perf.mjs` (rewrite to the ladder, §6.4); `docs/apex/PERF_LADDER.md` (new); `docs/apex/INTEGRATION_NOTES.md`; `package.json` version; `.github/workflows/ci.yml` only if a new script must run in CI |
+| **Frozen** | `src/ui/dom.ts`, `src/ui/screens/comparison.ts`, `src/ui/screens/saves.ts`, `src/ui/screens/postwar.ts`, `src/vite-env.d.ts`, `vite.config.ts`, `vitest.config.ts`, `playwright.config.ts`, `e2e/game.spec.ts`, `e2e/campaign.spec.ts`, `tsconfig.json`, `docs/apex/reference/**`, `docs/V2_CINEMATIC_BRIEF.md`, `docs/design/SCALE_REFERENCE.md` |
+
+### 0.4 The cross-stage contract
+
+- CORE lands **first and alone**; its exported interfaces (§1.3) are the contract. Parallel stages copy the signatures they need into their own section (done below) and code against them. If a signature in the merged CORE differs from the copy here, the merged code wins and the stage adapts (the copies are the plan, the code is the truth).
+- Every event consumer that switches on `BattleEvent.type` keeps a `default` fallthrough, so a stage that has not yet learned a new event ignores it.
+- Fallbacks so stages land in any order (AP §0.3 #16): `BattleView` keeps the old `pickCinematicShot` path when no director is attached (A), the HUD renders without a `Volley` handler when `ctrl.volley` is undefined (B), the briefing renders the beat preview only when `FINAL_BATTLE_BEATS` exports (C; CORE exports it, so this is belt and braces), the showcase chooser renders zero cards when `SCENES` is empty.
+- Shared preference fields are added by CORE in `core/storage.ts` so no parallel stage edits that file: `prefs.showcase`, `prefs.perf`, `prefs.audio.seismicAu`, `prefs.audio.lightBeforeSound` (shapes in §1.3.11).
+- CSS: C owns `src/style.css`; B puts every showcase/letterbox/caption/rec-counter rule in `src/showcase/showcase.css` (imported from `player.ts`); A puts the DOM white-flash rule in `src/rendering/effects.css` (imported from `effects.ts`). Vite bundles imported CSS. No two stages edit one stylesheet.
+- `data-*` hooks are part of the contract because D writes e2e specs against them before B and C are merged; the hook tables in §3.6, §4.6 are binding.
+- Nobody introduces a cap. Any "limit" an agent is tempted to add is a budget warning (AP §21).
+
+### 0.5 Numbering used by `ADOPTION_PLAN.md`
+
+AP §3.4 points to **§1.6** of this document for the exact calibration assertions; AP §16 points to **§5** for the additive e2e tests; AP §20 points to **§7** for the release acceptance details. Those numbers are fixed; do not renumber.
+
+## 1. CORE stage (one agent, first; everything headless)
+
+### 1.1 Scope
+
+CORE delivers every mechanic, data item and headless interface the four parallel stages consume, with tests, on the integration branch, in the order below. It touches no rendering, UI, audio, codex or docs file except `docs/apex/CALIBRATION_REPORT.md`. Principles: a task is done when its tests pass and `npm test` is still green (update the existing assertions only as AP §16 lists); every new mechanic draws randomness from `this.rng`/`sim.rng.fork(label)` in step order; every new field is optional with a default that reproduces today's behaviour so old configs, saves and the two legacy custom-battle literals keep working; every new event is plain JSON; nothing introduces a cap.
+
+Owned files: §0.3 CORE row. Reference reading: `CODE_MAP.md` §1–§4, §7–§9 (where everything hooks in), `BALANCE_AUDIT.md` §6–§8 (the measured calibration), `PACK_ADOPTION.md` §3 (data), `CINEMATIC_DESIGN.md` §1, §5, §7 (beats, distant layer, feel), `CUSTOM_BATTLE_DESIGN.md` §1, §3.2 (custom model, world state).
+
+### 1.2 Tasks in order (each lands green on its own; commit after each)
+
+| # | Task | What exactly | AP |
+| --- | --- | --- | --- |
+| T1 | Lints and scaffolding | `tests/lint.test.ts`: walks `src/simulation`, `src/data`, `src/timelines`, `src/scenarios`, `src/campaign`, `src/core`, `src/showcase/scenes` (if present) and fails on `Math.random`, `Date.now()` and `performance.now()`; exports `forbiddenWording(text): boolean` (regex `/nuclear\s+mass\s+rounds?/i`) from `src/core/lint.ts` for D's `tests/wording.test.ts`. Add `src/simulation/profile.ts` (`SimProfile` counters, zero cost when disabled). | §0.1, §7 |
+| T2 | Shared types | `ShipRole` + `super_dreadnought`, `fixed_platform`; `FormationType` + `layered_line`, `stacked_wedge`, `box`, `swarm_descent`, `broadside_line`, `static` with labels; every optional field of §1.3.1–§1.3.3; the event union of §1.3.4; `ship_destroyed.cause`; `OrderType` unchanged (`retreat` keeps its id, HUD relabels). Every role switch extended (`grep "'dreadnought'"` list in `CODE_MAP.md`/`CINEMATIC_DESIGN.md` §7.9: `formations.ts` tier, `ai.ts:69,104`, `battle.ts:868`, `results.ts:6`, `reaperIntel.ts`; the render/UI sites belong to A/B and are listed in their sections). | §14, §19 8.9–8.10 |
+| T3 | Rules engine | `SpecialTechnology` gains `valkyrieAvailable`, `legacyNova`, `driveAttacks`, `heavyPlatforms`, `superDreadnoughts`, `reaperDoctrine`, `readinessScale`; `CANON_SPECIAL` defaults; `schema.ts` validation/clamps; `isApexRules(rules)`; Titan predicate (faction ∈ {alliance, cerberus}, role dreadnought or super_dreadnought, MA, antiCapital, arc ≤ 20, id ∉ {destiny_ascension, normandy_valkyrie}); HADES becomes round-level (`EffectiveWeapon.hadesRound`), the faction-wide bypass is deleted; `applyRulesToShip` returns `heatCapacity = (cls.heatCapacity?.value ?? 100) × t.heatCapacity`, `barrierRegenUnderFire`, `barrierLoadThreshold`; `comparison.ts` explanation lines (keep the literal "Hyper-mass accelerators"); `reaperIntel.ts` score re-base + Harbinger headline; `tests/timelines.test.ts` additions. | §1.2, §3.1, §3.2, §7, §22.2 |
+| T4 | Presets | `prime_apex` → "Prime/Apex — Apex core" (full literal of AP §1.3), `apex_legacy` (AP §1.4), `PRESETS` order, `tests/saves.test.ts` literal, preset-id lists in `tests/timelines.test.ts` and `tests/battle.test.ts`. | §1 |
+| T5 | Data catalogue | Canon calibration values (AP §3.2 table, incl. cadence 2.0 and heats); new classes (AP §14.2: `reaper_oculus`, `alliance_dreadnought_k`, `normandy_valkyrie`, re-based `cerberus_dreadnought`, `cerberus_heavy_cruiser`, `sol_defence_platform`, `sol_platform_heavy`, `alliance_super_dreadnought`, `turian_super_dreadnought`, `destiny_ascension` role, `normandy_sr2`, re-described `alliance_frigate_thanix`); new weapons (AP §14.3); Oculus complements 8/2/12; `NAMES`, `UNIQUE_CLASS_IDS`, `NAMED_FLAGSHIPS`; `src/data/apexScale.ts` + `tests/apexScale.test.ts` (rows and columns re-add); `src/data/transmissions.ts`; factions: Reaper comms `fighters_launch` "Deploying Oculus."; descriptions quoting 42,000/32,000/6,500/3,200 rewritten. | §3.2, §13, §14, §22 |
+| T6 | Damage mechanics | M1 recovery under fire, M2 load threshold (`applyDamage(..., opts?: { hitSize })`, beams pass the burst), M3 heat by hull; per-mount heat (`perMountHeat`, `WeaponState.heat`); `specialAmmo` countdown and `Projectile.special`; HADES warhead step in `applyHit` (burst, outage, regen suppression, `hades_detonation`); `degradedTargetBonus`; `chargeTime` (`weapon_charging`, no fire/turn during charge); `salvo`; `tests/damage.test.ts` changes (AP §16) + `tests/hades.test.ts`. | §3.1, §7, §8 |
+| T7 | Calibration, first pass | `scripts/calibration.ts` (the audit's tables: isolated bench, live duels, cruiser vs destroyer, reference seeds 7–9, Battle of Earth 42, heat); run; pin `tests/calibration.test.ts` (§1.6.1) with the AP §3.3 numbers; write `docs/apex/CALIBRATION_REPORT.md` §1 "before movement"; tune Apex core multipliers inside the AP §1.3 bounds until the Apex reference target holds. | §3, §1.3 |
+| T8 | Spatial grid, stagger, profile | `src/simulation/spatial.ts` `SpatialGrid` (cell 4 km, rebuilt per tick, deterministic candidate order); `updateProjectiles` → `querySegment`; PD → `queryRadius`; `chooseTarget` → `queryRadius(sensor × 1.5)` capped at 24 nearest; cached per-tick side centroids; `fleetDecision` expensive part on a 0.25 s timer; `tests/perf.test.ts` (§1.6.8). | §19 8.2, §21 |
+| T9 | 3D formations and platforms | `layered_line`, `stacked_wedge`, `box`, `swarm_descent`, `broadside_line`, `static` slot maths + spacing guard; `fleet.static`; `maxSpeed 0` slew-only movement; `issueOrders` rejection → `order_rejected`; Reaper ×2.5 platform weight; `tests/formations3d.test.ts`, `tests/platforms.test.ts`. | §19 8.2, 8.10, §10 |
+| T10 | Movement, withdrawal, solutions | `movement.ts` (approach bearing, heading lock with deadband and 0.05 rad/s, deceleration, doctrine facing, damped station keeping, frigate run/turn-in/extend, fighter strafing passes with PD repulsion, Reaper loose cluster); tactical withdrawal replaces escape (`checkEscapes` deleted, 12 % auto-retreat deleted, combat-ineffective end rule, `withdraw`/`retreat` semantics, Reapers never idle, carriers weave, "every unit with a weapon in range fires or moves"); `solutions.ts` (q build/decay, penalties, `p_hit × (0.25 + 0.75·q)`, bow solution, miss offsets, `ttl` × 2.2, `projectile_near_miss`, `scoreTarget += 0.3·q`); `tests/movement.test.ts`, `tests/withdrawal.test.ts`, `tests/solutions.test.ts`; the `retreat` test rewrite (AP §16). | §19 8.1, 8.6, 8.7 |
+| T11 | Oculus, carriers, flights | `reaper_oculus` launches through `updateCarrier` (burst support `hangar.burst`); fighter stand-off = 0.9 × the range of the weapon that can engage the current target; `flights.ts` (threshold 64, members, damage, shots, results counting); `tests/oculus.test.ts`, `tests/flights.test.ts`. | §13.1, §21.3 |
+| T12 | Reaper AI (D10) | rotate protection, kill the active gun platform (`stats.recentDamage`), cover a damaged capital (`interpose`), apex-only abandon/withdraw as tactical fall-back, never idle, platforms first, regression test "others continue after Harbinger"; `tests/reaperAi.test.ts`. | §10 |
+| T13 | Beats, volley, arrival, specials, flagships | `beats.ts` (`scheduleBeats`, `applyBeat`, `resolveShipRef`, `beat_fired/skipped`, captions on the log, `player_control` lock), `volley.ts` (`orderVolley`, hold/release, `VOLLEY_WINDOW`, `holdFire`, `fleet_volley_ordered/fired`), `arrival.ts` (`ARRIVAL`, `arrivalPos`, pending ships inert, `ship_arrival_flash`, `fleet_arrived`), `specials.ts` (`sim.special.*` incl. `hadesStrike`, `novaStrike`, `missionKill`, `destroy`, `setHullFraction`, `setBarrierFraction`, `setSubsystem`, `withdrawShip`, `interpose`, `forcedShot` consumption, `scripted_event`), `flagships.ts` (`flagship_destroyed`/`flagship_mission_kill` emission, `recentHitTimes`, `finalSalvoHits`); `tests/beats.test.ts`, `tests/volley.test.ts`, `tests/arrival.test.ts`, `tests/specials.test.ts`, `tests/flagship.test.ts`. | §4, §5.2 (sim side), §22.2 |
+| T14 | Drive attack | `special.driveAttack` AI-initiated eligibility and tiers (`'rare'`, `'upper'`), run kinematics, interception, impact, events; `tests/driveAttack.test.ts`. | §9 |
+| T15 | Distant layer | `distant.ts` model (fork `'distant'`, λ formula, stochastic rounding, events, isolation) + `scenarios/distantGroups.ts` (Apex groups from `APEX_SCALE` minus simulated; canon percentages; campaign remainder); `tests/distant.test.ts`. | §13.3, §21.4 |
+| T16 | Scenarios | `scenarios/worldState.ts` (`resolveWorldState`, `WorldStateOption` extension); Final Battle: options table, cinematic geometry, `finalBattleBeats.ts` default table with `beatScale`, Cerberus world state fleets, platforms (2 canon / 2 + 2 heavy Apex), distant layer, Oculus; every other scenario: Normandy → `normandy_sr2`, platforms on homeworld defences, Apex Sol scenarios gain Valkyrie / heavy dreadnoughts / platforms / 3–4 pattern frigates, Citadel's Sovereign named `Sovereign` (flagship); export `fleet`, `reaperFleet`, `base`, `NAMES`, `UNIQUE_CLASS_IDS`; readiness tiers; `tests/finalBattle.test.ts`, `tests/normandy.test.ts`, `tests/worldState.test.ts`. | §4, §1.6, §22.1 |
+| T17 | Custom battle v2 | `scenarios/custom.ts` (types, `migrateCustomBattle`, `layoutFleets`, `validateCustomBattle` with budget warnings, `scaleSideToBudget`, `buildCustomBattle`, platform split, readiness, `auContent`, `sideLabels`, `notes`), `scenarios/customPresets.ts` (`FLEET_PRESETS`, `BATTLE_BUNDLES`, `isAuClass`), `checkEnd` pending guard; `tests/custom.test.ts` (§1.6.9). | §6, §21 |
+| T18 | Budget, governor ladder, campaign | `core/perfGovernor.ts` (§1.3.10) + `tests/governor.test.ts`; `core/storage.ts` preference shapes (§1.3.11); `campaign/engine.ts`: `buildEngagement(state, pending, budget)` with the distant remainder, `isApexRules` for the Omega group, `alpha_losses` world state, homeworld platforms `min(4, round(defence × 4))` (+1 heavy under Apex), `normalisedCampaign` snapshot migration (fills new `special` keys; Apex snapshots keep their saved `crucibleAvailable`), Normandy class id; `tests/campaign.test.ts` additions. | §1.5, §21.2, §21.4 |
+| T19 | Perf script and re-measure | `scripts/perf-sim.ts` (ladder 100/300/600/1,000 + the 300-vs-100 row; prints steps/s, steps per 16.7 ms frame, profile split); `npm run perf:sim` script entry; re-run `scripts/calibration.ts` after T10–T14 and re-pin every balance assertion inside the AP §3.5 lever order; `CALIBRATION_REPORT.md` §2 "after movement" with the final numbers; if the 300-vs-100 gate fails, work the AP §21.5 lever list and record what moved. | §3.5, §21.5 |
+| T20 | Close | `scripts/headless-battle.ts` prints distant counts, flagship events and the profile; full `npm run typecheck && npm test && npm run build`; e2e `npm run test:e2e` (the eight existing specs must pass against CORE alone: the HUD still has its seven cameras and `[data-order="advance"]`, the custom screen still has `data-count="sideB:reaper_capital"` because the v1 shape still builds); hand over with the exported-interface list checked against §1.3. | — |
+
+Each task's definition of done: its tests pass; `npm test` green; `git grep -n "Math.random" src/simulation src/data src/timelines src/scenarios src/campaign src/core` empty; no new `any` beyond the existing ones; commit.
+
+### 1.3 Exported interfaces (the contract; parallel stages copy what they use)
+
+All additions are optional unless marked required; defaults reproduce v0.11 behaviour. Types are quoted as CORE must export them.
+
+#### 1.3.1 `src/data/types.ts`
+
+```ts
+export type ShipRole = 'fighter' | 'frigate' | 'cruiser' | 'dreadnought' | 'super_dreadnought' | 'carrier' | 'fixed_platform' | 'reaper_destroyer' | 'reaper_capital';
+export type DamageType = 'kinetic' | 'thanix_stream' | 'laser' | 'warhead' | 'reaper_beam';
+
+export interface WarheadDef { damage: number; damageType: 'warhead'; barrierEfficiencyMultiplier: 0; armourBypass: 1; subsystemOutage: { drop: number; seconds: number }; regenSuppressSeconds: number }
+export interface WeaponDef { /* existing fields unchanged … */
+  specialAmmo?: number;                         // special rounds per mount before ordinary rounds (Titan gun: 12 HADES)
+  warhead?: WarheadDef;                         // applied inside the hull after a penetrating special round
+  degradedTargetBonus?: { barrierFractionBelow: number; multiplier: number };
+  chargeTime?: number;                          // seconds of visible charge; mount cannot fire or turn while charging
+  salvo?: number;                               // torpedoes per launch (javelin_rack: 4)
+  perMountHeat?: boolean;                       // mount keeps its own heat pool (thanix_heavy)
+  requiresSpecial?: keyof SpecialTechnology;    // hardpoint fitted only when the flag is true (nova_legacy)
+}
+export interface ShipClassDef { /* existing … */
+  heatCapacity?: Sourced<number>;               // default 100
+  barrierRegenUnderFire?: Sourced<number>;      // 0..1, default 0 (reaper_capital, harbinger: 1)
+  barrierLoadThreshold?: Sourced<number>;       // points, default 0 = off (capitals: 1000)
+  flagship?: boolean;                           // normandy_sr2, normandy_valkyrie, destiny_ascension, harbinger
+  unique?: boolean;                             // mirrors UNIQUE_CLASS_IDS for data-driven UIs
+}
+export const UNIQUE_CLASS_IDS: readonly string[];      // ['harbinger', 'destiny_ascension', 'normandy_sr2', 'normandy_valkyrie']
+export const NAMED_FLAGSHIPS: readonly string[];       // ['Harbinger', 'Sovereign', 'Destiny Ascension', 'SSV Normandy SR-2', 'SSV Normandy Valkyrie']
+export const isAuClass: (classId: string) => boolean;  // designProvenance.provenance === 'AU_MODIFIED'
+```
+
+`src/data/ships.ts`: `SHIP_CLASSES`, `SHIP_CLASS_LIST`, `getShipClass(id)` unchanged in shape; new ids per AP §14.2/§22.1. `src/data/weapons.ts`: `WEAPONS`, `BARRIER_EFFICIENCY` unchanged; new ids per AP §14.3; `HADES_WARHEAD: WarheadDef`. `src/data/apexScale.ts`: `APEX_SCALE` exactly as `PACK_ADOPTION.md` §3e plus `export function apexCaption(kind: 'warships' | 'platforms' | 'reapers', simulated: number): string` (returns the AP §15 caption strings, always ending in `· AU SCENARIO VALUE`). `src/data/transmissions.ts`: `export const TRANSMISSIONS: Record<'harbinger' | 'sovereign' | 'destiny_ascension' | 'normandy_sr2' | 'normandy_valkyrie', { missionKill: string[]; destroyed: string[]; reaction: string[] }>` and `export function transmissionKey(ship: { classId: string; name: string }): keyof typeof TRANSMISSIONS | undefined`.
+
+#### 1.3.2 `src/timelines/rules.ts`, `schema.ts`, `presets.ts`
+
+```ts
+export interface SpecialTechnology {
+  hyperMassAccelerators: boolean; hadesRounds: boolean; thanixAvailability: 'canon' | 'fleetwide' | 'none'; reaperCommandVulnerability: boolean; indoctrinationDisabled: boolean;
+  valkyrieAvailable: boolean; legacyNova: boolean; driveAttacks: 'off' | 'rare' | 'upper'; heavyPlatforms: boolean; superDreadnoughts: boolean; reaperDoctrine: 'canon' | 'apex'; readinessScale: number;
+}
+export const CANON_SPECIAL: SpecialTechnology;      // every new key at its canon value (false / 'off' / 'canon' / 1)
+export const isApexRules: (rules: RuleSet) => boolean;   // strategic.cerberusStance === 'cooperative' && special.hyperMassAccelerators
+export interface EffectiveShipStats { /* existing … */ heatCapacity: number; barrierRegenUnderFire: number; barrierLoadThreshold: number }
+export interface HadesRound { armourBypass: number; barrierEfficiencyMultiplier: number; warhead: WarheadDef }
+export interface EffectiveWeapon extends WeaponDef { armourBypass: number; barrierEfficiencyMultiplier: number; substitutedFrom?: string; hadesRound?: HadesRound /* Titan gun under hadesRounds only */ }
+export function applyRulesToShip(cls: ShipClassDef, rules: RuleSet): EffectiveShipStats;                                   // unchanged signature
+export function applyRulesToWeapon(weapon: WeaponDef, faction: FactionId, cls: ShipClassDef, rules: RuleSet, catalogue?: Record<string, WeaponDef>): EffectiveWeapon; // unchanged signature
+export const PRESETS: RuleSet[];                    // … PRIME_APEX ('Prime/Apex — Apex core'), APEX_LEGACY ('Prime/Apex — Apex legacy (high power)'), CERBERUS_ASCENDANT
+export function getPreset(id: string): RuleSet;     // unchanged
+```
+
+#### 1.3.3 `src/simulation/types.ts` (additions)
+
+```ts
+export type FormationType = 'defensive_screen' | 'line_abreast' | 'strike_wedge' | 'capital_column' | 'fighter_screen' | 'dispersed' | 'layered_line' | 'stacked_wedge' | 'box' | 'swarm_descent' | 'broadside_line' | 'static';
+export const FORMATION_LABELS: Record<FormationType, string>;   // new: 'Layered line (3D)', 'Stacked wedge (3D)', 'Box (3D)', 'Descending swarm (Reaper)', 'Broadside line', 'Static (platforms)'
+export type HoldFire = 'none' | 'spinal' | 'beams' | 'all';
+export interface FleetOrders { /* existing … */ holdFire?: HoldFire; targetRef?: ShipRef /* resolved at issue time */ }
+export interface ShipSpec { classId: string; count: number; names?: string[] }                       // unchanged
+export interface FleetSpec { /* existing … */ arrivalMode?: 'time' | 'beat'; arrivalFlash?: boolean; readiness?: 'veteran' | 'regular' | 'reserve'; static?: boolean }
+export interface BattleConfig { /* existing … */ beats?: BeatScript; distant?: DistantLayerConfig; auContent?: boolean; sideLabels?: Record<Side, string>; notes?: string[] }
+export interface WeaponState { /* existing … */ specialAmmo?: number; heat?: number /* perMountHeat */; charging?: number /* seconds left */; forcedShot?: { targetId: string; hit: boolean; penetrate: boolean; expiresAt: number }; arrivalHold?: boolean }
+export interface ShipStats { /* existing … */ recentDamage: number /* exp. decayed, τ = 10 s */ }
+export interface Solution { targetId: string; q: number; since: number }
+export interface ShipState { /* existing … */
+  flagship: boolean; flight?: { classId: string; craft: number; maxCraft: number };
+  arrival?: ArrivalState; driveRun?: DriveRunState; interpose?: InterposeState; manoeuvre?: ManoeuvreState;
+  solutions: Solution[]; forcedTargetUntil?: number; outageUntil?: { subsystem: keyof Subsystems; until: number; amount: number }; regenSuppressedUntil: number;
+  recentHitTimes: number[]; flagshipEvents: { destroyed: boolean; missionKill: boolean }; barrierRegenUnderFire: number; barrierLoadThreshold: number; recoveryStation?: Vec3;
+}
+export interface Projectile { /* existing … */ special: boolean; missDistance?: number }
+export interface FleetState { /* existing … */ volley?: VolleyState; approachBearing: Vec3; headingLocked: boolean; static: boolean; doctrineFacing: 'bow' | 'broadside'; decisionSlowTimer: number }
+export type DestructionCause = 'kinetic' | 'thanix_stream' | 'reaper_beam' | 'warhead' | 'laser' | 'drive_attack' | 'scripted' | 'combat_ineffective';
+```
+
+#### 1.3.4 Event union (`src/simulation/types.ts`; every member carries `t: number`)
+
+```ts
+| { type: 'ship_destroyed'; shipId; killerId?; classId; faction; side; name; pos: Vec3; role: ShipRole; cause: DestructionCause; weaponId?: string }   // existing + cause, weaponId
+| { type: 'weapon_fired'; shipId; weaponId; targetId; weaponIndex; kind; shots?: number; special?: boolean; volley?: boolean }                           // existing + shots (flights), special (HADES round), volley
+| { type: 'projectile_near_miss'; shooterId: string; targetId: string; pos: Vec3; miss: number }
+| { type: 'beat_fired' | 'beat_skipped'; beatId: string; kind: string; label?: string }
+| { type: 'caption'; text: string; duration: number; style: 'title' | 'tag' | 'tactical' | 'quote' | 'insert'; speaker?: string; au: boolean }
+| { type: 'fleet_volley_ordered'; fleetId: string; at: number; window: number; mounts: VolleyMounts; mountsOrdered: number }
+| { type: 'fleet_volley_fired'; fleetId: string; fired: number; held: number; silent: number }
+| { type: 'ship_arrival_flash'; shipId: string; pos: Vec3; heading: Vec3; lengthKm: number }
+| { type: 'fleet_arrived'; fleetId: string }                                                              // existing, now emitted
+| { type: 'drive_run_started'; runnerId: string; targetId: string; endsAt: number }
+| { type: 'drive_run_impact'; runnerId: string; targetId: string; pos: Vec3; dir: Vec3; success: boolean }
+| { type: 'hades_detonation'; shipId: string; targetId: string; pos: Vec3; damage: number; outage: keyof Subsystems }
+| { type: 'strike_scheduled'; shipId: string; weaponId: string; at: number; kind: 'hades' | 'nova' | 'nova_legacy' }
+| { type: 'weapon_charging'; shipId: string; weaponIndex: number; seconds: number }
+| { type: 'mission_kill'; shipId: string }
+| { type: 'scripted_event'; beatId?: string; special: string; shipIds: string[]; forced: boolean }
+| { type: 'forced_shot_expired'; shipId: string; weaponIndex: number }
+| { type: 'order_rejected'; fleetId: string; order: string; reason: 'static_fleet' | 'player_locked' }
+| { type: 'flight_member_lost'; shipId: string; remaining: number }
+| { type: 'distant_update'; groups: { id: string; remaining: number; losses: number }[] }
+| { type: 'distant_group_broken'; id: string }
+| { type: 'flagship_destroyed'; shipId; name; classId; faction; side; pos: Vec3; tier: 'harbinger' | 'flagship'; transmission: string; reaction: string; killer?: { shipId: string; name: string; classId: string; faction: FactionId; weaponId?: string; weaponName?: string }; damageType?: DamageType; finalSalvoHits: number }
+| { type: 'flagship_mission_kill'; shipId; name; classId; faction; side; pos: Vec3; tier: 'harbinger' | 'flagship'; transmission: string; reaction: string }
+```
+
+#### 1.3.5 `BattleSimulation` (`src/simulation/battle.ts`) public surface
+
+```ts
+export const SIM_DT = 0.05;
+export class BattleSimulation implements AiContext {
+  // existing: config, rng, rules, time, tick, ships, shipById, fleets, projectiles, missiles, events, flashes, finished, result?, onEvent?, step(), run(), issueOrders(), orderShipsAttack(), getShip(), enemiesOf(), alliesOf(), segmentSphere
+  readonly grid: SpatialGrid;                       // rebuilt each tick
+  readonly profile: SimProfile;                     // per-phase ms when enabled (profile.enabled = true), zero cost otherwise
+  readonly distant?: DistantState;                  // present when config.distant?.enabled
+  readonly special: Specials;                       // §1.3.7
+  playerLocked: boolean;                            // true until beats.lockPlayerUntil × beatScale (or player_control { locked: false })
+  readonly playerLockUntil: number;                 // seconds, 0 when never locked
+  readonly beatQueue: readonly ScheduledBeat[];     // remaining beats (read-only view for HUD/briefing/showcase)
+  orderVolley(fleetIds: string[], opts?: VolleyOptions): void;        // one entry point for HUD, beats and scenes
+  resolveShipRef(ref: ShipRef): ShipState | undefined;                 // deterministic (ties by id); nth counts deployment order incl. dead ships
+  resolveFleetSel(sel: FleetSel): FleetState[];
+  issueOrders(fleetId: string, patch: Partial<FleetOrders>): 'issued' | 'rejected';   // static fleets and the player lock reject (order_rejected event)
+  skipTo(time: number): void;                       // steps without rendering until sim.time ≥ time (K to skip the opening; e2e helper)
+  simulatedHullCount(side?: Side): number;          // live non-fighter hulls (for captions/HUD budget line)
+}
+```
+
+#### 1.3.6 Beats, volley, arrival (`src/simulation/beats.ts`, `volley.ts`, `arrival.ts`)
+
+The types are exactly `CINEMATIC_DESIGN.md` §1.1 (`ShipRef`, `FleetSel`, `BeatEvent`, `VolleyMounts`, `CaptionStyle`, `SpecialTrigger`, `Beat`, `BeatScript`) with these fixed decisions: `ShipRef.nth` indexes deployment order including dead ships; `set_fleet_order.patch` may carry `targetRef`; `BeatScript = { version: 1; beats: Beat[]; beatScale: number; lockPlayerUntil?: number; scripted: boolean }`.
+
+```ts
+export interface ScheduledBeat { beat: Beat; t: number; index: number }
+export function scheduleBeats(script: BeatScript): ScheduledBeat[];                 // × beatScale, quantised to SIM_DT, stable sort
+export function applyBeat(sim: BattleSimulation, beat: Beat): 'fired' | 'skipped';
+export function beatPreview(beats: Beat[], ws: Record<string, string>): { id: string; at: number; label: string }[];  // the briefing's list, pace applied, filtered by world state
+export interface VolleyOptions { lead?: number; window?: number; mounts?: VolleyMounts; targetId?: string; anchorShipId?: string; syncArrival?: boolean }
+export interface VolleyState { at: number; window: number; mounts: VolleyMounts; targetId?: string; syncArrival: boolean; offsets: Map<string, number>; fired: number; held: number; silent: number }
+export const VOLLEY_WINDOW: Record<FactionId, number>;   // alliance 1.5, turian 1.0, asari 1.3, salarian 1.2, geth 0.8, quarian 1.8, cerberus 1.2, reaper 2.0
+export function volleyMount(w: WeaponState, mounts: VolleyMounts): boolean;
+export interface ArrivalProfile { runKm: number; duration: number }
+export const ARRIVAL: Record<'capital' | 'cruiser' | 'frigate', ArrivalProfile>;     // 12/6.0, 9/4.5, 7/3.5
+export interface ArrivalState { appearAt: number; settleAt: number; from: Vec3; to: Vec3 }
+export const arrivalEase: (u: number) => number;
+export function arrivalPos(a: ArrivalState, t: number): Vec3;
+```
+
+#### 1.3.7 Specials, flagships, drive attack (`src/simulation/specials.ts`, `flagships.ts`)
+
+```ts
+export type SpecialResult = 'applied' | 'skipped';
+export interface Specials {
+  driveAttack(runnerId: string, targetId: string, opts?: { window?: number; force?: 'success' | 'intercept'; ignoreCorridor?: boolean; beatId?: string }): SpecialResult;
+  hadesStrike(shooterId: string, targetId: string, opts?: { rounds?: number; force?: 'hit_penetrating'; beatId?: string }): SpecialResult;
+  novaStrike(shooterId: string, targetId: string, opts?: { withThanix?: boolean; force?: 'hit'; beatId?: string }): SpecialResult;
+  missionKill(shipId: string, opts?: { weapons?: number; engines?: number; beatId?: string }): SpecialResult;      // emits mission_kill (+ flagship_mission_kill for flagships)
+  destroy(shipId: string, opts?: { killerId?: string; ifHullBelow?: number; cause?: DestructionCause; beatId?: string }): SpecialResult;
+  setHullFraction(shipId: string, fraction: number, opts?: { onlyLower?: boolean; beatId?: string }): SpecialResult;
+  setBarrierFraction(shipId: string, fraction: number, opts?: { onlyLower?: boolean; beatId?: string }): SpecialResult;
+  setSubsystem(shipId: string, subsystem: keyof Subsystems, level: number, opts?: { beatId?: string }): SpecialResult;
+  withdrawShip(shipId: string, opts?: { beatId?: string }): SpecialResult;
+  interpose(shipId: string, protectId: string, opts?: { againstId?: string; seconds?: number; beatId?: string }): SpecialResult;
+  forceTarget(shipIds: string[], targetId: string, forceNextShot?: 'hit' | 'hit_penetrating'): void;
+  launchDrones(fleetIds: string[], burst?: number): void;
+}
+export interface DriveRunState { targetId: string; startedAt: number; endsAt: number; completes: boolean; tier: 'rare' | 'upper' }
+export interface InterposeState { protectId: string; againstId?: string; until: number }
+export const DRIVE_TIERS: Record<'rare' | 'upper', { window: number; completion: number; maxAttempts: number; collateralKm: number; failHullDamage: number }>;  // rare 40/0.25/3/0/0, upper 30/0.35/5/1.5/0.3
+export function flagshipTier(ship: ShipState): 'harbinger' | 'flagship' | undefined;
+```
+
+#### 1.3.8 Spatial grid, movement, solutions, flights (read-only for other stages; exported for tests and HUD)
+
+```ts
+export class SpatialGrid { constructor(cellKm: number); rebuild(ships: readonly ShipState[]): void; queryRadius(p: Vec3, r: number, side?: Side): ShipState[]; querySegment(a: Vec3, b: Vec3, pad: number, side?: Side): ShipState[]; nearest(p: Vec3, side: Side): ShipState | undefined; readonly cellCount: number }
+export const GRID_CELL_KM = 4;                     // compressed km
+export type ManoeuvreState = { phase: 'approach' | 'run' | 'turnIn' | 'extend' | 'pass' | 'turn'; until: number; line?: { from: Vec3; to: Vec3 } };
+export const MOVEMENT = { headingDeadbandRad: 0.1745, headingRateRad: 0.05, reaperHeadingRateRad: 0.03, lockRangeFactor: 1.1, unlockRangeFactor: 1.4, unlockSeconds: 8, kp: 0.5, kd: 1.4142 } as const;
+export const WITHDRAWAL = { recoveryStationFactor: 0.6, regenBoost: 1.5, reengageBarrierFraction: 0.7, reengageSeconds: 20, combatIneffectiveFraction: 0.05 } as const;
+export const SOLUTION = { q0: 0.10, sharedBonus: 0.15, buildBase: 0.08, decayPerSecond: 0.15, flarePenalty: 0.25, manoeuvrePenalty: 0.2, floor: 0.25 } as const;
+export function solutionFor(ship: ShipState, targetId: string): number;    // q in 0..1 (HUD: 'Solution 62 %')
+export const FLIGHT_THRESHOLD = 64; export const FLIGHT_SIZE = 4;
+export function isFlight(ship: ShipState): boolean;
+```
+
+#### 1.3.9 Distant layer (`src/simulation/distant.ts`, `src/scenarios/distantGroups.ts`)
+
+```ts
+export interface DistantGroup { id: string; side: Side; faction: FactionId; label: string; count: number; bearingDeg: number; distanceKm: number; spreadKm: number; classMix: { capital: number; heavy: number; line: number; light: number } }
+export interface DistantLayerConfig { enabled: boolean; groups: DistantGroup[]; captions: 'apex' | 'canon' | 'none'; firstLossAfter?: number }
+export interface DistantGroupState { id: string; remaining: number; losses: number; firingRate: number }
+export interface DistantState { groups: DistantGroupState[]; lastUpdate: number }
+export function apexDistantGroups(simulatedBySide: Record<Side, Record<FactionId, number>>): DistantGroup[];     // from APEX_SCALE minus simulated
+export function canonDistantGroups(fleets: FleetSpec[], factor?: number): DistantGroup[];                     // count = 12 × simulated per real fleet, captions without numbers
+export function remainderGroups(side: Side, faction: FactionId, label: string, total: number, simulated: number, counts: Record<string, number>): DistantGroup[];  // campaign remainder
+export function distantSummary(sim: BattleSimulation): { side: Side; remainingPercent: number; remaining: number; losses: number; captioned: boolean }[];
+```
+
+#### 1.3.10 Performance budget and governor (`src/core/perfGovernor.ts`, pure)
+
+```ts
+export interface PerfBudget { liveHullsPerSide: number; smallCraftPerSide: number; source: 'default' | 'measured'; measuredAt?: string; machine?: string }
+export const DEFAULT_PERF_BUDGET: PerfBudget;     // 400 / 160 / 'default'
+export type GovernorLevel = 0 | 1 | 2 | 3 | 4;
+export interface GovernorSample { stepMs: number; frameMs: number; hulls: number; smallCraft: number }
+export interface GovernorState { level: GovernorLevel; since: number; samples: number; lastSample?: GovernorSample }
+export const GOVERNOR_TARGET = { frameMs: 16.7, stepsPerFrame: 20, raiseAfter: 1.5, lowerAfter: 6.0 } as const;
+export const initialGovernor: () => GovernorState;
+export function governorStep(state: GovernorState, sample: GovernorSample, now: number): GovernorState;
+export function budgetFromLadder(rows: { hulls: number; stepsPerSecond: number; frameMs: number }[], machine?: string): PerfBudget;
+export function refineBudget(budget: PerfBudget, liveHullsPerSide: number, level: GovernorLevel): PerfBudget;   // level 4 → min(budget, round(0.8 × live))
+export interface LadderParams { effectDensity: number; lodFactor: number; glowSprites: boolean; trails: boolean; maxBarrierShells: number; maxFarSparks: number; maxDebris: number; maxNearBeams: number }
+export function ladderParams(level: GovernorLevel): LadderParams;    // 0: 1/1/true/true/16/4096/512/8; 1: density 0.5; 2: + lodFactor 0.6; 3: + no glow/trails, shells 6; 4: + sparks 2048, debris 128, beams 1
+export function perfWarning(hulls: number, budget: PerfBudget, side?: Side): string | undefined;             // the AP §21.2 warning sentence or undefined
+```
+
+#### 1.3.11 Preferences (`src/core/storage.ts`)
+
+```ts
+export interface Preferences { graphics: GraphicsSettings; audio: AudioSettings; subtitles: boolean; lastTimelineId: string; lastScenarioId: string; showOverlay: boolean;
+  showcase: { beatScale: 0.75 | 1 | 1.25 | 1.5; record: boolean; letterbox: boolean; captions: boolean };
+  perf: { budget: PerfBudget; governor: boolean } }
+// AudioSettings (src/audio/engine.ts, owned by A) gains `seismicAu: boolean; lightBeforeSound: boolean`; CORE adds the defaults in DEFAULT_PREFERENCES (true / true) with a type-only import.
+```
+`App.init` already merges sub-objects over the defaults; CORE adds `showcase` and `perf` to that merge list in a one-line change that B then owns (listed in §3.2 T1).
+
+#### 1.3.12 Scenarios (`src/scenarios/index.ts`, `worldState.ts`, `finalBattleBeats.ts`, `custom.ts`, `customPresets.ts`)
+
+```ts
+export interface WorldStateChoice { id: string; label: string; description: string; availableWhen?: (rules: RuleSet) => boolean; au?: boolean }
+export interface WorldStateOption { id: string; label: string; kind: 'player_dependent' | 'extrapolation' | 'au'; description: string; choices: WorldStateChoice[]; default: string;
+  defaultFor?: (rules: RuleSet) => string; showWhen?: (rules: RuleSet) => boolean; disabledWhen?: (rules: RuleSet, ws: Record<string, string>) => string | undefined }
+export function resolveWorldState(s: ScenarioDef, rules: RuleSet, ws: Record<string, string>): { ws: Record<string, string>; notes: string[] };
+export function fleet(id: string, faction: FactionId, rules: RuleSet, opts: FleetOpts): FleetSpec;        // now exported; FleetOpts gains nameOffsets?, readiness?, static?
+export function reaperFleet(id: string, rules: RuleSet, opts: ReaperFleetOpts): FleetSpec;               // exported
+export function base(id: string, name: string, scenarioId: string, seed: number, rules: RuleSet, environment: Environment, maxDuration: number, objective: string, ws: Record<string, string>, fleets: FleetSpec[]): BattleConfig;  // exported
+export const NAMES: Record<string, string[]>;
+export const FINAL_BATTLE_BEATS: Beat[];                      // AP §4.3 table (ids fixed: title, arrive_alliance … free_play)
+export function finalBattleScript(rules: RuleSet, ws: Record<string, string>): BattleScript;  // filtered by world state, beatScale from ws.beat_scale, lockPlayerUntil 80
+export const FINAL_BATTLE_WORLD_STATE: WorldStateOption[];     // normandy, ascension, forces, genophage, cerberus, cinematic_arrival, beat_scale, distant_layer
+// custom battle (shapes exactly CUSTOM_BATTLE_DESIGN.md §1.1; caps removed)
+export type { CustomBattleInputV1, CustomFleetInputV1, CustomBattleInput, CustomFleetInput, CustomSideInput, AnyCustomBattleInput, FleetOffset, Readiness };
+export const isLegacyCustomBattle: (x: unknown) => x is CustomBattleInputV1;
+export function migrateCustomBattle(raw: unknown): { input: CustomBattleInput; notes: string[] };
+export const DEFAULT_CUSTOM_INPUT: CustomBattleInput;         // v2 form of today's default (Alliance Task Force with normandy_sr2 vs Reaper harvest group)
+export interface SideTotals { hulls: number; points: number; fighters: number; capitals: number; auHulls: number; factions: FactionId[] }
+export interface ValidationReport { ok: boolean; errors: { code: 'E1' | 'E3' | 'E4'; side?: Side; fleetId?: string; text: string }[]; warnings: { code: 'B1' | 'B2' | 'W2' | 'W3' | 'W4' | 'W5' | 'W6' | 'W7' | 'W8' | 'W10'; side?: Side; fleetId?: string; text: string }[]; totals: Record<Side, SideTotals>; budget: PerfBudget }
+export function validateCustomBattle(input: CustomBattleInput, rules: RuleSet, budget?: PerfBudget): ValidationReport;
+export function scaleSideToBudget(side: CustomSideInput, budget: number): CustomSideInput;        // pure, deterministic, only on the player's button
+export function layoutFleets(side: Side, n: number, half: number): { position: Vec3; heading: Vec3 }[];
+export class CustomBattleError extends Error { report: ValidationReport }
+export function buildCustomBattle(input: AnyCustomBattleInput, rules?: RuleSet, budget?: PerfBudget): BattleConfig;   // v1 literals keep building
+export interface FleetPreset { id: string; label: string; note: string; provenance: Provenance; au?: boolean; requires?: (rules: RuleSet) => string | undefined; cards: Omit<CustomFleetInput, 'id' | 'playerControlled' | 'offset'>[] }
+export interface BattleBundle { id: string; label: string; note: string; au?: boolean; requires?: (rules: RuleSet) => string | undefined; input: (rules: RuleSet) => CustomBattleInput }
+export const FLEET_PRESETS: FleetPreset[]; export const BATTLE_BUNDLES: BattleBundle[];
+export const FACTION_DEFAULTS: Record<FactionId, { name: string; formation: FormationType; counts: Record<string, number> }>;  // moved here from ui/screens/custom.ts (never contains an AU class; alliance includes normandy_sr2: 1)
+```
+
+#### 1.3.13 Campaign (`src/campaign/engine.ts`)
+
+```ts
+export function buildEngagement(state: CampaignState, pending: PendingEngagement, budget?: PerfBudget): BattleConfig;   // budget defaults to DEFAULT_PERF_BUDGET; remainder → config.distant
+export const CAMPAIGN_WORLD_STATE_AU: WorldStateOption[];   // alpha_losses ('0' | '10' | '25'), showWhen isApexRules
+```
+`createCampaign`, `applyEngagementResult`, `autoResolve`, `advanceTick`, `normaliseCampaign` keep their signatures.
+
+#### 1.3.14 Integration stubs (CORE creates them in T2 so A and B compile against each other before either merges)
+
+```ts
+// src/rendering/cameraDriver.ts — types only, Node-safe, FROZEN after CORE
+import type * as THREE from 'three';
+export interface CameraPose { pos: THREE.Vector3; look: THREE.Vector3; fov: number; roll: number }
+export interface SubjectPose { position: THREE.Vector3; heading: THREE.Vector3; velocity: THREE.Vector3; size: number }
+export type SubjectRef =
+  | { ship: ShipRef } | { fleetCentre: Side | string } | { point: Vec3 } | { between: [SubjectRef, SubjectRef]; t?: number }
+  | { lastEvent: 'drive_run_impact' | 'hades_detonation' | 'ship_destroyed' | 'ship_arrival_flash' | 'flagship_destroyed'; filter?: { role?: string; side?: Side } }
+  | { projectile: 'newest_heavy' } | { planetLimb: true } | { camera: true };
+export interface CameraDriver { update(renderTime: number, resolve: (ref: SubjectRef) => SubjectPose | undefined): CameraPose | undefined; onEvent(e: BattleEvent): void; readonly exhausted?: boolean }
+// src/rendering/cameras.ts (stub, then B's): CameraMode gains 'shot'; CAMERA_MODE_LABELS.shot = 'Shot list'; setPose(pose: CameraPose, instant: boolean): void (copies pos/look into desiredPos/desiredLook, sets camera.fov + updateProjectionMatrix)
+// src/rendering/battleView.ts (stub, then A's): attachDriver(driver?: CameraDriver): void; readonly driver?: CameraDriver; renderTime: number (= sim.time − SIM_DT + alpha × SIM_DT, set in update()); resolveSubject(ref: SubjectRef): SubjectPose | undefined (ship / fleetCentre / point only in the stub); updateCamera() calls driver.update() in 'shot' and 'cinematic' modes and falls back to today's path when it returns undefined; processEvents() forwards every event to driver.onEvent()
+// src/ui/app.ts (stub, then B's): App.measurePerfBudget(): Promise<PerfBudget> (stub returns prefs.perf.budget); BattleController.volley?(): void (stub undefined); BattleController.showcase?: unknown
+```
+
+### 1.4 Data catalogue changes (type the numbers from `ADOPTION_PLAN.md`; do not re-derive)
+
+- Canon calibration values: AP §3.2 table (weapons: cadence and heat; `reaper_capital`, `harbinger`, `reaper_destroyer` pools; `alliance_cruiser` length; `disruptor_torpedo`/`fighter_torpedo` `missileHp`; `reaper_point_defence` damage; `reaper_capital_beam` cooldown). Provenance notes exactly as the table's last column.
+- New and changed classes: AP §14.2 (every column) and AP §22.1 (`normandy_sr2`, `alliance_frigate_thanix`). Heat capacities per AP §3.1 M3. Oculus complements AP §13.1.
+- New weapons: AP §14.3; `HADES_WARHEAD` AP §7; `nova_legacy.requiresSpecial = 'legacyNova'`.
+- Presets: AP §1.3 and §1.4 literals; the preset `description`s and `historyChanges` are canonical text (D copies them into docs).
+- Names: AP §14.2 last paragraph and §22.1; the original frigate names are `SIMULATION_ESTIMATE` notes.
+- Scale data: `APEX_SCALE` as `PACK_ADOPTION.md` §3e; captions AP §15.
+- Transmissions: AP §22.2 text; every string `SIMULATION_ESTIMATE` ("original text").
+
+### 1.5 Calibration protocol (two passes, AP §3.5)
+
+1. After T6: run `scripts/calibration.ts` (recreate `BALANCE_AUDIT.md` §12's harness: `duelConfig`, instrumented run, `mute`, the bench). Compare with AP §3.3. Pin `tests/calibration.test.ts`. Tune Apex core multipliers (AP §1.3 bounds, order `kineticBarrierStrength`, `massAcceleratorDamage`, `fleetStrength`) until seeds 7–9 give the Apex target. Write `CALIBRATION_REPORT.md` §1 with every table.
+2. After T14 (movement, withdrawal, solutions, D10, Oculus, flights all in): re-run everything. If a threshold is missed, use the AP §3.5 levers in order (solution floor 0.2–0.35, destroyer barrier 900–1,100, capital regen 1,000–1,100, capital beam cooldown 6.0–7.5), never the capital's pools below 7,000 / 12,000, never `reaper` tech. Re-pin, write `CALIBRATION_REPORT.md` §2 with the final numbers and the lever moves. The final numbers are the ones stage D copies into `AU_RULES.md`.
+
+### 1.6 Tests to add (exact assertions; all deterministic; `environment: 'node'`)
+
+#### 1.6.1 `tests/calibration.test.ts` (AP §3.4)
+
+| it | assertion |
+| --- | --- |
+| isolated barrier trial (pure helper: `applyDamage` with full 1,000-point hits in synchronised 2 s volleys, M1 formula each `SIM_DT`) | 2 DN: barrier never below 70 % in 240 s, never collapses; 3 DN: collapses, not destroyed before 30 s, destroyed before 60 s; 4 DN: collapses within 8 s, destroyed within 25 s; `killedAt(4) < 0.6 × killedAt(3)`; kill times strictly decrease for 4, 5, 6, 8 DN; with a seeded 75 % hit roll: 2 DN never, 3 DN not destroyed within 60 s, 4 DN destroyed within 60 s; Harbinger: 2 DN never (min ≥ 80 %), 4 DN destroyed within 50 s |
+| live duels (`buildCustomBattle` v2, canon, 40 km, deep space) | 2 DN vs capital, Reaper weapons muted (`cooldown = Infinity` after construction): barrier never below 50 % over 300 s; 4 DN muted: capital destroyed within 90 s; 4 DN armed, seeds 1–5: ≥ 1 dreadnought lost in every seed and the capital destroyed in ≤ 2 of 5; 6 DN armed, seeds 1–5: capital destroyed in ≥ 4 of 5 |
+| cruiser vs destroyer | 20 seeds canon: cruiser wins ≥ 3 and ≤ 12; in every seed the destroyer's barrier collapses or the cruiser dies; 2 CA, 10 seeds: ≥ 8 wins; 1 DN: destroyer destroyed within 30 s; 4 FF, 10 seeds: ≤ 6 wins |
+| cadence and heat | every `*_dn_main.cooldown === 2.0`, `quarian_heavy_main 3.0`, `ascension_main 4.0`; for every organic spinal gun `heat / cooldown ≤ 0.5 × 0.08 × heatCapacity(role)`; reference engagement canon seed 7 to completion: no Alliance dreadnought ever `overheated` |
+| Oculus screen | 1 carrier (24 Tridents) vs 1 capital (24 Oculi), hulls muted, both `priority: 'fighters'`, seeds 1–3: last small-craft death between 60 and 120 s |
+
+#### 1.6.2 Existing tests that change (AP §16, verbatim list)
+
+`tests/saves.test.ts` name literal; `tests/battle.test.ts` canon reference (`winner 'B'`, `A.survivalPercent < 30`, `reaperCapitalLost` 1–2, `B.destroyed < B.deployed`, seeds 7–9), Apex reference (`A.capitalLost ≥ 1`, `A.survivalPercent < 85`, `A.destroyed` 7–19), intel levels (canon ∈ {MODERATE, ELEVATED, SEVERE}, Apex ∈ {SEVERE, CRITICAL}, Apex capital losses > canon), retreat test → "disengage pulls the fleet behind its line, barriers recover, nobody escapes", preset-id lists + `apex_legacy`; `tests/timelines.test.ts` + `apex_legacy`, canon-equals-catalogue gains `heatCapacity`, `barrierRegenUnderFire`, `barrierLoadThreshold` and "no canon weapon has `hadesRound`"; `tests/damage.test.ts` HADES test → Titan gun (`id 'apex_hyper_ma'`, `specialAmmo 12`, `hadesRound.armourBypass 0.5`, `hadesRound.warhead.damage 2260`, a HADES round against a full-barrier capital passes hull damage, an ordinary Titan slug does not, `alliance_broadside` under Apex `armourBypass 0`), kinetic-absorption sibling (70-point round vs `reaper_capital`: fully absorbed, `barrierDamage 4.9`; 1,000-point round loads 1,000).
+
+#### 1.6.3 Mechanics tests (one file each; the named assertions are the minimum)
+
+| file | assertions |
+| --- | --- |
+| `tests/hades.test.ts` | warhead applied only when the kinetic step produced `hullDamage > 0`; burst ignores barriers and armour (2,260 hull damage inside); one subsystem drops 0.3 and is restored 8 s later; `regenSuppressedUntil = t + 6` (no barrier gain for 6 s even with M1); `hades_detonation` emitted once per detonation with `outage`; the 13th shot of a Titan mount is an ordinary slug (`special false`, no `hadesRound` effect); an intercepted/non-penetrating round gets no internal effect |
+| `tests/beats.test.ts` | `scheduleBeats` sorts by `at × beatScale` quantised to `SIM_DT`, equal times keep authoring order, `beatScale 2` moves `at 36` to tick 1440; unresolvable reference → `beat_skipped`, sim keeps stepping; captions carry `duration × beatScale`, `style`, `au`; `spawn_wave` deploys a fleet with `arrivalMode 'beat'` (no ships before, every ship has `arrival` after, one `ship_arrival_flash` per ship at `appearAt`, one `fleet_arrived`); player lock predicate; two sims of the same config give identical `JSON.stringify(events)` after 1,600 steps including every new event type |
+| `tests/volley.test.ts` | offsets ∈ `[0, window − 0.1]`, anchor 0, identical across two sims; no spinal `weapon_fired` between order and release; at `beatScale 0.5 / 1 / 2` ≥ 85 % of spinal mounts with a target in arc and range fire inside `[at, at + window + SIM_DT]` (seeds 1–3, fixed scaling); after `at + window + 1` `fleet.volley` undefined, `holdFire 'none'`, spinal shots continue; `syncArrival` offsets have min 0 and max ≤ window |
+| `tests/arrival.test.ts` | `arrivalEase(0) = 0`, `(1) = 1`, monotone; `arrivalPos` hits `from`/`to`; relative speed at settle < 0.05 km/s; pending ships are inert (not in `enemiesOf`, no `weapon_fired`, no `projectile_impact` on them before `appearAt`; targetable after) |
+| `tests/specials.test.ts` | every `Specials` method returns `'skipped'` on an unknown ship and `'applied'` otherwise; `forced` specials emit `scripted_event` with `forced: true`; `destroy` with `ifHullBelow` skips above the fraction; `interpose` moves the ship onto the protectee–attacker segment within 10 s; `missionKill` leaves `wpnFactor 0.46` and cuts active beams; `forcedShot` expires after 6 s with `forced_shot_expired` |
+| `tests/flagship.test.ts` | custom battle 8 `alliance_dreadnought_k` + 8 `alliance_cruiser` vs 1 `harbinger`, canon, seed 3, 40 km: Harbinger dies; exactly one `flagship_destroyed` with `tier 'harbinger'`, `killer.name` and `killer.weaponName` non-empty, `damageType` set, `finalSalvoHits ≥ 1`, `transmission ∈ TRANSMISSIONS.harbinger.destroyed`; the event follows the `ship_destroyed` of the same ship; `special.missionKill(harbinger)` emits one `flagship_mission_kill` with "This cycle is not concluded." and a later destruction still emits exactly one `flagship_destroyed`; a Reaper fleet with 2 capitals + Harbinger: on the tick after Harbinger's destruction no other Reaper's `subsystems` changed and at least one Reaper fires within 10 s; `assessReapers` headline contains `HARVEST COMMAND VESSEL DESTROYED`; Destiny Ascension destroyed → `tier 'flagship'`; a plain `reaper_capital` destroyed → no flagship event; `normandy_sr2` is `flagship` |
+| `tests/normandy.test.ts` | for every scenario × every preset with `normandy: 'yes'` (where declared): exactly one ship of class `normandy_sr2`, zero with `'no'`; `fleetStrength.alliance = 2.0` leaves it at 1; `alliance_frigate_thanix` count scales under Apex and is 0 in `alliance_fleet_engagement`; no built config has two ships named `SSV Normandy SR-2`; `isAuClass('normandy_sr2') === false`; `UNIQUE_CLASS_IDS` contains `normandy_sr2` and not `alliance_frigate_thanix` |
+| `tests/driveAttack.test.ts` | canon: `special.driveAttack` without `force` returns `'skipped'` (`driveAttacks 'off'`); Apex core: an eligible crippled Cerberus cruiser starts a run (`drive_run_started`), is a valid target during it, completion decided once at commitment from `sim.rng`; forced success → target destroyed with `cause 'drive_attack'` then runner destroyed; forced intercept → runner only; attempts capped at 3 (`rare`) / 5 (`upper`); `upper` kills destroyers within 1.5 km of the impact; AI-initiated runs happen in a 300 s Apex Sol run with probability 0.15 per decision (assert ≥ 1 run across seeds 1–6) |
+| `tests/oculus.test.ts` | every Reaper class has the 8/2/12 complement under canon and Apex; `launch_drones` burst launches `burst` craft in one tick; Battle of Earth canon seed 42: `reaper_oculus` ships exist before 30 s, outcome still `winner 'B'`; Trident median life ≥ 55 s |
+| `tests/flights.test.ts` | below 64 small craft per side every launch is a single craft; above, launches are flights of 4 (`flight.craft 4`); 4 × craft hull of damage destroys the flight with four `flight_member_lost` steps; `lossesByClass` counts craft; `fighters_launched.count` counts craft; carrier recovery returns surviving members to `hangar.remaining`; replay identical |
+| `tests/reaperAi.test.ts` | rotate protection swaps slots (no teleport: position continuity ≤ maxSpeed × dt); highest `recentDamage` enemy gets +40 % score; a capital under 50 % hull gets two destroyers with `interpose`; under canon no Reaper ever has `withdrawing`; under `reaperDoctrine 'apex'` a fleet below 30 % points withdraws to its station and returns (`withdrawing` true then false, `escaped` never); a Reaper with no target in range closes on the nearest enemy group; a Reaper fleet in range of a platform and a cruiser targets the platform first |
+| `tests/movement.test.ts` | Battle of Earth canon seed 42, 120 s: every fleet heading change rate ≤ 0.06 rad/s; mean angular rate about the anchor `(Σ (r × v)·ŷ) / (Σ |r|²) < 0.02 rad/s` over 10 s windows after first contact; no non-fighter path turns > 360° one way; fighters never complete a 360° orbit about their target |
+| `tests/withdrawal.test.ts` | reference engagement canon seed 7: after first contact ≤ 10 % of a side's live ships are stationary (speed < 5 % max) and silent for 10 s; `escaped` only on fighters; a withdrawing cruiser's barriers rise before it re-engages; `checkEscapes` no longer exists (type-level: the method is gone); the battle ends by `combat_ineffective` when a side is below 5 % points with no capital |
+| `tests/solutions.test.ts` | two dreadnoughts vs a muted stationary capital: hit rate < 25 % over the first 6 s, > 60 % over seconds 20–40; a hard manoeuvre drops `q` ≥ 0.2; `projectile_near_miss` emitted for a round passing within 1.6 radii; projectiles keep flying to 2.2 × range; replay identical |
+| `tests/formations3d.test.ts` | `layered_line`: cruisers on three distinct `y` values, frigates ahead on a dome, carriers behind and above; `swarm_descent`: destroyers 9–12 km from the core; `box`, `stacked_wedge`, `broadside_line`, `static` produce slots; no two slots within `max(lengthKm) × 1.7` for any formation with 40 mixed hulls |
+| `tests/platforms.test.ts` | a platform's position is unchanged after 600 steps; heading change per step ≤ `turnRate × dt`; `issueOrders(move-type)` returns `'rejected'` and emits `order_rejected`; `attack_target` still sets the focus; a Reaper fleet in range targets a platform before a cruiser; `sol_platform_heavy` only exists in configs built under `heavyPlatforms` |
+| `tests/distant.test.ts` | the real event log minus `distant_*` is byte-identical with the layer on and off; `BattleResult` identical; `remaining` non-increasing, never negative; no losses before `firstLossAfter` or the first real `ship_destroyed`; Apex captions end in `· AU SCENARIO VALUE`; canon configs produce no digit-bearing distant caption; two runs identical |
+| `tests/finalBattle.test.ts` | seeds 1–3, canon and `prime_apex`, `cinematic_arrival 'on'`: event order first `ship_arrival_flash` < last `fleet_arrived` < Reaper `order_issued advance` < side-A `fleet_volley_ordered` < `fleet_volley_fired` < first `ship_destroyed` of cruiser or larger, all before 70 s; `cerberus` allied → side-A Cerberus fleet by beat (Black Fleet dreadnoughts under Apex, none under `cerberus_reformed`), hostile → side-B fleet `arrivalTime 150` `priority 'capitals'`, absent → none; Oculi launched before 30 s; `resolveWorldState`: canon → `cerberus 'hostile'`, Apex → `'allied'`, `allied` under canon → `'hostile'` + note, `beat_scale` ignored when the opening is off, `distant_layer` dropped under canon, `forces 'campaign'` without a campaign → default fleets + note; `beatPreview` at `beat_scale 2` doubles times and omits `arrive_cerberus` when absent; platforms: 2 under canon, 4 under Apex (2 heavy); `tests/campaign.test.ts:265-274` (campaign-linked Final Battle) still passes |
+| `tests/custom.test.ts` | every row of `CUSTOM_BATTLE_DESIGN.md` §4.1 except the cap rows, which become: 640-hull side → `B1` warning, `ok === true`, `buildCustomBattle` builds; `scaleSideToBudget` (640 → 400: `hulls ≤ 400`, every class with `n > 0` keeps ≥ 1, unique hulls stay 1, dreadnought counts `round(n × 400/640)`, repeatable); no code path throws for 1,000 hulls per side; W6 drops a second `normandy_sr2` placed on the other side; `isAuClass('cerberus_dreadnought') === true`; canon-shaped presets contain no AU class |
+| `tests/governor.test.ts` | ladder rises one level after 1.5 s over target and never two per second; lowers after 6 s below 70 %; `budgetFromLadder` picks the largest passing row and tags `source 'measured'`; `refineBudget` lowers to 0.8 × live at level 4 and never raises; `ladderParams` monotone (every parameter non-increasing in level); `perfWarning` undefined under budget and the AP §21.2 sentence over it; a `BattleSimulation` run with the same seed is identical whatever level the caller holds (the sim has no governor input) |
+| `tests/perf.test.ts` | `SpatialGrid.querySegment` ≡ brute force for 1,000 random segments over 400 random ships; `queryRadius` ≡ brute force; custom battle 300 vs 100 (ladder composition) for 400 steps after a 200-step warm-up completes in < 4 s on CI; `sim.profile` sums match wall time within 20 % when enabled |
+| `tests/apexScale.test.ts` | rows sum to 38,420; class columns sum to the class totals; Reaper initial − Alpha − regional − elsewhere = Sol; `apexCaption` strings end in `· AU SCENARIO VALUE` |
+| `tests/lint.test.ts` | no `Math.random`, `Date.now`, `performance.now` under the sim directories; `forbiddenWording` true for the forbidden phrase and false for "penetrator with a nuclear warhead" |
+| `tests/worldState.test.ts`, `tests/campaign.test.ts` additions | `resolveWorldState` fills defaults and coerces unavailable choices with a note; `buildEngagement` with a 1,500-hull fleet compresses to `DEFAULT_PERF_BUDGET.liveHullsPerSide` and emits `config.distant.groups` with `count = 1,500 − simulated`; `alpha_losses '25'` multiplies the reinforcement pool by 0.75; an Apex snapshot without the new `special` keys loads and plays one tick; the Omega group gets Black Fleet dreadnoughts under `apex_legacy` |
+
+### 1.7 Acceptance checks (CORE is done when all hold)
+
+1. `npm run typecheck`, `npm test`, `npm run build`, `npm run test:e2e` green (the eight existing e2e specs against CORE alone).
+2. `tests/calibration.test.ts` pinned to the final numbers; `docs/apex/CALIBRATION_REPORT.md` has §1 and §2 with every table of `BALANCE_AUDIT.md` §7 re-measured.
+3. `npm run perf:sim` prints the four ladder rows plus 300 vs 100; the 300-vs-100 row reports ≥ 20 steps per 16.7 ms frame on the dev machine (record the machine string in the report; if missed, the AP §21.5 levers were applied and the result recorded).
+4. `git grep -n "Math.random" src/simulation src/data src/timelines src/scenarios src/campaign src/core` is empty; `git grep -n "SHIP_CAP\|HARD_SHIP_CAP\|ENTITY_BUDGET\|MAX_SHIPS_PER_SIDE" src` is empty.
+5. Every signature in §1.3 exists and is exported with that name (a reviewer greps each one).
+6. `npm run sim -- final_battle_of_earth prime_apex 1` prints a Reaper and an Alliance side, the distant counts with the AU suffix, and (when Harbinger dies) one flagship line; `npm run sim -- alliance_fleet_engagement canon_me3 7 fixed` prints `winner=B`.
+
+### 1.8 Verify (commands)
+
+```bash
+npm ci && npm run typecheck && npm test                      # 83 + new tests, all green
+npm run build && npm run test:e2e                            # the eight existing specs
+npm run perf:sim                                             # ladder rows (new script entry in package.json: "perf:sim": "node --import tsx/esm scripts/perf-sim.ts")
+node --import tsx/esm scripts/calibration.ts                 # the audit tables; compare with CALIBRATION_REPORT.md
+npm run sim -- final_battle_of_earth prime_apex 1 && npm run sim -- alliance_fleet_engagement canon_me3 7 fixed
+git grep -n "Math.random" src/simulation src/data src/timelines src/scenarios src/campaign src/core   # must print nothing
+```
+
+## 2. Stage A — rendering effects, models, audio, governor ladder application
+
+### 2.1 Scope and owned files
+
+Owned: `src/rendering/**` except `cameras.ts`, `shots.ts`, `director.ts`; `src/audio/**`; `src/ui/screens/settings.ts`; `tests/effectsPool.test.ts`, `tests/audio.test.ts`, `tests/lod.test.ts`. Brief items owned here: §4 (every effect look), §8.3 (hull-shaped barriers), §8.4 (sound, with B wiring the controller), §8.5 (HADES visual and sound), §8.8 (Reaper look and scale), §8.9/§8.10 (models of the new hulls), §8.2 amended (instancing, flight rendering, the visual ladder), §9.1 (the two Normandy-family hull variants), §9.2 (the wreck emphasis). Numbers: AP §11, §12, §19 rows 8.3/8.4/8.5/8.8, §21.2 ladder, §21.3 flight pattern. Looks per `CINEMATIC_DESIGN.md` §4 and §7.3–§7.5, §7.8.
+
+Rules specific to A: everything is render-only and reads simulation state and events; it never writes to the sim. Every random number comes from `new Rng('fx')`-style seeded generators created per battle (`Rng(config.seed ^ Rng.hashString('fx'))`), so Record mode is frame-reproducible; the file-level grep `Math.random` in `src/rendering`, `src/audio` must be empty at the end (the audio noise buffer uses `new Rng('noise')`). Models are original geometry; no file loads external assets. Draw-call budget: effects ≤ 72 at the Final Battle peak (AP §11.1); the HUD clock prints `drawCalls`.
+
+### 2.2 Interfaces relied on from CORE (copied; the merged code wins)
+
+```ts
+// events consumed (src/simulation/types.ts): projectile_impact, projectile_near_miss, barriers_down, weapon_fired { shots?, special?, volley? }, ship_destroyed { cause, weaponId? },
+//   ship_arrival_flash, order_issued (advance on a Reaper fleet → eyes waking), drive_run_started, drive_run_impact, hades_detonation { outage }, strike_scheduled { kind }, weapon_charging,
+//   mission_kill, flagship_destroyed, flagship_mission_kill, flight_member_lost, distant_update, fleet_volley_ordered, subsystem_disabled
+// state read: ShipState.{ flight?, flagship, arrival?, driveRun?, regenSuppressedUntil, outageUntil?, barriers, maxBarriers, role }; WeaponState.{ beamStart, beamEnd, beamHit, beamRemaining, def, heat?, charging?, specialAmmo? };
+//   Projectile.{ pos, prevPos, vel, weapon, special }; sim.distant?: DistantState; config.distant?: DistantLayerConfig; sim.flashes
+import { ladderParams, type GovernorLevel, type LadderParams } from '@/core/perfGovernor';     // A applies; B measures
+import { FLIGHT_SIZE, isFlight } from '@/simulation/flights';
+import type { CameraDriver, CameraPose, SubjectPose, SubjectRef } from '@/rendering/cameraDriver';   // CORE stub, frozen
+// ShipRole now includes 'super_dreadnought' | 'fixed_platform'; FormationType unchanged for A
+```
+
+### 2.3 `BattleView` surface A must provide (B and the scripts call it)
+
+```ts
+export class BattleView {
+  // existing: constructor(canvas, sim, settings), bind(sim), update(dt, alpha), render(), resize(), dispose(), pick(), project(), rig, settings, drawCalls, lodCounts, followId
+  renderTime: number;                                            // set once per update()
+  attachDriver(driver?: CameraDriver): void; readonly driver?: CameraDriver;   // CORE stub completed by A
+  resolveSubject(ref: SubjectRef): SubjectPose | undefined;      // every SubjectRef variant; lastEvent reads a 16-entry ring per type kept by processEvents
+  applyLadder(level: GovernorLevel): void;                       // ladderParams(level) → effects density, lod factors, glow sprites, trails, shell/spark/debris/beam caps
+  readonly ladderLevel: GovernorLevel;
+  setRecordMode(on: boolean): void;                              // seeds every fx generator from the battle seed; nothing else changes (A keeps the view deterministic regardless)
+  readonly recentEvents: Partial<Record<BattleEvent['type'], BattleEvent[]>>;   // last 16 per listed type (for lastEvent refs and D's screenshot script)
+  readonly effects: EffectsSystem; readonly distant?: DistantRenderer;
+}
+```
+
+`src/audio/battleAudio.ts` (A): `export function handleBattleAudio(e: BattleEvent, ctx: { cameraPosKm: Vec3; renderTime: number; recordMode: boolean; sim: BattleSimulation }): void` — maps events to voices with distance attenuation and the light-before-sound delay; B calls it from `BattleController.onSimEvent` (one line) and `audio.setClock(renderTime)` from the loop in Record mode. `AudioSettings` gains `seismicAu: boolean; lightBeforeSound: boolean` (defaults true/true; CORE already added them to `DEFAULT_PREFERENCES`).
+
+### 2.4 Tasks in order
+
+| # | Task | Details (AP / CINEMATIC_DESIGN refs) |
+| --- | --- | --- |
+| A1 | Pools and determinism | `billboards.ts` `BillboardPool` (two `InstancedMesh` quads, additive and alpha, 4,096 each, shader-side fade/growth/motion, API mirrors `spark(...)`); instanced debris (512); `farTracers` (Points ≤ 4,096) and `farBeams` (LineSegments); every `Math.random` in `battleView.ts`/`effects.ts` replaced by `Rng('fx')` draws; `updateDying`/`finishDeath` deterministic; `tests/effectsPool.test.ts` (ring buffer recycles oldest, no NaN). HUD draw calls fall; nothing else changes. (CD §4.0) |
+| A2 | Counts: instancer, flights, ladder | `instancer.ts` `ReducedInstancer` (LOD-`reduced` hulls as per-class `InstancedMesh` pairs with `instanceColor` damage tint); flights rendered as `FLIGHT_SIZE` instanced small craft in the finger-four offsets of AP §21.3, members removed on `flight_member_lost`; `governorApply.ts` `applyLadder(params: LadderParams)` wiring every knob of AP §21.2 (density → spawn probability multiplier; `lodFactor` → `REDUCED_FACTOR`/`POINT_FACTOR`/`FIGHTER_POINT_DISTANCE` multipliers passed to `lodLevel`; glow sprites; trails; caps); `BattleView.applyLadder`. `lod.ts`: `lodLevel(distance, lengthUnits, role, enabled, factor = 1)`; extend `tests/lod.test.ts` for `factor`. (AP §11.12, §21) |
+| A3 | Hull-shaped barrier shell | `barrierShell.ts` `BarrierShellPool`: per-class merged shell geometry cached on `BuiltShip.shell` (push 0.035 × lengthUnits along normals, scale 1.06), fresnel + 8 hit uniforms + hex ripple (`v = 1.6 × size` units/s, 1.2 s) + collapse (full flash 0.25 s, cells drop over 0.6 s); hit sources: `projectile_impact` with `barrierDamage > hullDamage`, beam ticks every 0.25 s of render time while `beamHit` and target barriers > 0, `barriers_down` → collapse, near misses at half amplitude; ≤ 16 visible (ladder may lower to 6); sphere only for fighters/Oculi; colours organic `0x6fb0ff`, geth `0x9fb8ff`, Reaper `0xff6a4a`. (AP §11.3, brief §8.3) |
+| A4 | Mass-accelerator look | tracer core `0xdff4ff` for every faction, `0xe8e0ff` for `Projectile.special` (HADES) rounds, Nova ×2.2 length ×1.6 width (`weapon.id ∈ {nova_array, nova_legacy}`); ionised trail `InstancedMesh`; muzzle flash sphere + lateral vent; hull impact white flash + 6–12 slag sparks + orange glow decal parented to the ship (≤ 8 per ship); `projectile_near_miss` barrier-edge flare; far rounds (shooter at LOD `point` or > 150 units) into `farTracers`. (AP §11.2, §11.10) |
+| A5 | Thanix | core `0xffd9a0`, sheath `0x4fa0ff`, drip billboards, tangent impact sparks, heavy Thanix radius × `sqrt(damage / 420)`. (AP §11.4) |
+| A6 | Reaper beams | core `0xff6a40`, glow `0xa00010`, lens-flare billboard at `built.muzzle`, slit decal sweep, `ship_destroyed { cause: 'reaper_beam' }` on cruiser/frigate splits the pieces along the beam plane with opposite lateral velocities and an emissive edge. (AP §11.5) |
+| A7 | Capital deaths | three stages (2.6 s capitals / 1.1 s cruisers and destroyers): internal flashes and venting, break with core flash and DOM `.white-flash` (`effects.css`; `peak = clamp(40 × size / cameraDistance, 0.25, 0.9)` for dreadnought-class and larger), expanding gas shell + smoke + instanced debris; Reaper variant (red shell, eye dies at stage 2, lights die one by one). Flagship wrecks (`flagship_destroyed`) keep a dim emissive ember for 20 s so the held shot has something to look at. (AP §11.6, §22.2) |
+| A8 | HADES | priming glow at the muzzle on `strike_scheduled { kind: 'hades' }` (1.2 s); on `hades_detonation`: hard white flash, shadow pulse (point light `400 × size` decaying 0.25 s + `scene.environmentIntensity` 0.35 → 0.08 for 0.12 s), double ring shock (annulus + blue edge, radius `0.2 → 3 × size` over 0.6 s), venting jets and emissive flicker 4–5 s, engine dim 8 s when `outage === 'engines'`; sound `hades_internal` 0.6 s after. (AP §11.7, brief §8.5) |
+| A9 | Drive attack | `drive_run_started`: engine glow ×3 shifting to `0xcfe8ff`, growing flare trail; `drive_run_impact`: one abrupt flash `3 × targetSize` 0.15 s, DOM white 0.25, 30 instanced fragments in a 20° cone along `dir`, target death with stage 1 shortened to 0.6 s; failure → runner's own death only. (AP §9, §11.8) |
+| A10 | Smaller hooks | `ship_arrival_flash` (blue-white sphere 0.6 × size 0.25 s + streak 4 × size along −heading 0.4 s, engine glow ×3 for 1 s); eyes waking on a Reaper `advance` (0.8 s ramp, 0.25 s stagger by deployment index); `mission_kill` (eye 0.15, lights flicker 6 s then 30 % dark, engine glow 0.3); `weapon_charging` bow glow for the legacy Nova. (AP §11.11) |
+| A11 | Oculus model | `ships/oculus.ts` `buildOculus()`: original 12 m sphere (0.24 units at the 2× small-craft convention) with a single red lens (`eye` material), far colour `0xff4a3a`; instanced small-craft path; 1 s beam through the beam pool at radius `0.02 × intensity`. (AP §11.9, §12 table) |
+| A12 | Reaper redesign and palette | `reaper.ts`: Sovereign-class 20.0 units overall (body 55–60 %, arms ≈ 40 %, body width ≤ 0.14 L, six arms over the lower 240°), Harbinger 22.0 (broader hood, longer splayed arms, spine ridges), destroyer 1.6 (four legs dominate, stubby spine, walking stance); `lengthUnits` computed from the template `Box3`; `materials.ts` Reaper palette of AP §12 (hull `0x0e1016` metalness 0.85 roughness 0.32, hullDark `0x07080c`, plates `0x161a22` with sheen `0x1a2230` envMapIntensity 1.6, seams `0x7fb4ff` emissive 1.2, running lights `0xd01030` emissive 2.5, aperture `0xff5a1f` with `0xffb060` iris emissive 4.5; no brown). (AP §12, §19 8.8, SCALE_REFERENCE) |
+| A13 | Alliance hulls | `alliance.ts`: `buildAllianceDreadnought(variant: 'everest' | 'kilimanjaro')` (Kilimanjaro-class 10.0 units: full-length gun housing, stepped dorsal superstructure, wedge bow, flank sponsons, blue stripes; Everest 8.88); `buildAllianceCruiser` at 7.0 (York-class slab, raised stern block, forward wedge); `buildAllianceFrigate(variant: 'line' | 'normandy' | 'pattern')` — `normandy` = the unique SR-2 (stealth hull, Thanix refit, distinct dorsal sensor spine), `pattern` = the same family with a squadron stripe and without the unique markings; `BUILDERS.normandy_sr2`, `BUILDERS.alliance_frigate_thanix`, `BUILDERS.alliance_dreadnought_k`. (AP §12, §22.1) |
+| A14 | Valkyrie | `ships/valkyrie.ts` `buildValkyrie()` 20.0 units, beam/length 0.45, height/length 0.14: Normandy lineage at capital scale (long reinforced spine, buried bridge, wide swept wings, blue drives), three Thanix housings, spinal Nova channel muzzle. (AP §8, §12) |
+| A15 | Cerberus hulls | `cerberus.ts`: re-based Black Fleet dreadnought at 10.0 units with a dorsal Thanix housing, `buildCerberusHeavyCruiser()` 6.5 units; charcoal / white / orange identification, orange never a shield colour. (AP §12, §14.2) |
+| A16 | Platforms | `ships/platforms.ts` `buildSolPlatform()` 12.0 units (station hull around two gun channels, beam/height 0.5) and `buildSolPlatformHeavy()` 14.0 (one long super-accelerator channel); `muzzle` per channel; no engine nodes. (AP §12, §19 8.10) |
+| A17 | Super-dreadnoughts | `ships/heavyDreadnoughts.ts` `buildAllianceSuperDreadnought()` 18.0 (two spinal channels, Alliance language), `buildTurianSuperDreadnought()` 19.0 (pincer bow). (AP §12, §19 8.9) |
+| A18 | Registry and role sites | `ships/index.ts` `BUILDERS` for every new id (`reaper_oculus`, `normandy_sr2`, `alliance_dreadnought_k`, `normandy_valkyrie`, `cerberus_heavy_cruiser`, `sol_defence_platform`, `sol_platform_heavy`, `alliance_super_dreadnought`, `turian_super_dreadnought`); `DETAIL_MESH_NAMES` gains `sponsons`, `stripe`, `sensor_spine`; role switches in `battleView.ts` (death duration, director jump pool, interest pool: `super_dreadnought` with dreadnoughts, `fixed_platform` as capital-sized) — `tests/salarian.test.ts` "every class has a model" must stay true for every `SHIP_CLASS_LIST` entry (`hasModel`). |
+| A19 | Distant renderer | `rendering/distant.ts` `DistantRenderer` (drive-light Points ≤ 4,096 with faction engine colours and slow drift; tracer-spark Points ≤ 8,192 shader-advanced; loss flashes), fed from `sim.distant` and `distant_update`, 600–1,600 units beyond the fleets, 2 draw calls; seeded `Rng(config.seed ^ hash('distant-render'))`. (AP §13.3) |
+| A20 | Audio | `voices.ts` recipes `ma_fire` (replaces `ma_large`), `ma_travel`, reworked `impact_hull`, `impact_barrier`, `reaper_beam`, `thanix`, `seismic_au` (crack → 0.35 s duck −18 dB → 35/70 Hz "bwaaam" with a 4 s tail; counts triple in the voice budget), `hades_internal`, `drive_flare`, `drive_impact`, `arrival_flash`, `priority_comms`; `engine.ts`: `SoundId` additions, `scheduleDelay(d) = clamp(d / 3, 0, 1.2)` applied through `AudioContext` scheduling when `lightBeforeSound`, `setClock(renderTime)` for Record mode, noise buffer from `Rng('noise')`; `battleAudio.ts` (§2.3) maps `weapon_fired` of `apex_hyper_ma`/`nova_array`/`nova_legacy`/`platform_gun_heavy` to `seismic_au` when `seismicAu`, else `ma_fire`; `settings.ts` rows "Seismic AU rounds", "Light-before-sound delay", "Performance governor" (toggle `prefs.perf.governor`) and the button "Re-measure performance budget" (`app.measurePerfBudget()`); `tests/audio.test.ts` (pure timelines: `scheduleDelay`, `voiceTimeline('seismic_au')` crack/gap/boom times). (AP §19 8.4) |
+| A21 | Environment | `environment.ts`: `relay` and `citadel` already exist — add the `planetLimb` helper (`planetLimbPoint(centre)`) for B's subject refs; nothing else. |
+| A22 | Close | silhouettes: every redesigned/new template within the AP §12 targets (A measures with `Box3` before handing over; D's `tests/silhouette.test.ts` will pin them); draw-call check: `npm run perf` (old script still works) shows the effects budget; `git grep Math.random src/rendering src/audio` empty. |
+
+### 2.5 Tests to add
+
+`tests/effectsPool.test.ts` (ring buffer, ladder params applied as a pure table: `applyLadder` is split so `ladderToSettings(params): EffectsSettings` is pure and asserted monotone), `tests/audio.test.ts` (pure timelines), `tests/lod.test.ts` extension (`factor`), plus a Node-safe `tests/models.test.ts` (A owns the file): every `SHIP_CLASS_LIST` id has a builder; `getShipTemplate(id).lengthUnits` is within 3 % of `lengthM / 100` for every non-fighter class (`reaper_capital` 20.0, `harbinger` 22.0, `reaper_destroyer` 1.6, `alliance_dreadnought_k` 10.0, `alliance_cruiser` 7.0, `normandy_valkyrie` 20.0, `sol_defence_platform` 12.0, …); `buildValkyrie().group` has ≥ 3 meshes named `thanix_housing`; `buildReaperCapital()` body width ≤ 0.14 × length (Box3 of the `hull` mesh); every Reaper material colour has blue ≥ red (no brown).
+
+### 2.6 Acceptance checks
+
+1. Screenshots 01–05, 07–18 of AP/CD §6.3 are producible (D's script frames them; A verifies by hand with `scripts/showcase.mjs`-style follow shots): barrier under fire shows a hull-shaped shimmer with a ripple (brief §8.3); Sovereign next to a Kilimanjaro-class reads 2 : 1 and far bulkier, near-black with pale-blue seams and crimson lights (brief §8.8); HADES close-up shows flash, ring and venting (brief §8.5).
+2. Effects draw calls ≤ 72 at the Final Battle peak; total draw calls at 300 vs 100 under `ReducedInstancer` ≤ 2 × (classes present) + effects + environment.
+3. A Record-mode capture (B's toggle; until B merges, `setRecordMode(true)` + a fixed `1/60` loop in the console) of a Titan-gun volley carries the crack–gap–boom signature (brief §8.4).
+4. `npm run typecheck && npm test && npm run build` green; `git grep -n "Math.random" src/rendering src/audio` empty.
+
+### 2.7 Verify
+
+```bash
+npm run typecheck && npm test && npm run build
+npm run preview & npx playwright test e2e/game.spec.ts         # existing specs still pass with the new renderer
+node scripts/perf.mjs                                          # draw calls at the Final Battle (ladder script comes with INTEGRATION)
+node scripts/showcase.mjs e2e-screenshots                      # follow shots of each new hull; inspect
+git grep -n "Math.random" src/rendering src/audio               # must print nothing
+```
+
+## 3. Stage B — camera vocabulary, cinematic director, Showcase mode, HUD and controller
+
+### 3.1 Scope and owned files
+
+Owned: `src/rendering/cameras.ts`, `src/rendering/shots.ts`, `src/rendering/director.ts`; `src/showcase/**`; `src/ui/app.ts`, `src/ui/screens/menu.ts`, `src/ui/screens/hud.ts`, `src/ui/screens/showcase.ts`, `src/ui/overlay.ts`, `src/main.ts`, `index.html`; `tests/shots.test.ts`, `tests/showcase.test.ts`, `tests/director.test.ts`. Brief items owned here: §3 (Showcase mode, shot vocabulary, pacing, Record toggle), §2's camera column (the director's cues), §8.2 amended (governor measurement loop and HUD budget line), §8.4 (controller wiring of A's audio and the render-time clock), §8.6 (HUD relabel `Disengage`), §8.7 (`Solution 62 %` line), §9.2 (HUD banner, priority comms, director cue, showcase caption and summary). Numbers: AP §5, §19, §21.2, §22.2; `CINEMATIC_DESIGN.md` §2–§3.
+
+### 3.2 Interfaces relied on (copied)
+
+```ts
+// CORE: BattleSimulation.{ orderVolley, resolveShipRef, playerLocked, playerLockUntil, skipTo, beatQueue, simulatedHullCount, special, distant }; events of §1.3.4; FleetState.volley; solutionFor(ship, targetId);
+//   FINAL_BATTLE_BEATS, finalBattleScript, beatPreview; fleet/reaperFleet/base/NAMES exports; ShowcaseScene config factories use buildCustomBattle? no — they use fleet()/reaperFleet()/base() + beats;
+//   PerfBudget, GovernorState, GovernorSample, governorStep, initialGovernor, refineBudget, GOVERNOR_TARGET, perfWarning; prefs.showcase, prefs.perf (storage.ts)
+// A: BattleView.{ attachDriver, resolveSubject, applyLadder, setRecordMode, renderTime, recentEvents, drawCalls }; handleBattleAudio(e, ctx); audio.setClock(renderTime)
+// CORE stub (frozen): src/rendering/cameraDriver.ts { CameraPose, SubjectPose, SubjectRef, CameraDriver }
+```
+
+Showcase scene factories build their `BattleConfig` with the exported scenario helpers and attach `beats` (`scripted: true`), `distant` (Apex captions) and `maxDuration`; they never import UI or rendering.
+
+### 3.3 Tasks in order
+
+| # | Task | Details |
+| --- | --- | --- |
+| B1 | Rig | `cameras.ts`: complete the CORE stub — `'shot'` mode (no HUD button unless `ctrl.hasShotList`), `setPose(pose, instant)` with fov and roll lerp (`k = 1 − exp(−dt × (transition ? 4 : 9))`), seeded shake (`Rng('cam')`, no `Math.random`), near plane unchanged. (AP §5.2, CD §2.1) |
+| B2 | Shots as data | `shots.ts`: `Easing`, `EASE`, `Framing`, `Drift`, `Shot` union (`cut`, `hold`, `dolly`, `orbit`, `crane`, `rack`, `longLens`, `follow`, `pov`), `BRIEF_SHOT_TYPES`, `framingPose`, `shotPose`, `validateShots`, `ShotListPlayer` (anchors resolved from `beat_fired`, `fleet_volley_ordered.at`, `strike_scheduled.at`, `drive_run_started.endsAt`, `flagship_destroyed`; pacing rules; `usedTypes`; `exhausted`; `frameIndex`). Pure module, Node-safe. (CD §2.2–§2.4) |
+| B3 | Director | `director.ts` `CinematicDirector implements CameraDriver` with the cue table W1–W4, C1–C2, D1–D2, R1, P1–P2, F1, K, H, V plus **FD** (flagship destroyed: 6 s / 4 s `hold` on `{ lastEvent: 'flagship_destroyed' }`, top priority, preempts anything), cadence (wide 20 s, close-up 30 s, distance 45 s), priority order FD > R1 > H > V > P2 > K > W4 > D1 > F1 > P1 > W3 > W2 > W1 > C2 > C1 > D2, `Rng(config.seed ^ hash('director'))`; `BattleController` attaches it in `cinematic` mode (the old `pickCinematicShot` stays as A's fallback when no driver is attached). (AP §5.2, §22.2) |
+| B4 | Controller | `app.ts`: `BattleController.volley()` → `sim.orderVolley(playerFleetIds, { lead: 2, mounts: 'spinal' })`; player lock (orders and `attackWithSelection` toast `CINEMATIC OPENING — ORDERS UNLOCK AT 01:20 · K TO SKIP`; `K` and pause-menu `Skip opening` `data-action="skip-opening"` → `sim.skipTo(sim.playerLockUntil)`); audio wiring (`handleBattleAudio`, `audio.setClock` in Record mode); **governor measurement**: 1 s rolling `GovernorSample` from `sim.step()` wall time and `view.update + render`, `governorStep` once per second when `prefs.perf.governor`, `view.applyLadder(level)` on change, `refineBudget` persisted to `prefs.perf.budget` when level 4 is reached; Record mode (`recordMode` flag: `accumulator += 1/60; while (accumulator ≥ SIM_DT) sim.step()`, `alpha = accumulator / SIM_DT`, no `performance.now()` reads, cursor hidden, `.rec-counter`); `App.measurePerfBudget()` runs an in-browser ladder (100/300/600/1,000 for 240 frames each on a hidden `deep_space` custom battle built with `buildCustomBattle`, deterministic seed 11) and stores `budgetFromLadder(rows)`; `App.show('showcase')`; `App.startShowcase(scene, opts)`; prefs merge for `showcase` and `perf`. (AP §4.3, §5.1, §21.2) |
+| B5 | HUD | `hud.ts`: `Volley` button `data-order="volley"` after `Retreat`; `Retreat` relabelled **Disengage** (same `data-order="retreat"`); `HOLDING FIRE · VOLLEY IN 1.8` line while `fleet.volley`; target panel `Solution 62 %` (`solutionFor`), `HADES 12` per Titan mount, per-channel heat bars for `perMountHeat` mounts; top bar `ALTERNATE UNIVERSE CONTENT` when `config.auContent`, `HIGH POWER — EASIER BY DESIGN` when `special.legacyNova`, hostile Cerberus fleets labelled `CERBERUS (HOSTILE)`; clock line appends `· LIVE HULLS 640 · BUDGET 420 · GOVERNOR 2` (budget from prefs; governor level from the controller) and `· DISTANT: A 94 % · B 97 %` when the layer is on; battle log full-width banner `.log-flagship` for `flagship_destroyed`/`flagship_mission_kill` (AP §15 wording) and the comms channel plays the transmission as a priority transmission (bypasses the comms cooldown, red speaker tag, 6 s, `priority_comms` voice); intel panel re-reads `assessReapers` (headline changes by itself); the `shot` camera button is hidden unless `ctrl.hasShotList`; the formation `<select>` stays the first `<select>` in the HUD (e2e). `overlay.ts`: marker sizes for `super_dreadnought` (9) and `fixed_platform` (`⌂` glyph, 9). (AP §15, §19 8.6–8.7, §22.2) |
+| B6 | Showcase | `showcase/types.ts` (`ShowcaseScene`, `ShowcaseOptions`, `ShowcaseSummary`), `player.ts` (`ShowcaseSession` on the controller: HUD hidden, overlay off, orders disabled, rig `'shot'`, `ShotListPlayer` attached through `view.attachDriver`, keys Space/R/F/C/L/Esc, letterbox bars `.letterbox.top/.bottom` in `#ui` sized `max(0, (H − W / 2.39) / 2)`, fade to black, summary), `captions.ts` (styles `tag`, `title`, `tactical`, `quote`, `insert`; flagship events rendered as `quote` with the speaker tag suffixed `· AU` under AU presets), `showcase.css`, `scenes/index.ts` (`SCENES`, `assertShowcasePreset` throws for `category 'canon'`), `ui/screens/showcase.ts` (chooser: `[data-scene="<id>"]` cards with `ALTERNATE UNIVERSE`, pace select 0.75/1/1.25/1.5, `[data-action="record"]`, letterbox, captions, seed fixed/shuffle, `[data-action="play-scene"]`, footer sentence of AP §5.1, summary panel with `FORCED EVENTS`, `FLAGSHIP EVENTS`, `SHOT TYPES 7 / 7`, `[data-action="back-to-scenes"]`), `menu.ts` item `Showcase` with tag `AU SCENES` directly after Quick Battle (`data-menu="showcase"`). (AP §5.1) |
+| B7 | Scene 1 | `scenes/apexRefuseAtSol.ts` exactly AP §5.3 as amended (`normandy_sr2` ×1 + `alliance_frigate_thanix` ×3 in `sword-alliance`; the `cycle` caption beat removed; `mission_kill` emits the transmission), 28 shots, `duration 132`, `notes` listing the 15 forced beats. The scene's forced beats go through `sim.special.*` with `beatId`. (AP §5.3) |
+| B8 | Debug surface | `window.reaperwar` keeps `battle`, `show`, adds `constants` (read-only: `SIM_DT`, `DEFAULT_PERF_BUDGET`), `battle.showcase.advance(seconds)` (Record-mode step loop without `requestAnimationFrame`, for e2e), `battle.view.director.force(cueId)` (for D's screenshot script). |
+| B9 | Close | `tests/shots.test.ts`, `tests/director.test.ts`, `tests/showcase.test.ts` (§3.4); existing e2e green; a manual run of scene 1 end to end with zero console errors and `SHOT TYPES 7 / 7`. |
+
+### 3.4 Tests to add
+
+| file | assertions |
+| --- | --- |
+| `tests/shots.test.ts` | framing (`az 0` behind, `az 180` ahead, `el > 0` above, distance `dist × size` with the floor); interpolation (dolly ends equal `framingPose(from/to)`, orbit azimuth difference = `sweep`, rack look midpoint at `u 0.5`, longLens enforces `dist ≥ 40` and fov 8–18); drift periodic in `renderTime` and seed-dependent; player (anchored shot starts at `t(beat_fired) + offset`, `beat_skipped` drops it, `exhausted` after the last shot, identical poses for identical event streams); validator (rejects a 1.0 s non-reaction shot, accepts 0.5 s `reaction`, rejects duplicate ids; scene 1's list passes and covers `BRIEF_SHOT_TYPES`) |
+| `tests/director.test.ts` | fed a scripted event stream (no renderer): `fleet_volley_ordered` schedules D1 at `at − 1`, R1 at `at`, W4 at `at + flight − 0.3`; `flagship_destroyed` preempts the current shot within one update and holds 6 s for `tier 'harbinger'`; cadence rules (wide ≤ 20 s apart over a 120 s quiet stream); deterministic for a seed |
+| `tests/showcase.test.ts` | scene builds under `prime_apex`, `assertShowcasePreset` throws for `canon_me3`; seed 2186 × 2,640 steps: `beat_fired` ids appear in table order for the required subset (`arrive_*`, `black_volley`, `reaper_answer`, `interpose`, `nova`, `r3_fails`, `hades`, `drive`, `harb_kills`, `mission_kill`); `scripted_event` entries match the ledger; `R2` destroyed with `cause 'drive_attack'`; `R3` destroyed with killer Valkyrie; `hades_detonation` on `R1`; exactly one `flagship_mission_kill` for Harbinger with "This cycle is not concluded."; the tick after `mission_kill` every other alive Reaper has unchanged `subsystems`, and at least one Reaper fires after 112 s; every caption containing a number of three or more digits contains `AU SCENARIO VALUE` or `· AU`; the first caption is the `tag`; the sword-alliance fleet has exactly one `normandy_sr2`; two sims of the scene give identical events (determinism) |
+
+### 3.5 Acceptance checks
+
+1. Scene 1 runs to its end with zero console errors and the summary says `SHOT TYPES 7 / 7`, `FORCED EVENTS 15`, `FLAGSHIP EVENTS 1` (brief §3, §6).
+2. Record mode: frames advance exactly 1/60 s of render time, `.rec-counter` visible, cursor hidden, the audio schedule follows render time; two recordings of the same seed are frame-identical (compare 3 screenshot frames by hash).
+3. Final Battle with the opening on: orders are refused with the toast until 01:20; `K` skips; the director shows D1 → R1 → W4 on the volley; after Harbinger dies the camera holds on the wreck for 6 s and the HUD shows the banner and the priority transmission (brief §9.2).
+4. HUD: `Disengage` label, `Volley` button, `Solution %`, `HADES 12`, budget/governor line, `ALTERNATE UNIVERSE CONTENT` under Apex; the e2e `game.spec.ts` still passes (seven `data-camera` buttons present, formation select first).
+5. `npm run typecheck && npm test && npm run build` green; `git grep -n "Math.random" src/rendering/cameras.ts src/rendering/shots.ts src/rendering/director.ts src/showcase` empty.
+
+### 3.6 `data-*` hooks B must provide (D's e2e depends on them)
+
+`[data-menu="showcase"]`, `[data-scene="apex_refuse_at_sol"]`, `[data-action="play-scene"]`, `[data-action="record"]`, `[data-action="back-to-scenes"]`, `.letterbox.top`, `.letterbox.bottom`, `.showcase-captions`, `.showcase-summary`, `.rec-counter`, `[data-order="volley"]`, `[data-action="skip-opening"]`, `.log-flagship`, `.toast` text `CINEMATIC OPENING`; `window.reaperwar.battle.showcase.advance(seconds)`; `window.reaperwar.constants`.
+
+### 3.7 Verify
+
+```bash
+npm run typecheck && npm test && npm run build
+npx playwright test e2e/game.spec.ts e2e/campaign.spec.ts    # existing specs
+npm run preview &  # then in a browser: Showcase → Apex: The Refuse at Sol → play; expect SHOT TYPES 7 / 7 and no console errors
+```
+
+## 4. Stage C — custom battle UI v2, briefing, results, setup rows, shared order of battle
+
+### 4.1 Scope and owned files
+
+Owned: `src/ui/screens/custom.ts` (rewrite), `src/ui/screens/briefing.ts`, `src/ui/screens/results.ts`, `src/ui/screens/campaign.ts` (setup rows only: the `alpha_losses` select under Apex and the existing "No Crucible in this timeline" text), `src/ui/screens/timelines.ts` (special-flag rows for the seven new `SpecialTechnology` keys), `src/ui/components/orderOfBattle.ts`, `src/ui/components/perfWarning.ts`, `src/style.css`; `tests/orderOfBattle.test.ts` (pure helpers only). Brief items owned here: D6 custom battle (§6 of the plan), D4 setup (world state, beat preview), §8.2 amended (budget warnings and override in the editor and briefing), §8.9/§8.10 rows in the editor, §9.1 (editor clamps the Normandy to one per battle; order of battle never shows two Normandys), §9.2 (results banner and export). Design: `CUSTOM_BATTLE_DESIGN.md` §2–§3 with the cap UX replaced by the budget UX (AP §0.3 #19, §6, §21.2).
+
+### 4.2 Interfaces relied on (copied)
+
+```ts
+// CORE scenarios/custom.ts: CustomBattleInput, CustomFleetInput, CustomSideInput, Readiness, migrateCustomBattle(raw) → { input, notes }, DEFAULT_CUSTOM_INPUT, validateCustomBattle(input, rules, budget) → ValidationReport { ok, errors[E1|E3|E4], warnings[B1|B2|W2..W8|W10], totals, budget },
+//   scaleSideToBudget(side, budget), buildCustomBattle(input, rules, budget), CustomBattleError, FLEET_PRESETS, BATTLE_BUNDLES, FACTION_DEFAULTS, isAuClass, UNIQUE_CLASS_IDS
+// CORE scenarios: SCENARIOS, getScenario, resolveWorldState(s, rules, ws) → { ws, notes }, WorldStateOption { defaultFor?, showWhen?, disabledWhen?, choices[].availableWhen?, au? }, FINAL_BATTLE_BEATS, beatPreview(beats, ws), FLEET_SCALING_KEY
+// CORE data: SHIP_CLASS_LIST, getShipClass, FORMATION_LABELS; isApexRules; perfWarning(hulls, budget, side); prefs.perf.budget (PerfBudget)
+// CORE sim: BattleConfig.{ auContent, sideLabels, notes, distant, beats }; events flagship_destroyed / flagship_mission_kill; distantSummary(sim)
+// B (optional at runtime): app.measurePerfBudget() — call through `app.measurePerfBudget?.()`; the stub exists from CORE
+```
+
+### 4.3 Tasks in order
+
+| # | Task | Details |
+| --- | --- | --- |
+| C1 | Shared order of battle | `components/orderOfBattle.ts` `renderOrderOfBattle(config: BattleConfig, side: Side, opts?: { compact?: boolean }): HTMLElement[]` per `CUSTOM_BATTLE_DESIGN.md` §3.1: faction chip, formation label, `PLAYER`/`AI`, `AU` badge, arrival, points, `CERBERUS (HOSTILE)`, unique hulls listed once, `Simulated hulls: N (compressed stand-in …)`, Apex distant line; pure helpers (`fleetSummaryLine`, `sideLabel`) in the same file for the unit test. |
+| C2 | Budget warning component | `components/perfWarning.ts` `renderPerfWarning(hulls: Record<Side, number>, budget: PerfBudget, opts: { onScale?: (side: Side) => void; compact?: boolean }): HTMLElement | null` — the AP §21.2 sentence from `perfWarning`, `[data-action="scale-to-budget"][data-side]`, `[data-action="remeasure-budget"]` (calls `app.measurePerfBudget?.()`), never the words "cap" or "limit"; returns `null` under budget. |
+| C3 | Custom screen rewrite | `custom.ts` on the v2 model exactly `CUSTOM_BATTLE_DESIGN.md` §2 with these changes: side totals show `57 live hulls · budget 420` (bar blue under budget, orange over; no red state), `Scale to budget` instead of *Scale to cap*, no hard-limit error, count inputs `0..2000` (unique hulls a 0/1 checkbox-styled input; `normandy_sr2` disabled on a side when the other side already has it, title "Only one Normandy can exist"), role groups `super_dreadnought → reaper_capital → dreadnought → carrier → cruiser → reaper_destroyer → frigate → fixed_platform`, `FACTION_DEFAULTS` imported from CORE, composition menu from `FLEET_PRESETS` (optgroups `CANON-SHAPED` / `ALTERNATE UNIVERSE`, unavailable AU presets disabled with the `requires` reason), Presets panel from `BATTLE_BUNDLES`, order-of-battle preview (C1), checks list (`[data-validation-code]`), `await loadCustomBattle()` before rendering the body, environments `citadel` and `relay`, distance slider 30–240 km, `inputmode="numeric"`, legacy hooks `data-count="sideA|sideB:<classId>"` and `data-faction="sideA|sideB"` on card 0 of each side, uniform hooks per §4.6, launch builds through `buildCustomBattle(input, rules, prefs.perf.budget)` and names the config `Custom (AU): …` when `auContent`. |
+| C4 | Briefing | `briefing.ts`: scenario buttons gain `data-scenario`; two right-column panels (TIMELINE & WORLD STATE; CINEMATIC OPENING); world-state controls `select[data-world="<id>"]` from the extended `WorldStateOption` (AU choices ` (AU)`, unavailable disabled with the reason, resolved `auto` shown as `Resolves to: …`, `showWhen`/`disabledWhen` honoured), notes from `resolveWorldState` as orange `[data-world-note]` lines, beat preview `[data-beat-preview]` from `beatPreview(FINAL_BATTLE_BEATS, ws)` with pace applied, orders of battle through C1, `Simulated hulls: N` line, the budget warning (C2) above the launch button when `simulated hulls per side > budget`, `HIGH POWER — EASIER BY DESIGN` under `legacyNova`, the existing AU warning lines kept; the seed stays the **first** `input[type="number"]` on the page; launch passes the resolved world state. |
+| C5 | Results | `results.ts`: flagship banner `.log-flagship` at the top of the destruction log (AP §15 three-line wording with `KILLED BY <ship> — <weapon>`, the hit count, the quoted transmission, the footer `FINAL TRANSMISSION · ORIGINAL TEXT (SIM)` or `· AU`, and the reaction line; lighter form for `flagship_mission_kill`); `sideLabels` headings when present; `ALTERNATE UNIVERSE CONTENT` subtitle when `config.auContent`; under Apex the footnote `Story targets (15–35 % coalition losses, orbital control in 1–3 days) are AU narrative targets, not simulated outputs.`; `DISTANT ENGAGEMENT (STATISTICAL)` line from `distantSummary`; the beats that ran (`beat_fired` ids) in a collapsible list; the event export already includes the new events (no change). |
+| C6 | Setup rows | `campaign.ts` setup: render `CAMPAIGN_WORLD_STATE_AU` (`alpha_losses`) with the AU badge when `isApexRules`; keep "No Crucible in this timeline"; `timelines.ts` `specialPanel`: rows for `valkyrieAvailable`, `legacyNova`, `driveAttacks`, `heavyPlatforms`, `superDreadnoughts`, `reaperDoctrine`, `readinessScale` (labels: "Normandy Valkyrie available (AU)", "Legacy near-c Nova (AU, high power)", "Black Fleet drive attacks (AU)", "Sol heavy platforms (AU)", "Apex heavy dreadnoughts (AU)", "Reaper doctrine", "Readiness scale"). |
+| C7 | Styles | `style.css` rules of `CUSTOM_BATTLE_DESIGN.md` §2.9 (`.custom-layout`, `.fleet-card`, `.side-totals`, phone breakpoints, coarse-pointer inputs), `.log-flagship` banner (full width, 2 px orange rule, 18 px name line, mono footer), `.budget-warning`, `.oob-entry`, `.world-note`. No letterbox/caption rules (B's file), no `.white-flash` (A's file). |
+| C8 | Close | `tests/orderOfBattle.test.ts`; existing e2e `game.spec.ts` custom test still passes (`data-count="sideB:reaper_capital"` ← 0, `…destroyer` ← 2, launch); phone-width check by hand (390 px: no horizontal scroll, conditions first). |
+
+### 4.4 Tests to add
+
+`tests/orderOfBattle.test.ts` (pure helpers only, Node): `fleetSummaryLine` prints `1× Normandy SR-2 (command vessel)` once for a fleet with `normandy_sr2 1`, prints `(AU)` for `isAuClass` ids, prints `CERBERUS (HOSTILE)` for a side-B Cerberus fleet, prints `arrives T+45s`; `sideLabel` falls back to the first two fleet names + ` +N more`.
+
+### 4.5 Acceptance checks
+
+1. Custom battle: add a fleet, pick `hierarchy_battle_group`, set arrival 30 → totals 80; apply `final_battle_sword` (125 hulls) → no error, no cap bar; set a side to 640 hulls via the default budget 400 → `B1` warning with *Scale to budget* and launch still enabled; launch → battle runs, name begins `Custom (AU):` when an AU hull is fielded; `normandy_sr2` cannot be placed on both sides (brief §9.1).
+2. Briefing: Final Battle shows `cerberus` with `allied` disabled under canon, `cinematic_arrival` on, `beat_scale` disabled when the opening is off, the beat preview, `CERBERUS (HOSTILE)` in the hostile order of battle, the budget warning only when over budget; the seed is the first number input (e2e replay test).
+3. Results: after a battle in which Harbinger died the banner shows `HARBINGER DESTROYED`, `KILLED BY`, the transmission and the footer (brief §9.2); the Apex footnote and the distant line appear under Apex only.
+4. `npm run typecheck && npm test && npm run build` green; `npx playwright test e2e/game.spec.ts` green.
+
+### 4.6 `data-*` hooks C must provide (D's e2e depends on them)
+
+Legacy (kept): `[data-action="launch-custom"]`, `[data-count="sideA|sideB:<classId>"]` and `[data-faction="sideA|sideB"]` on card 0 of each side, `[data-action="launch"]`, seed = first `input[type="number"]`. New: `[data-side="A|B"]`, `[data-fleet-card="A:0"]`, `[data-count-fleet="A:0:<classId>"]`, `[data-faction-fleet]`, `[data-preset="A:1"]`, `[data-fleet-name]`, `[data-formation]`, `[data-arrival="A:1"]`, `[data-player]`, `[data-readiness]`, `[data-offset="A:0:x|y|z"]`, `[data-action="add-fleet"][data-side]`, `[data-action="remove-fleet"]`, `[data-action="duplicate-fleet"]`, `[data-action="move-up|move-down|toggle-fleet"]`, `[data-total="A"]`, `[data-points="A"]`, `[data-budget="A"]`, `[data-budget-warning="A"]`, `[data-action="scale-to-budget"][data-side]`, `[data-action="remeasure-budget"]`, `[data-field="timeline|environment|distance|seed|max-duration"]`, `[data-action="randomise-seed"]`, `[data-bundle="<id>"]`, `[data-action="toggle-oob"]`, `[data-oob="A:0"]`, `[data-validation]`, `[data-validation-code="B1"]`, `[data-action="save-custom"]`, `[data-action="reset-custom"]`; briefing `[data-scenario="<id>"]`, `[data-world="<id>"]`, `[data-world-note]`, `[data-beat-preview]`; results `.log-flagship`, `.result-banner`, `[data-action="replay"]`, `[data-action="return-campaign"]`.
+
+### 4.7 Verify
+
+```bash
+npm run typecheck && npm test && npm run build
+npx playwright test e2e/game.spec.ts                           # the custom and replay tests exercise the rewritten screens
+npm run preview &   # open /, Custom Battle: exercise §4.5 (1); Quick Battle → Final Battle of Earth: §4.5 (2); narrow the window to 390 px: no horizontal scroll
+```
+
+## 5. Stage D — codex, database, docs, design sheets, e2e
+
+### 5.1 Scope and owned files
+
+Owned: `src/codex/entries.ts`, `src/ui/screens/codex.ts`, `src/ui/screens/database.ts`; `docs/design/**`; `README.md`, `CHANGELOG.md`, `AU_RULES.md`, `LORE_REFERENCE.md`, `KNOWN_ISSUES.md`, `ROADMAP.md`, `ARCHITECTURE.md`; `docs/apex/CONTINUITY_CHECKLIST.md`; `e2e/showcase.spec.ts`, `e2e/custom.spec.ts`, `e2e/finalBattle.spec.ts`; `tests/silhouette.test.ts`, `tests/codex.test.ts`, `tests/wording.test.ts`; `scripts/cinematic-shots.mjs`, `scripts/measure-silhouettes.ts`, `scripts/screenshots.mjs`, `scripts/showcase.mjs`. Brief items owned here: §5 design lock-down (D12), §6 screenshots, §8.5 wording lint, §8.8 palette and ratios recorded in the sheets, §8.9/§8.10 codex and database wording, §9.1 codex entries and docs, §9.2 e2e banner assertion and the "original text" note, every "all AU content keeps its labels" check (`tests/codex.test.ts`). Text sources: AP §15 (exact wording), AP §14 (provenance), AP §17 (limitations), AP §18 (deferred), `PACK_ADOPTION.md` §3d (codex entry list), `CALIBRATION_REPORT.md` (final numbers, from CORE).
+
+D writes against the hook tables of §3.6 and §4.6 and the CORE interfaces; its e2e specs are expected to fail in D's own worktree until INTEGRATION merges A–C — D verifies them by cherry-picking nothing and instead running them at INTEGRATION (§6.3). Everything else D does is verifiable alone.
+
+### 5.2 Interfaces relied on (copied)
+
+```ts
+// CORE: CODEX consumers unchanged (CodexEntry { id, category, title, canon[], estimate?, au?: Record<rulesId, string[]>, auDynamic?(rules) }); PRESETS ids 'prime_apex', 'apex_legacy'; isApexRules; SHIP_CLASS_LIST, WEAPONS (new ids), applyRulesToShip/Weapon (EffectiveWeapon.hadesRound, specialAmmo, substitutedFrom);
+//   forbiddenWording(text) from src/core/lint.ts; UNIQUE_CLASS_IDS; APEX_SCALE; TRANSMISSIONS; getShipTemplate(id).group (A's models; Node-safe) for tests/silhouette.test.ts
+// B/C hooks: §3.6, §4.6; window.reaperwar.battle.showcase.advance(seconds); window.reaperwar.battle.view.director.force(cueId); window.reaperwar.battle.view.recentEvents; sim.special.destroy(shipId, { killerId, cause })
+```
+
+### 5.3 Tasks in order
+
+| # | Task | Details |
+| --- | --- | --- |
+| D1 | Wording and codex lints | `tests/wording.test.ts`: walks `src/`, `docs/design/`, `docs/apex/ADOPTION_PLAN.md`, `docs/apex/WORK_BREAKDOWN.md`, `README.md`, `AU_RULES.md`, `LORE_REFERENCE.md`, `KNOWN_ISSUES.md`, `CHANGELOG.md` with `forbiddenWording`; `tests/codex.test.ts`: every `au.prime_apex` paragraph starts with `ALTERNATE UNIVERSE (Apex): `, every `au.apex_legacy` with `ALTERNATE UNIVERSE (Apex legacy, high power): `, no `canon` paragraph mentions Titan, HADES, Valkyrie, Black Fleet dreadnought, drive attack, heavy platform, super-dreadnought, Olympus, Praetor or any `APEX_SCALE` number; AU-only entries have the exact "does not exist in the Mass Effect trilogy" sentence; the helper `apexAu(core, legacy?)` (D adds it to `entries.ts`) returns both keys. |
+| D2 | Codex entries | `entries.ts` per `PACK_ADOPTION.md` §3d as amended by AP §15 and §22: updated `alliance`, `reapers` (Oculus canon line; recovery-under-fire estimate; D10 AU lines), `cerberus`, the five Council/geth/quarian entries, `ship_dreadnought` (2 s cadence used), `ship_reaper_capital` (hull 12,000 / armour 320 / barriers 7,000 recovering 1,000/s under fire; 206 kt-equivalent burst), `ship_reaper_destroyer` (1,000 / 700 / 120 / 25 wording from AP §3.2), `ship_normandy` → the unique command vessel + new `ship_sr2_pattern` (SR-2-pattern Thanix frigate: estimate under canon, `auDynamic` Apex line), new `ship_valkyrie`, `ship_black_fleet`, `ship_oculus`, `ship_platform` (standard: "as modelled; the 612-platform Sol network is an AU caption value"; heavy variant AU), `ship_super_dreadnought` (Olympus/Praetor AU; Ascension's role note), `hades` retitled "Project Titan and HADES penetrators (AU)", new `nova`, `thanix` (heavy Thanix AU mount; cadence verify-note), new `javelin`, `kinetic_barriers`, new `apex_continuity`, `apex_sol_order_of_battle` ("the simulation fields compressed stand-ins; the live count is whatever the machine's budget allows"), `apex_drive_attack`, `doctrine_reaper`, `crucible`, `sim_model` (recovery, forcing, firing solutions, flights, governor), new `apex_simulation_limits`, new `flagship_transmissions` (Simulation: "final transmissions are original text written for this simulation, never game dialogue"). Every AU paragraph carries the prefix; every Apex figure ends in `· AU SCENARIO VALUE`. |
+| D3 | Database screen | `database.ts`: AU hulls carry "(AU)" and the `AU` design badge (data-driven from `designProvenance`); armament rows show `specialAmmo` ("12 HADES penetrators, then slugs"), `hadesRound` ("warhead 2,260 inside the hull after penetration"), `perMountHeat`, `chargeTime`, `salvo`, `degradedTargetBonus`; new stat rows `heatCapacity`, `barrierRegenUnderFire`, `barrierLoadThreshold`; `flagship` and `unique` chips; the role label strings for `super_dreadnought` ("Super-dreadnought") and `fixed_platform` ("Fixed platform"). `codex.ts`: unchanged apart from the category list if `entries.ts` adds one. |
+| D4 | Design lock-down | `docs/design/README.md` (process: TARGET → LOCKED, what builders may change, the screenshot set, "owner screenshots are study material and are never committed"); one sheet `docs/design/<classId>.md` for every class in AP §12's table plus the existing hulls in the priority order (three-view description, proportion table, signature features, colours and light placement with hex values, "must read as" checklist, frozen screenshot file names from `scripts/cinematic-shots.mjs` #06, status); `docs/design/silhouettes.json` with AP §12's targets as `TARGET` and every untouched existing class as `MEASURE`; `docs/design/reaper_capital.md` records the palette values of AP §12 (brief §8.8 check). |
+| D5 | Silhouette test and measure script | `tests/silhouette.test.ts`: for each `TARGET`/`LOCKED` class, `new THREE.Box3().setFromObject(getShipTemplate(id).group)` z-extent within `tolerance` (0.08) of `lengthUnits`, x/z and y/z within tolerance of the sheet; `MEASURE` classes skipped; `reaper_capital` z / `alliance_dreadnought_k` z = 2.0 ± 0.1; `reaper_destroyer` z = 1.6 ± 0.1. `scripts/measure-silhouettes.ts` prints the measured ratios for `MEASURE` classes as JSON for INTEGRATION to paste into `silhouettes.json` (status → `LOCKED`). |
+| D6 | Docs | `README.md` ("What works" rewritten for V2: Apex core/legacy presets, Showcase, Final Battle cinematic opening, united fleets, no cap + governor + ladder (link `docs/apex/PERF_LADDER.md`), new hulls with AU labels, Oculus, Normandy split, flagship events, the HADES wording; controls table gains `K`, `Volley`, Showcase keys); `AU_RULES.md` (renamed preset, `apex_legacy`, the seven new special flags, the HADES round, drive tiers, §Reference balance from `CALIBRATION_REPORT.md` §2, "no cap" statement); `LORE_REFERENCE.md` (Oculus anchor, fleet-name anchors, the "Inferred from pack, verify" list, the 2 kg / 283 km/s trap, Normandy uniqueness anchor, the C02 benchmark anchor line); `KNOWN_ISSUES.md` (AP §17 list verbatim + "flagship transmissions are original text"); `ROADMAP.md` (V2 rows, AP §18 deferred list); `ARCHITECTURE.md` (new modules: beats, volley, arrival, specials, flagships, spatial, movement, solutions, flights, distant, governor, showcase, director); `CHANGELOG.md` new top section "V2 — Cinematic Reaper War" with the version left as `x.y.0` for INTEGRATION; `docs/apex/CONTINUITY_CHECKLIST.md` (the pack's 11 continuity pitfalls as a lint list every caption and codex AU line is checked against). |
+| D7 | e2e specs | `e2e/showcase.spec.ts` (two tests, CD §6.2: scene to the end with `SHOT TYPES 7 / 7`, zero errors; Record toggle, letterbox, early exit); `e2e/custom.spec.ts` (three tests: united fleets + arrival + budget warning and *Scale to budget* at 640 hulls per side set through `[data-count-fleet]`; phone width 390 px no horizontal scroll and conditions first; `normandy_sr2` cannot be enabled on both sides); `e2e/finalBattle.spec.ts` (two tests: briefing world state and launch with the `CINEMATIC OPENING` toast and `fleet_volley_fired` within 70 s; Harbinger destruction → `sim.special.destroy(harbingerId, { killerId: <first alliance dreadnought>, cause: 'kinetic' })` → advance 5 s → `[data-action="results"]` → `.log-flagship` contains `HARBINGER DESTROYED` and `KILLED BY`, and the exported event JSON (via `page.evaluate` on `sim.events`) has exactly one `flagship_destroyed`). Pattern: the `advance` helper of `game.spec.ts`; collect `pageerror`/console errors and expect none. |
+| D8 | Screenshot script | `scripts/cinematic-shots.mjs`: the 18-item list of CD §6.3 (Final Battle cues through `view.director.force`, scene 1 frames through `showcase.advance`, the hidden gallery of one hull per class at bow / profile / three-quarter framings, side-by-side scale shot, platform slew, super-dreadnought with the AU badge caption); writes `e2e-screenshots/<file>.png`; fails on console errors. `scripts/showcase.mjs`/`screenshots.mjs`: add the new classes to their lists. |
+| D9 | Close | `npm run typecheck && npm test` green in D's worktree (unit tests only: codex, wording, silhouette against A's models once merged — until then `tests/silhouette.test.ts` is written against the `TARGET` numbers and marked `describe.skipIf(!process.env.V2_MODELS)`); docs grep: no forbidden wording, no "cap"/"limit" claims about hull counts, every Apex number suffixed. |
+
+### 5.4 Tests to add
+
+`tests/codex.test.ts`, `tests/wording.test.ts`, `tests/silhouette.test.ts` as in D1 and D5.
+
+### 5.5 Acceptance checks
+
+1. Codex: every AU block prefixed, canon blocks free of Apex terms, AU-only entries carry the "does not exist" sentence; the Fleet Database shows `(AU)` on every AU hull and the HADES/Titan rows read "penetrator with a nuclear warhead".
+2. `docs/design/` has a sheet for every class in AP §12's table and the priority list, `silhouettes.json` validates against `tests/silhouette.test.ts` once A's models are present.
+3. The three e2e specs pass at INTEGRATION (§6.3); they are written to the hook tables, not to implementation details.
+4. README/AU_RULES/KNOWN_ISSUES/LORE_REFERENCE/ROADMAP/ARCHITECTURE/CHANGELOG describe V2 honestly (every limitation of AP §17 present; no cap claimed; the governor and the ladder described; "flagship transmissions are original text").
+
+### 5.6 Verify
+
+```bash
+npm run typecheck && npm test                                  # codex + wording tests; silhouette once models exist (V2_MODELS=1 npm test at INTEGRATION)
+node --import tsx/esm scripts/measure-silhouettes.ts          # JSON for the MEASURE classes (INTEGRATION pastes it)
+npx playwright test e2e/showcase.spec.ts e2e/custom.spec.ts e2e/finalBattle.spec.ts   # at INTEGRATION, after A–C are merged
+node scripts/cinematic-shots.mjs e2e-screenshots              # 18 files, no console errors (at INTEGRATION)
+```
+
+## 6. INTEGRATION stage (one agent, after A–D report green)
+
+### 6.1 Merge order and method
+
+1. Start from the integration branch at CORE's final commit. Confirm `npm ci && npm run typecheck && npm test && npm run build && npm run test:e2e` green.
+2. Merge `stage/A` (`git merge --no-ff stage/A`): A owns `battleView.ts`, so the CORE stubs in it are overwritten by A's full implementation — expected. Run typecheck + unit tests.
+3. Merge `stage/B`: resolves against A in `battleView.ts` only if B touched its two permitted lines (`attachDriver` call sites are in B's files, so normally none); `cameras.ts` is B's. Run typecheck + unit tests + `e2e/game.spec.ts`.
+4. Merge `stage/C`: no shared files with A or B except `src/core/storage.ts` type imports (none expected). Run typecheck + unit tests + `e2e/game.spec.ts`.
+5. Merge `stage/D`: docs and tests only; `tests/silhouette.test.ts` now runs for real (`V2_MODELS=1`). Run the full suite.
+6. Resolve every bullet in `docs/apex/INTEGRATION_NOTES.md` (cross-stage requests), each as its own commit, re-running the owning stage's tests.
+
+### 6.2 Conflict hot spots (and the rule for each)
+
+| File | Who touched it | Rule |
+| --- | --- | --- |
+| `src/rendering/battleView.ts` | CORE stub, A (owner), B (two hook lines at most) | A's version wins; re-apply B's lines by hand if they conflict (`attachDriver` plumbing). |
+| `src/rendering/cameras.ts` | CORE stub, B (owner) | B wins. |
+| `src/ui/app.ts` | CORE stub (`measurePerfBudget`, `volley?`, `showcase?`), B (owner) | B wins; check the prefs merge for `showcase` and `perf` survived. |
+| `src/core/storage.ts` | CORE only | nobody else edits it; if a stage did, CORE's shape wins and the stage adapts. |
+| `src/ui/screens/settings.ts` | A only | — |
+| `src/style.css` | C only (B uses `showcase.css`, A `effects.css`) | if B or A touched `style.css`, move their rules into their own stylesheet. |
+| `src/data/ships.ts`, `weapons.ts`, `src/scenarios/**`, `src/simulation/**` | CORE only | a parallel stage's edit here is reverted and logged in `INTEGRATION_NOTES.md`; INTEGRATION re-implements it as a CORE-style change with tests. |
+| `tests/battle.test.ts`, `tests/damage.test.ts`, `tests/timelines.test.ts`, `tests/campaign.test.ts` | CORE only | — |
+| `e2e/game.spec.ts`, `e2e/campaign.spec.ts` | frozen | any change is reverted; new assertions live in D's new specs. |
+| `package.json` | CORE (`perf:sim` script), INTEGRATION (version, `perf` script rewrite) | INTEGRATION wins. |
+| `README.md`, `CHANGELOG.md` | D | INTEGRATION fills the version and the perf numbers. |
+
+### 6.3 Full test run and e2e
+
+```bash
+npm ci && npm run typecheck && V2_MODELS=1 npm test             # every unit test incl. silhouettes
+npm run build && npm run test:e2e                              # 8 existing + 7 new (showcase 2, custom 3, finalBattle 2)
+```
+Expected counts: ≥ 83 + the new files' tests (CORE ≈ 120, A ≈ 10, B ≈ 20, D ≈ 12) unit tests; 15 e2e tests. One Playwright process at a time (port 4173).
+
+### 6.4 Performance ladder (`npm run perf`)
+
+Rewrite `scripts/perf.mjs` to the ladder: for each of 100 / 300 / 600 / 1,000 hulls per side (and the 300-vs-100 row) build the ladder custom battle through `window.reaperwar` (B's debug surface) with `prefs.perf.governor = false` so the raw cost is measured, step 40 s, then measure 60 frames at tactical and follow cameras: `drawCalls`, ms/frame, LOD counts, governor level the controller *would* choose (`governorStep` on the samples), effects draw calls; then run `npm run perf:sim` for the headless rows. Write `docs/apex/PERF_LADDER.md`: machine string (`os.cpus()[0].model`, core count, SwiftShader note), one table per row (steps/s, steps per 16.7 ms frame, ms/frame, draw calls per camera, governor level), the `budgetFromLadder` result, and the statement of whether the 300-vs-100 gate (≥ 20 steps per frame headless) holds. If it does not hold on the integration machine, record it, apply the AP §21.5 lever list in CORE's files (INTEGRATION may edit CORE files for this purpose only), re-measure, and record the moves.
+
+### 6.5 Screenshots and silhouettes
+
+- `node scripts/cinematic-shots.mjs e2e-screenshots`: 18 files, zero console errors; eyeball each against its "what must be visible" column (CD §6.3); commit nothing under `e2e-screenshots/` (it is output), but paste the file list into `CHANGELOG.md`.
+- `node --import tsx/esm scripts/measure-silhouettes.ts` → paste the JSON for `MEASURE` classes into `docs/design/silhouettes.json` with status `LOCKED`; re-run `V2_MODELS=1 npx vitest run tests/silhouette.test.ts`.
+- `docs/design/*.md` for the measured classes: fill the proportion tables from the same JSON; mark `LOCKED`.
+
+### 6.6 Final checks and release
+
+1. `git grep -n "Math.random" src/simulation src/data src/timelines src/scenarios src/campaign src/core src/showcase src/rendering src/audio` → only `src/core/saves.ts` (slot ids) and the UI seed buttons (`briefing.ts`, `campaign.ts`, `results.ts`) remain; everything else is seeded.
+2. `git grep -n -i "SHIP_CAP\|HARD_SHIP_CAP\|ENTITY_BUDGET\|MAX_SHIPS_PER_SIDE\|hull cap" src docs/design README.md KNOWN_ISSUES.md AU_RULES.md` → nothing.
+3. `tests/wording.test.ts` passes over the final docs.
+4. Version: `package.json` `0.11.0` → `1.0.0` ("V2 — Cinematic Reaper War"); `CHANGELOG.md` section title and the perf numbers filled; `README.md` perf sentence filled from `PERF_LADDER.md`.
+5. The §7 matrix is walked line by line and every row is ticked in `CHANGELOG.md`'s release notes (a short "verified by" list).
+6. Commit on the integration branch; push only when the user asks.
+
+## 7. Release acceptance — the verification matrix (AP §20; brief §6, §8, §9)
+
+| Requirement | Owner | Verified by |
+| --- | --- | --- |
+| Brief §2/§6: a 60 s Final Battle recording at `beatScale 1` shows arrival waves, line formation, Reaper advance, a simultaneous volley and the first losses in that order | CORE (beats, volley), B (director, record), C (setup) | `tests/finalBattle.test.ts` event order; `e2e/finalBattle.spec.ts`; manual Record-mode capture |
+| Brief §3/§6: Showcase scene runs to its end with zero console errors and every listed shot type used | B | `e2e/showcase.spec.ts` (`SHOT TYPES 7 / 7`); `tests/showcase.test.ts`; `tests/shots.test.ts` |
+| Brief §6: screenshots (volley wide, HADES close-up, Oculus swarm, Cerberus arrival, each hull's three views) | D (script), A (looks) | `scripts/cinematic-shots.mjs` 01–18 |
+| Brief §6: existing suites stay green; new tests cover beat scheduling, the volley order, HADES burst damage, Oculus launch and the Cerberus world state | CORE | `npm test`, `npm run test:e2e`; `tests/beats|volley|hades|oculus|finalBattle.test.ts` |
+| Brief §6: all AU content keeps its labels; no screen presents the Apex scene as canon | D (codex), B (showcase), C (editor/briefing/results) | `tests/codex.test.ts`; `tests/showcase.test.ts` caption rule; manual pass over every screen under `prime_apex` |
+| §8.1 movement feel | CORE | `tests/movement.test.ts`; footage check at INTEGRATION (W2/D1 cues show lines, not wheels) |
+| §8.2 (amended) 3D formations, no cap, governor, ladder | CORE, A, B, C, D | `tests/formations3d|perf|governor|flights.test.ts`; `npm run perf` → `PERF_LADDER.md` with the 300-vs-100 gate; e2e Battle of Earth completes; `e2e/custom.spec.ts` budget warning |
+| §8.3 hull-shaped barriers | A | screenshot 07 |
+| §8.4 procedural sound, seismic AU rounds, light-before-sound | A, B | `tests/audio.test.ts`; settings toggles visible; Record-mode capture of scene 1's `black_volley` |
+| §8.5 HADES nuclear effect and wording | CORE, A, D | `tests/hades.test.ts`; screenshot 03; `tests/wording.test.ts` |
+| §8.6 nobody sits still, nobody runs | CORE, B (`Disengage`) | `tests/withdrawal.test.ts`; HUD label |
+| §8.7 misses and firing solutions | CORE, B (`Solution %`), A (near-miss flare) | `tests/solutions.test.ts`; replay determinism |
+| §8.8 Reaper look and scale | A, CORE (data), D (sheets) | `tests/silhouette.test.ts` (2.0 ± 0.1); screenshot 08; palette in `docs/design/reaper_capital.md` |
+| §8.9 super-dreadnoughts | CORE, A, C, D | role in formations/AI/results/intel/overlay; editor rows; screenshot 10 with the AU badge; codex/database wording |
+| §8.10 fixed platforms | CORE, A, C, D | `tests/platforms.test.ts`; screenshot 09; codex entry |
+| §9.1 one Normandy, many SR-2-pattern frigates | CORE, A, C, D | `tests/normandy.test.ts`; `e2e/custom.spec.ts` (no two Normandys); Prime/Apex Final Battle order of battle (e2e) |
+| §9.2 flagship destruction event | CORE, B, C, D | `tests/flagship.test.ts` (exactly one event with every field); `e2e/finalBattle.spec.ts` banner; director `FD` cue (`tests/director.test.ts`) |
+| Rules: determinism, provenance, no ripped assets, honesty | all | `tests/lint.test.ts`; `tests/battle.test.ts` determinism; `tests/determinism` coverage of every new event; `KNOWN_ISSUES.md` carries AP §17 |
