@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.11.2 — Nobody runs (hotfix)
+
+- Removed the fleet-wide auto-retreat at 12 % strength and the automatic escape of damaged ships, which made fleets turn away mid-battle and stop fighting. A battered ship now makes a tactical withdrawal: it falls back to a weaving station behind its fleet with its guns still bearing, and re-engages once its barriers recover. Only an explicit Retreat order leaves the battlespace. Battles run to destruction or the time limit.
+
 ## 0.11.1 — United fleets and no hull caps (hotfix)
 
 - Custom battle: any number of fleets per side, each with its own faction, formation, name and arrival time ("united fleets"); a Sword Fleet at Earth preset; no hull caps (a performance note appears above 150 hulls on a side).

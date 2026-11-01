@@ -896,15 +896,8 @@ export class BattleSimulation implements AiContext {
   }
 
   private checkEscapes(): void {
-    for (const s of this.ships) {
-      if (!s.alive || s.escaped || !s.withdrawing) continue;
-      const fleet = this.fleets.get(s.fleetId)!;
-      const enemies = this.enemiesOf(s.side);
-      let nearest = Infinity;
-      for (const e of enemies) nearest = Math.min(nearest, distance(e.pos, s.pos));
-      if (nearest > 110 * S || (fleet.orders.order === 'retreat' && nearest > 80 * S)) s.escaped = true;
-    }
-    // Retreat order: whole fleet escapes once clear.
+    // Damaged ships no longer leave the battlespace on their own: a tactical withdrawal falls back
+    // behind the line and re-engages (see ai.ts). Only an explicit player retreat order escapes.
     for (const f of this.fleets.values()) {
       if (f.orders.order !== 'retreat') continue;
       for (const s of this.ships) {
@@ -926,21 +919,7 @@ export class BattleSimulation implements AiContext {
     if (!aAlive) return this.end('B', a.remaining === 0 ? 'Side A fleet destroyed' : 'Side A fleet withdrew from the battlespace');
     if (!bAlive) return this.end('A', b.remaining === 0 ? 'Side B fleet destroyed' : 'Side B fleet withdrew from the battlespace');
 
-    // Fleet-wide withdrawal when combat-ineffective (factions that withdraw).
-    for (const side of ['A', 'B'] as Side[]) {
-      const pts = side === 'A' ? a : b;
-      const fleets = [...this.fleets.values()].filter((f) => f.spec.side === side);
-      const canWithdraw = fleets.some((f) => FACTIONS[f.spec.faction].doctrine.withdrawThreshold > 0);
-      if (canWithdraw && pts.remaining < pts.start * 0.12 && this.time > 20) {
-        for (const f of fleets) {
-          if (f.orders.order !== 'retreat') {
-            f.orders = { ...f.orders, order: 'retreat' };
-            this.emit({ t: this.time, type: 'fleet_withdraw', fleetId: f.spec.id, side });
-            this.comms(side, 'defeat', undefined, f);
-          }
-        }
-      }
-    }
+    // Nobody runs: there is no fleet-wide auto-retreat any more; a side fights until it is destroyed or the clock runs out.
 
     if (this.time >= this.config.maxDuration) {
       const fa = a.remaining / Math.max(1, a.start);

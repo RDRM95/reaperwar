@@ -248,10 +248,14 @@ export function shipDecision(ctx: AiContext, ship: ShipState, fleet: FleetState)
   if (!current || !current.alive || current.escaped || ctx.rng.chance(0.35)) {
     ship.targetId = chooseTarget(ctx, ship, fleet);
   }
-  // Withdrawal.
+  // Tactical withdrawal: a battered ship falls back behind the line to let its barriers recover, then re-engages.
   if (!ship.withdrawing && d.withdrawThreshold > 0 && ship.role !== 'fighter') {
     const hullFrac = ship.hull / ship.maxHull;
     if (hullFrac < d.withdrawThreshold && ctx.rng.chance(0.5)) ship.withdrawing = true;
+  } else if (ship.withdrawing) {
+    const recovered = ship.barriers >= ship.maxBarriers * 0.7 || ship.maxBarriers === 0;
+    const quiet = ctx.time - ship.lastHitAt > 8;
+    if (recovered && quiet) ship.withdrawing = false;
   }
 }
 
@@ -279,10 +283,17 @@ export function movementGoal(ctx: AiContext, ship: ShipState, fleet: FleetState)
     return { position: slotToWorld(fleet.anchor, fleet.heading, ship.slot), speedFraction: 0.8 };
   }
 
-  // Withdrawing ships run away from the enemy.
-  if (ship.withdrawing || fleet.orders.order === 'retreat') {
+  // Explicit retreat order: run from the enemy.
+  if (fleet.orders.order === 'retreat') {
     const away = enemyCentre ? normalize(sub(ship.pos, enemyCentre)) : scale(fleet.heading, -1);
     return { position: add(ship.pos, scale(away, 40 * S)), speedFraction: 1 };
+  }
+  // Tactical withdrawal: fall back to a station behind the fleet, weaving, guns still bearing on the enemy.
+  if (ship.withdrawing) {
+    const phase = ctx.time * 0.9 + (ship.id.charCodeAt(ship.id.length - 1) % 9);
+    const right = v3(fleet.heading.z, 0, -fleet.heading.x);
+    const station = add(add(fleet.anchor, scale(fleet.heading, -14 * S)), scale(right, Math.sin(phase) * 5 * S));
+    return { position: station, speedFraction: 1, face: target?.pos ?? enemyCentre };
   }
 
   // Escort order at ship level.
