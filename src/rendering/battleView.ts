@@ -371,7 +371,7 @@ export class BattleView {
           const world = v.built.group.localToWorld(local);
           const dir = new THREE.Vector3(ship.heading.x, ship.heading.y, ship.heading.z);
           this.effects.muzzleFlash(world, dir, big ? 6 : 1.4, ship.faction === 'reaper');
-          if (big && this.rig.mode === 'cinematic' && Math.random() < 0.3) this.cine.hold = 0;
+          if (big && this.rig.mode === 'cinematic' && this.cine.age > 4 && Math.random() < 0.2) this.cine.hold = 0;
           if (big && this.rig.mode === 'projectile') this.projectileTrack = { id: this.sim.projectiles[this.sim.projectiles.length - 1]?.id ?? 0 };
           break;
         }
@@ -390,7 +390,7 @@ export class BattleView {
           const v = this.visuals.get(e.shipId);
           if (v && (e.role === 'dreadnought' || e.role === 'reaper_capital' || e.role === 'carrier')) {
             // Cinematic director jumps to capital ship deaths.
-            this.cine = { fromId: e.shipId, toId: undefined, age: 0, hold: 4 };
+            this.cine = { fromId: e.shipId, toId: undefined, age: 0, hold: 7 };
           }
           break;
         }
@@ -493,7 +493,7 @@ export class BattleView {
     const pool = beaming.length > 0 && Math.random() < 0.6 ? beaming : alive.filter((s) => s.targetId && (s.role === 'dreadnought' || s.role === 'reaper_capital' || s.role === 'reaper_destroyer' || s.role === 'cruiser'));
     const from = (pool.length > 0 ? pool : alive)[Math.floor(Math.random() * (pool.length > 0 ? pool : alive).length)];
     const to = from.targetId ? sim.getShip(from.targetId) : undefined;
-    this.cine = { fromId: from.id, toId: to && to.alive ? to.id : undefined, age: 0, hold: 5 + Math.random() * 4 };
+    this.cine = { fromId: from.id, toId: to && to.alive ? to.id : undefined, age: 0, hold: 11 + Math.random() * 7 };
   }
 
   // ------------------------------------------------------------ picking

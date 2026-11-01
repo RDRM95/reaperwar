@@ -118,9 +118,13 @@ export class BattleController {
     this.view.rig.setMode(mode);
     this.hud.refresh();
   }
+  /** Cycles full HUD → minimal (top bar only) → none (clean frame for recordings). */
+  hudLevel: 'full' | 'minimal' | 'none' = 'full';
   toggleHud(): void {
-    this.hudHidden = !this.hudHidden;
+    this.hudLevel = this.hudLevel === 'full' ? 'minimal' : this.hudLevel === 'minimal' ? 'none' : 'full';
+    this.hudHidden = this.hudLevel !== 'full';
     this.hud.root.classList.toggle('hidden', this.hudHidden);
+    this.hud.root.classList.toggle('none', this.hudLevel === 'none');
     this.overlay.visible = !this.hudHidden && this.app.prefs.showOverlay;
   }
 

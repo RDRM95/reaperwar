@@ -138,7 +138,7 @@ export function createHud(app: App, ctrl: BattleController): Hud {
           el('button', { class: 'btn', onclick: () => {
             ctrl.toggleHud();
             toggleMenu();
-          } }, ctrl.hudHidden ? 'Show HUD' : 'Hide HUD'),
+          } }, ctrl.hudLevel === 'full' ? 'HUD: minimal (H)' : ctrl.hudLevel === 'minimal' ? 'HUD: none for recording (H)' : 'HUD: full (H)'),
           el('button', { class: 'btn', onclick: () => {
             app.prefs.showOverlay = !app.prefs.showOverlay;
             ctrl.overlay.visible = app.prefs.showOverlay;

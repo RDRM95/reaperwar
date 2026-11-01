@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.11.3 — Camera and recording (hotfix)
+
+- Cinematic director lingers 11–18 s per shot (7 s on a capital death) and cuts away less often.
+- Orbit pitch is unlimited above and below the plane; the follow camera is a free orbit around the followed ship (drag to circle it, wheel to change chase distance).
+- H cycles the HUD: full → minimal (top bar) → none, the last a clean frame for recordings (cursor hidden).
+
 ## 0.11.2 — Nobody runs (hotfix)
 
 - Removed the fleet-wide auto-retreat at 12 % strength and the automatic escape of damaged ships, which made fleets turn away mid-battle and stop fighting. A battered ship now makes a tactical withdrawal: it falls back to a weaving station behind its fleet with its guns still bearing, and re-engages once its barriers recover. Only an explicit Retreat order leaves the battlespace. Battles run to destruction or the time limit.

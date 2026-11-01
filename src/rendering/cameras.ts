@@ -59,6 +59,12 @@ export class CameraRig {
       this.freeYaw = Math.atan2(dir.x, dir.z);
       this.freePitch = Math.asin(THREE.MathUtils.clamp(dir.y, -1, 1));
     }
+    if (mode === 'follow') {
+      // Chase view starts behind and slightly above the ship; dragging then orbits freely around it.
+      this.yaw = 0;
+      this.pitch = 0.15;
+      this.distance = 320;
+    }
     this.mode = mode;
     this.transition = 1;
   }
@@ -75,7 +81,7 @@ export class CameraRig {
       return;
     }
     this.yaw -= dx * 0.005;
-    this.pitch = THREE.MathUtils.clamp(this.pitch + dy * 0.005, -0.1, 1.5);
+    this.pitch = THREE.MathUtils.clamp(this.pitch + dy * 0.005, -1.5, 1.5); // full orbit: above and below the plane
   }
   zoom(delta: number): void {
     this.distance = THREE.MathUtils.clamp(this.distance * Math.exp(delta * 0.0012), 6, 60_000);
@@ -116,11 +122,14 @@ export class CameraRig {
       case 'follow': {
         const s = opts.subject;
         if (!s) return this.fallback(dt, opts.fleetCentre);
-        const back = s.heading.clone().multiplyScalar(-s.size * 2.4 - 3);
-        const up = new THREE.Vector3(0, s.size * 0.7 + 1.5, 0);
-        const yawOff = new THREE.Vector3(Math.cos(this.yaw) * s.size * 1.1, 0, -Math.sin(this.yaw) * s.size * 1.1);
-        this.desiredPos.copy(s.position).add(back).add(up).add(yawOff);
-        this.desiredLook.copy(s.position).addScaledVector(s.heading, s.size * 1.2);
+        // Free orbit around the followed ship: yaw and pitch rotate the chase offset relative to its heading,
+        // so dragging looks at it from any side, above or below; the wheel scales the chase distance.
+        const h = Math.atan2(s.heading.x, s.heading.z);
+        const dist = (s.size * 2.4 + 3) * THREE.MathUtils.clamp(this.distance / 320, 0.35, 5);
+        const a = h + Math.PI + this.yaw;
+        const off = new THREE.Vector3(Math.sin(a) * Math.cos(this.pitch), Math.sin(this.pitch) + 0.25, Math.cos(a) * Math.cos(this.pitch)).normalize().multiplyScalar(dist);
+        this.desiredPos.copy(s.position).add(off);
+        this.desiredLook.copy(s.position).addScaledVector(s.heading, s.size * 0.6);
         break;
       }
       case 'reaper': {

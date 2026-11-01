@@ -122,6 +122,8 @@ td.num { font-family: var(--mono); text-align: right; }
 .hud-bottom { position: absolute; left: 12px; right: 12px; bottom: 12px; display: flex; gap: 10px; align-items: flex-end; pointer-events: none; }
 .hud-bottom > * { pointer-events: auto; }
 .hud.hidden > *:not(.hud-top) { display: none; }
+.hud.none > * { display: none !important; }
+.hud.none { cursor: none; }
 .ship-list { flex: 1; overflow: auto; font-size: 12px; }
 .ship-row { display: grid; grid-template-columns: 1fr 70px; gap: 6px; padding: 4px 6px; cursor: pointer; border-left: 2px solid transparent; }
 .ship-row:hover { background: rgba(79, 163, 255, 0.12); }
