@@ -23,3 +23,12 @@ Phases follow the project brief. ✅ done · 🔶 partial · ⬜ not started.
 2. **Performance**: simplified mid-range hull meshes, instanced rendering for identical hulls, aggregate distant formations.
 3. **Touch**: a dedicated phone campaign map (zoomable canvas), larger hit targets.
 4. **Model polish**: procedural normal maps for plating, geth and quarian detail passes.
+
+## Pinned for later (owner's list, not scheduled)
+
+Priority order agreed on 1 Nov 2026: finish and ship the V2 build first, then additions.
+
+1. **Collector ships** (ME2 Collector cruiser as an optional earlier-campaign opponent; original model).
+2. **First Contact War scenarios** (2157 Relay 314 incident: Alliance patrol vs Hierarchy, Shanxi; canon-anchored, pre-Reaper technology).
+3. **Non-eezo timelines**: alternate-universe presets where element zero is scarce or absent (different drive, weapon and barrier assumptions; clearly labelled AU).
+4. **Multiverse ship battles**: cross-IP fleets (Halo and comparable universes) as a separate, clearly labelled AU mode with original stand-in models; no assets from any game. Design only after V2 ships.
