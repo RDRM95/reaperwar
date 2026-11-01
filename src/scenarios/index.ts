@@ -3,6 +3,8 @@ import { getPreset } from '@/timelines/presets';
 import type { RuleSet } from '@/timelines/rules';
 import type { FactionId } from '@/data/types';
 import type { BattleConfig, Environment, FleetSpec, FormationType, ShipSpec, Side } from '@/simulation/types';
+import { SHIP_CLASSES } from '@/data/ships';
+import { FACTIONS } from '@/data/factions';
 
 /**
  * Battle scenarios. Each scenario builds a BattleConfig from a rule set and a
@@ -617,6 +619,8 @@ export interface CustomFleetInput {
   name: string;
   formation: FormationType;
   counts: Record<string, number>;
+  /** Seconds after battle start when this fleet arrives (0 or undefined = present from the start). */
+  arrivalTime?: number;
 }
 
 export interface CustomBattleInput {
@@ -630,20 +634,43 @@ export interface CustomBattleInput {
   /** Seconds until side B's optional second wave arrives (0 = none). */
   reinforcementTime?: number;
   reinforcementCounts?: Record<string, number>;
+  /** Faction of the reinforcement wave (defaults to side B's main fleet faction). */
+  reinforcementFaction?: CustomFaction;
+  /** Additional fleets fighting under side A / side B (united fleets of any factions). */
+  extraA?: CustomFleetInput[];
+  extraB?: CustomFleetInput[];
+}
+
+/** Keep only the counts that belong to the fleet's own faction (a stale roster must never spawn foreign hulls). */
+export function countsForFaction(counts: Record<string, number>, faction: CustomFaction): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const [id, n] of Object.entries(counts)) {
+    const cls = SHIP_CLASSES[id];
+    if (cls && cls.faction === faction && n > 0) out[id] = Math.floor(n);
+  }
+  return out;
 }
 
 export function buildCustomBattle(input: CustomBattleInput, rules?: RuleSet): BattleConfig {
   const r = rules ?? getPreset(input.rulesId);
   const half = Math.max(10, input.startingDistanceKm) / 2;
-  const mk = (f: CustomFleetInput, side: Side, id: string, z: number, heading: number, arrivalTime?: number, counts?: Record<string, number>): FleetSpec =>
-    fleet(id, f.faction, r, { counts: counts ?? f.counts, name: f.name, side, position: v3(0, 0, z), heading: v3(0, 0, heading), formation: f.formation, mult: 1, arrivalTime, playerControlled: side === 'A' });
-  const fleets = [mk(input.sideA, 'A', 'custom-a', -half, 1), mk(input.sideB, 'B', 'custom-b', half, -1)];
-  if (input.reinforcementTime && input.reinforcementTime > 0 && input.reinforcementCounts && Object.values(input.reinforcementCounts).some((n) => n > 0)) {
-    fleets.push(mk({ ...input.sideB, name: `${input.sideB.name} reinforcements` }, 'B', 'custom-b2', half + 30, -1, input.reinforcementTime, input.reinforcementCounts));
+  const mk = (f: CustomFleetInput, side: Side, id: string, x: number, z: number, heading: number, arrivalTime?: number, counts?: Record<string, number>): FleetSpec =>
+    fleet(id, f.faction, r, { counts: countsForFaction(counts ?? f.counts, f.faction), name: f.name, side, position: v3(x, 0, z), heading: v3(0, 0, heading), formation: f.formation, mult: 1, arrivalTime: arrivalTime && arrivalTime > 0 ? arrivalTime : undefined, playerControlled: side === 'A' });
+  // United fleets: extra fleets of any faction sit beside the main fleet, alternating left and right, 20 km apart.
+  const lateral = (i: number): number => (i % 2 === 0 ? 1 : -1) * Math.ceil((i + 1) / 2) * 20;
+  const fleets: FleetSpec[] = [mk(input.sideA, 'A', 'custom-a', 0, -half, 1, input.sideA.arrivalTime), mk(input.sideB, 'B', 'custom-b', 0, half, -1, input.sideB.arrivalTime)];
+  (input.extraA ?? []).forEach((f, i) => fleets.push(mk(f, 'A', `custom-a${i + 2}`, lateral(i), -half - 4 * (i + 1), 1, f.arrivalTime)));
+  (input.extraB ?? []).forEach((f, i) => fleets.push(mk(f, 'B', `custom-b${i + 2}`, lateral(i), half + 4 * (i + 1), -1, f.arrivalTime)));
+  const reinforcementFaction = input.reinforcementFaction ?? input.sideB.faction;
+  const reinforcements = countsForFaction(input.reinforcementCounts ?? {}, reinforcementFaction);
+  if (input.reinforcementTime && input.reinforcementTime > 0 && Object.values(reinforcements).some((n) => n > 0)) {
+    const name = reinforcementFaction === input.sideB.faction ? `${input.sideB.name} reinforcements` : `${FACTIONS[reinforcementFaction].shortName} reinforcements`;
+    fleets.push(mk({ faction: reinforcementFaction, name, formation: input.sideB.formation, counts: reinforcements }, 'B', 'custom-b-reinforcements', 0, half + 30, -1, input.reinforcementTime));
   }
+  const sideName = (main: CustomFleetInput, extra: CustomFleetInput[] | undefined): string => (extra && extra.length > 0 ? `${main.name} + ${extra.length} allied fleet${extra.length > 1 ? 's' : ''}` : main.name);
   return {
     id: `custom-${r.id}-${input.seed}`,
-    name: 'Custom Battle',
+    name: `Custom: ${sideName(input.sideA, input.extraA)} vs ${sideName(input.sideB, input.extraB)}`,
     scenarioId: 'custom',
     seed: input.seed,
     rules: r,
@@ -651,6 +678,6 @@ export function buildCustomBattle(input: CustomBattleInput, rules?: RuleSet): Ba
     maxDuration: input.maxDuration ?? 420,
     perspectiveSide: 'A',
     objective: 'Destroy the enemy force.',
-    fleets,
+    fleets: fleets.filter((f) => f.ships.length > 0),
   };
 }

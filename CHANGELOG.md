@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.11.1 — United fleets and no hull caps (hotfix)
+
+- Custom battle: any number of fleets per side, each with its own faction, formation, name and arrival time ("united fleets"); a Sword Fleet at Earth preset; no hull caps (a performance note appears above 150 hulls on a side).
+- Fixed: side B reinforcements spawned Reapers whenever the roster was left over from a Reaper setup; reinforcements now have their own faction picker and a fleet never spawns hulls of another faction.
+- The Citadel is selectable as a custom battlefield.
+
 ## 0.11.0 — Touch layout and Council hull detail
 
 - Two-finger drag pans the battle camera (with pinch zoom); phone-width layout: the HUD top bar wraps, the fleet and target panels become bottom sheets behind a Panels toggle, screens and the campaign map collapse to one column.
