@@ -1,6 +1,6 @@
 import { v3, type Vec3 } from '@/core/vec3';
 import { getPreset } from '@/timelines/presets';
-import type { RuleSet } from '@/timelines/rules';
+import { isApexRules, type RuleSet } from '@/timelines/rules';
 import type { FactionId } from '@/data/types';
 import type { BattleConfig, Environment, FleetSpec, FormationType, ShipSpec, Side } from '@/simulation/types';
 import { SHIP_CLASSES } from '@/data/ships';
@@ -348,7 +348,7 @@ export const SCENARIOS: ScenarioDef[] = [
       }
       return base('cerberus_intervention', 'Cerberus Intervention (cooperative)', 'cerberus_intervention', seed, rules, 'deep_space', 360, 'Defeat the Reaper group with Cerberus support.', ws, [
         alliance,
-        fleet('cerberus-black', 'cerberus', rules, { counts: { cerberus_dreadnought: rules.id === 'prime_apex' ? 2 : 0, cerberus_cruiser: 8, cerberus_frigate: 12 }, name: rules.id === 'prime_apex' ? 'Cerberus Black Fleet' : 'Cerberus expeditionary fleet', position: v3(34, 0, -40), heading: v3(-0.2, 0, 1), formation: 'strike_wedge', ws }),
+        fleet('cerberus-black', 'cerberus', rules, { counts: { cerberus_dreadnought: isApexRules(rules) ? 2 : 0, cerberus_cruiser: 8, cerberus_frigate: 12 }, name: isApexRules(rules) ? 'Cerberus Black Fleet' : 'Cerberus expeditionary fleet', position: v3(34, 0, -40), heading: v3(-0.2, 0, 1), formation: 'strike_wedge', ws }),
         reaperFleet('reaper-horsehead', rules, { capitals: 2, destroyers: 6, position: v3(10, 0, 44), ws }),
       ]);
     },

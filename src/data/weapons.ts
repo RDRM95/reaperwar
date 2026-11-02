@@ -1,5 +1,5 @@
 import { canon, estimate, inferred } from '@/core/provenance';
-import type { DamageType, WeaponDef } from './types';
+import type { DamageType, WarheadDef, WeaponDef } from './types';
 
 /**
  * Weapon catalogue. All damage/range/speed numbers are SIMULATION_ESTIMATES in
@@ -500,7 +500,7 @@ export const WEAPONS: Record<string, WeaponDef> = {
   // ------------------------------------------------- PRIME/APEX AU WEAPONS
   apex_hyper_ma: {
     id: 'apex_hyper_ma',
-    name: 'Hyper-mass accelerator (HADES rounds)',
+    name: 'Project Titan heavy accelerator (HADES penetrators)',
     kind: 'mass_accelerator',
     damageType: 'kinetic',
     damage: 3200,
@@ -513,13 +513,30 @@ export const WEAPONS: Record<string, WeaponDef> = {
     antiSmall: false,
     antiCapital: true,
     arc: 12,
+    /** HADES penetrators per mount in a separate magazine beside unlimited ordinary slugs (AP §7). */
+    specialAmmo: 12,
     provenance: {
       value:
-        'Alternate-universe weapon. Advanced spinal accelerator firing HADES rounds: dense penetrators with a nuclear warhead that detonates after breaching Reaper plating. Not part of the Mass Effect trilogy.',
+        'Alternate-universe weapon (Project Titan). Heavy spinal accelerator whose separate magazine holds twelve HADES penetrators — each a penetrator with a nuclear warhead fused to detonate only after a penetrating hit — beside unlimited ordinary slugs. Not part of the Mass Effect trilogy.',
       provenance: 'AU_MODIFIED',
-      note: 'Prime/Apex timeline only.',
+      note: 'Project Titan, AU proposal. Prime/Apex timelines only.',
     },
   },
+};
+
+/**
+ * The HADES warhead (ADOPTION_PLAN.md §7): applied inside the hull after a
+ * penetrating Titan round — barriers and armour ignored, one subsystem drops
+ * by 0.3 for 8 s, no barrier recovery for 6 s. TUNE lever: damage 2,260,
+ * never below 1,500 (AP §1.3).
+ */
+export const HADES_WARHEAD: WarheadDef = {
+  damage: 2260,
+  damageType: 'warhead',
+  barrierEfficiencyMultiplier: 0,
+  armourBypass: 1,
+  subsystemOutage: { drop: 0.3, seconds: 8 },
+  regenSuppressSeconds: 6,
 };
 
 export const WEAPON_LIST: WeaponDef[] = Object.values(WEAPONS);

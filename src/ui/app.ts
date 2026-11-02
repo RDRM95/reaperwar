@@ -7,6 +7,7 @@ import { BattleSimulation, SIM_DT } from '@/simulation/battle';
 import type { BattleConfig, BattleEvent, BattleResult, FleetOrders } from '@/simulation/types';
 import { PRESETS, getPreset } from '@/timelines/presets';
 import { cloneRules, type RuleSet } from '@/timelines/rules';
+import { normaliseRules } from '@/timelines/schema';
 import type { ComparisonReport } from '@/scenarios/comparison';
 import { clear, el } from './dom';
 import { TacticalOverlay } from './overlay';
@@ -499,7 +500,7 @@ export class App {
     this.prefs.audio = { ...DEFAULT_PREFERENCES.audio, ...this.prefs.audio };
     this.prefs.showcase = { ...DEFAULT_PREFERENCES.showcase, ...this.prefs.showcase };
     this.prefs.perf = { ...DEFAULT_PREFERENCES.perf, ...this.prefs.perf, budget: { ...DEFAULT_PERF_BUDGET, ...this.prefs.perf?.budget } };
-    this.customTimelines = await storage.get('customTimelines', []);
+    this.customTimelines = (await storage.get<RuleSet[]>('customTimelines', [])).map(normaliseRules);
     this.history = await storage.get('battleHistory', []);
     audio.settings = { ...this.prefs.audio };
     this.show('menu');
@@ -513,7 +514,7 @@ export class App {
   }
   getTimeline(id: string): RuleSet {
     const c = this.customTimelines.find((t) => t.id === id);
-    if (c) return cloneRules(c);
+    if (c) return normaliseRules(cloneRules(c));
     try {
       return getPreset(id);
     } catch {

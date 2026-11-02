@@ -4,6 +4,7 @@
  */
 import type { BattleResult } from '@/simulation/types';
 import type { RuleSet } from '@/timelines/rules';
+import { normaliseRules } from '@/timelines/schema';
 import type { GraphicsSettings } from '@/rendering/battleView';
 import type { AudioSettings } from '@/audio/engine';
 import { DEFAULT_PERF_BUDGET, type PerfBudget } from './perfGovernor';
@@ -152,7 +153,7 @@ export class Storage {
     const d = data as Partial<SaveData>;
     if (d.preferences && typeof d.preferences === 'object') await this.set('preferences', { ...DEFAULT_PREFERENCES, ...d.preferences });
     else warnings.push('No preferences in save');
-    if (Array.isArray(d.customTimelines)) await this.set('customTimelines', d.customTimelines);
+    if (Array.isArray(d.customTimelines)) await this.set('customTimelines', d.customTimelines.map((t) => normaliseRules(t)));
     if (Array.isArray(d.battleHistory)) await this.set('battleHistory', d.battleHistory.slice(-50));
     if (d.customBattle) await this.set('customBattle', d.customBattle);
     if (d.campaign && typeof d.campaign === 'object') await this.set('campaign', d.campaign);

@@ -5,7 +5,7 @@ import { getShipClass } from '@/data/ships';
 import type { FactionId } from '@/data/types';
 import { BattleSimulation } from '@/simulation/battle';
 import type { BattleConfig, BattleResult, FleetSpec } from '@/simulation/types';
-import type { RuleSet } from '@/timelines/rules';
+import { isApexRules, type RuleSet } from '@/timelines/rules';
 import { getSystem, neighbours, relayPath, SYSTEMS, type SystemId } from './galaxy';
 import type { Allegiance, CampaignEvent, CampaignFleet, CampaignState, FactionStatus, PendingEngagement, SystemState } from './state';
 import { crucibleRateModifier, groundWar, indoctrinationModifier, liberationClear, politicalPhase, refugeePhase, researchPhase, researchTech, resolveSummit, type SummitChoice } from './depth';
@@ -156,7 +156,7 @@ export function createCampaign(opts: CampaignOptions): CampaignState {
     fleets.push(mk('Geth Consensus Fleet', 'geth', 'allied', 'tikkun', k({ geth_dreadnought: 1, geth_cruiser: 10, geth_frigate: 16 }, fs.geth)));
   }
   fleets.push(mk('Cerberus Horizon Group', 'cerberus', cerberusAllied ? 'allied' : 'cerberus', 'horizon', k({ cerberus_cruiser: 6, cerberus_frigate: 10 }, fs.cerberus), cerberusAllied, cerberusAllied ? 'defend' : 'offensive'));
-  fleets.push(mk('Cerberus Omega Group', 'cerberus', cerberusAllied ? 'allied' : 'cerberus', 'omega', k({ cerberus_cruiser: 8, cerberus_frigate: 12, cerberus_dreadnought: rules.id === 'prime_apex' ? 2 : 0 }, fs.cerberus), cerberusAllied, cerberusAllied ? 'defend' : 'offensive'));
+  fleets.push(mk('Cerberus Omega Group', 'cerberus', cerberusAllied ? 'allied' : 'cerberus', 'omega', k({ cerberus_cruiser: 8, cerberus_frigate: 12, cerberus_dreadnought: isApexRules(rules) ? 2 : 0 }, fs.cerberus), cerberusAllied, cerberusAllied ? 'defend' : 'offensive'));
   fleets.push(mk('Reaper vanguard', 'reaper', 'reaper', 'kite_nest', k({ reaper_capital: 4, reaper_destroyer: 10 }, fs.reaper), false, 'offensive'));
   fleets.push(mk('Reaper harvest fleet', 'reaper', 'reaper', 'hades_gamma', { ...k({ reaper_capital: 6, reaper_destroyer: 14 }, fs.reaper), harbinger: rules.strategic.harbingerOperational ? 1 : 0 }, false, 'offensive'));
 

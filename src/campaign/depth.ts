@@ -1,3 +1,4 @@
+import { normaliseRules } from '@/timelines/schema';
 import { Rng } from '@/core/rng';
 import { FACTIONS } from '@/data/factions';
 import type { FactionId } from '@/data/types';
@@ -273,6 +274,8 @@ export function politicalPhase(state: CampaignState, log: Logger, interactive = 
 
 /** Fill fields added after the first campaign build so old saves keep working. */
 export function normaliseCampaign(state: CampaignState): CampaignState {
+  // Stored rule sets predate new special/strategic keys: fill them from the canon values (never from the preset).
+  state.rules = normaliseRules(state.rules);
   state.research ??= { progress: 0, completed: [] };
   state.refugees ??= 0;
   state.flags ??= {};

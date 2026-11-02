@@ -187,6 +187,8 @@ export class BattleSimulation implements AiContext {
     let wi = 0;
     cls.hardpoints.forEach((hp, hpIndex) => {
       const base = getWeapon(hp.weaponId);
+      // Hardpoints gated on a special-technology flag (nova_legacy) are fitted only when the flag is true.
+      if (base.requiresSpecial && rules.special[base.requiresSpecial] !== true) return;
       const nominal = applyRulesToWeapon(base, cls.faction, cls, rules, WEAPONS);
       const def: EffectiveWeapon = { ...nominal, range: nominal.range * S, projectileSpeed: nominal.projectileSpeed * S };
       for (let m = 0; m < hp.count; m++) {
@@ -204,6 +206,8 @@ export class BattleSimulation implements AiContext {
           ammo: def.magazine,
           burstLeft: def.burst?.shots,
           burstRecover: 0,
+          // The Titan gun's separate HADES magazine (counts down only when a HADES round leaves the gun).
+          ...(def.hadesRound && def.specialAmmo !== undefined ? { specialAmmo: def.specialAmmo } : {}),
         });
       }
     });
@@ -258,8 +262,8 @@ export class BattleSimulation implements AiContext {
       regenSuppressedUntil: 0,
       recentHitTimes: [],
       flagshipEvents: { destroyed: false, missionKill: false },
-      barrierRegenUnderFire: 0,
-      barrierLoadThreshold: 0,
+      barrierRegenUnderFire: stats.barrierRegenUnderFire,
+      barrierLoadThreshold: stats.barrierLoadThreshold,
     };
     if (cls.fighterComplement) {
       ship.hangar = { classId: cls.fighterComplement.classId, remaining: cls.fighterComplement.count, launchTimer: 2 };

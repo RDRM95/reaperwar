@@ -1,4 +1,5 @@
-import type { FactionId, ShipClassDef, WeaponDef } from '@/data/types';
+import { HADES_FUSE, type FactionId, type HadesFuse, type ShipClassDef, type WarheadDef, type WeaponDef } from '@/data/types';
+import { HADES_WARHEAD } from '@/data/weapons';
 
 /**
  * The alternate-universe rule engine.
@@ -34,9 +35,13 @@ export interface TechModifiers {
 }
 
 export interface SpecialTechnology {
-  /** Alliance/Turian dreadnoughts refit their spinal gun with the AU hyper-mass accelerator. */
+  /** Project Titan: Alliance and Cerberus (Black Fleet) dreadnought and super-dreadnought spinal guns become the Titan gun `apex_hyper_ma`. */
   hyperMassAccelerators: boolean;
-  /** HADES penetrators: kinetic rounds ignore a fraction of armour and pierce barriers more efficiently. */
+  /**
+   * HADES penetrators: each Titan gun carries a separate magazine of HADES rounds — a penetrator with a
+   * nuclear warhead that detonates only after a penetrating hit (ADOPTION_PLAN.md §7). Round-level: the
+   * values live on `EffectiveWeapon.hadesRound`; no faction-wide armour bypass.
+   */
   hadesRounds: boolean;
   /** Where Thanix cannons are mounted. */
   thanixAvailability: 'canon' | 'fleetwide' | 'none';
@@ -44,6 +49,20 @@ export interface SpecialTechnology {
   reaperCommandVulnerability: boolean;
   /** Indoctrination disabled: no morale/coordination penalty on organics from Reaper presence. */
   indoctrinationDisabled: boolean;
+  /** Scenario builders and compositions may spawn `normandy_valkyrie` (AU). */
+  valkyrieAvailable: boolean;
+  /** The Valkyrie's `nova_legacy` hardpoint is fitted (weapons declare `requiresSpecial`). AU HIGH POWER. */
+  legacyNova: boolean;
+  /** Black Fleet drive attacks: off, rare (Apex core) or upper tier (Apex legacy). */
+  driveAttacks: 'off' | 'rare' | 'upper';
+  /** Sol scenarios place `sol_platform_heavy` (super-accelerator) beside the dreadnought-grade platforms that exist under every preset. */
+  heavyPlatforms: boolean;
+  /** The Olympus-class and Praetor-class heavy dreadnoughts may be spawned by scenario builders and compositions. */
+  superDreadnoughts: boolean;
+  /** Enables the two withdrawal-type Reaper behaviours (tactical fall-back and return, never an exit). */
+  reaperDoctrine: 'canon' | 'apex';
+  /** Multiplies the readiness-tier weights; clamped to [0.5, 1.5]. */
+  readinessScale: number;
 }
 
 export interface FleetStrength {
@@ -125,6 +144,13 @@ export const CANON_SPECIAL: SpecialTechnology = {
   thanixAvailability: 'canon',
   reaperCommandVulnerability: false,
   indoctrinationDisabled: false,
+  valkyrieAvailable: false,
+  legacyNova: false,
+  driveAttacks: 'off',
+  heavyPlatforms: false,
+  superDreadnoughts: false,
+  reaperDoctrine: 'canon',
+  readinessScale: 1,
 };
 
 export const CANON_FLEETS: FleetStrength = {
@@ -155,6 +181,13 @@ export const CANON_STRATEGIC: StrategicVariables = {
 };
 
 export const TECH_KEYS = Object.keys(CANON_TECH) as (keyof TechModifiers)[];
+export const SPECIAL_KEYS = Object.keys(CANON_SPECIAL) as (keyof SpecialTechnology)[];
+export const STRATEGIC_KEYS = Object.keys(CANON_STRATEGIC) as (keyof StrategicVariables)[];
+
+/** Gates Apex MECHANICS (Black Fleet dreadnoughts, the Omega group): a cooperative Cerberus with Project Titan. */
+export const isApexRules = (rules: RuleSet): boolean => rules.strategic.cerberusStance === 'cooperative' && rules.special.hyperMassAccelerators;
+/** Gates the Apex FIGURES (APEX_SCALE captions, the strategic counter, apexDistantGroups): the two Apex presets by id. */
+export const isApexScenario = (rules: RuleSet): boolean => rules.id === 'prime_apex' || rules.id === 'apex_legacy';
 
 /** Deep-clone a rule set (rules are plain JSON). */
 export const cloneRules = (r: RuleSet): RuleSet => JSON.parse(JSON.stringify(r)) as RuleSet;
@@ -181,8 +214,12 @@ export interface EffectiveShipStats {
   sensorRange: number;
   ecm: number;
   crewQuality: number;
+  /** (cls.heatCapacity ?? 100) × the faction's heat-capacity multiplier. */
   heatCapacity: number;
-  /** AU flag: armour ignored fraction by incoming HADES rounds is handled on the weapon side. */
+  /** Fraction of barrier regeneration that continues under fire (M1; Reaper capitals 1, everything else 0). */
+  barrierRegenUnderFire: number;
+  /** Barrier load threshold in points (M2; 0 = off). */
+  barrierLoadThreshold: number;
 }
 
 export function applyRulesToShip(cls: ShipClassDef, rules: RuleSet): EffectiveShipStats {
@@ -209,17 +246,43 @@ export function applyRulesToShip(cls: ShipClassDef, rules: RuleSet): EffectiveSh
     sensorRange: cls.sensorRange.value * t.sensors,
     ecm: Math.min(0.95, cls.ecm * t.electronicWarfare),
     crewQuality: crew,
-    heatCapacity: 100 * t.heatCapacity,
+    heatCapacity: (cls.heatCapacity?.value ?? 100) * t.heatCapacity,
+    barrierRegenUnderFire: cls.barrierRegenUnderFire?.value ?? 0,
+    barrierLoadThreshold: cls.barrierLoadThreshold?.value ?? 0,
   };
 }
 
-export interface EffectiveWeapon extends WeaponDef {
-  /** Fraction of target armour ignored (HADES). */
+/** The HADES round carried by a Titan gun under `special.hadesRounds` (ADOPTION_PLAN.md §7). */
+export interface HadesRound {
+  /** Fraction of target armour the penetrator ignores. */
   armourBypass: number;
-  /** Multiplier on barrier efficiency against this weapon (HADES lowers it). */
+  /** 1.0: a HADES round never pierces barriers better than a slug; penetration is the fuse's business. */
+  barrierEfficiencyMultiplier: number;
+  warhead: WarheadDef;
+  fuse: HadesFuse;
+}
+
+export const TITAN_GUN_ID = 'apex_hyper_ma';
+const TITAN_EXCLUDED_CLASSES: ReadonlySet<string> = new Set(['destiny_ascension', 'normandy_valkyrie']);
+
+/** The Project Titan substitution predicate (ADOPTION_PLAN.md §1.2): which spinal guns become Titan guns. */
+export const isTitanCandidate = (weapon: WeaponDef, faction: FactionId, cls: ShipClassDef): boolean =>
+  (faction === 'alliance' || faction === 'cerberus') &&
+  (cls.role === 'dreadnought' || cls.role === 'super_dreadnought') &&
+  weapon.kind === 'mass_accelerator' &&
+  weapon.antiCapital &&
+  weapon.arc <= 20 &&
+  !TITAN_EXCLUDED_CLASSES.has(cls.id);
+
+export interface EffectiveWeapon extends WeaponDef {
+  /** Fraction of target armour ignored by an ordinary round (always 0: the HADES bypass is round-level, see `hadesRound`). */
+  armourBypass: number;
+  /** Multiplier on barrier efficiency against an ordinary round (always 1). */
   barrierEfficiencyMultiplier: number;
   /** Original weapon id if this one was substituted by a rule. */
   substitutedFrom?: string;
+  /** Present on the Titan gun under `special.hadesRounds` only: the special round's values. */
+  hadesRound?: HadesRound;
 }
 
 /**
@@ -238,15 +301,9 @@ export function applyRulesToWeapon(
   let substitutedFrom: string | undefined;
 
   if (faction !== 'reaper') {
-    // Hyper-mass accelerators replace dreadnought spinal guns.
-    if (
-      rules.special.hyperMassAccelerators &&
-      cls.role === 'dreadnought' &&
-      weapon.kind === 'mass_accelerator' &&
-      weapon.antiCapital &&
-      weapon.arc <= 20
-    ) {
-      w = catalogue.apex_hyper_ma;
+    // Project Titan: Alliance and Black Fleet dreadnought spinal guns become Titan guns.
+    if (rules.special.hyperMassAccelerators && isTitanCandidate(weapon, faction, cls)) {
+      w = catalogue[TITAN_GUN_ID];
       substitutedFrom = weapon.id;
     }
     // Thanix availability.
@@ -272,7 +329,11 @@ export function applyRulesToWeapon(
   if (isTorp) damage *= t.torpedoDamage;
   if (isGardian) damage *= t.gardianEffectiveness;
 
-  const hades = faction !== 'reaper' && rules.special.hadesRounds && isMA;
+  // HADES is round-level: only the Titan gun carries the special magazine, and only under hadesRounds.
+  const hadesRound: HadesRound | undefined =
+    faction !== 'reaper' && rules.special.hadesRounds && w.id === TITAN_GUN_ID
+      ? { armourBypass: 0.5, barrierEfficiencyMultiplier: 1, warhead: HADES_WARHEAD, fuse: HADES_FUSE }
+      : undefined;
 
   return {
     ...w,
@@ -281,8 +342,9 @@ export function applyRulesToWeapon(
     range: isMA ? w.range * t.massAcceleratorRange : w.range,
     cooldown: w.cooldown / t.fireRate,
     accuracy: Math.min(0.99, w.accuracy * t.accuracy),
-    armourBypass: hades ? 0.5 : 0,
-    barrierEfficiencyMultiplier: hades ? 0.6 : 1,
+    armourBypass: 0,
+    barrierEfficiencyMultiplier: 1,
     substitutedFrom,
+    ...(hadesRound ? { hadesRound } : {}),
   };
 }

@@ -1,7 +1,8 @@
 import { BattleSimulation } from '@/simulation/battle';
 import type { BattleConfig, BattleResult } from '@/simulation/types';
+import { WEAPONS } from '@/data/weapons';
 import { CANON_ME3 } from '@/timelines/presets';
-import { TECH_KEYS, type RuleSet } from '@/timelines/rules';
+import { TECH_KEYS, TITAN_GUN_ID, type RuleSet } from '@/timelines/rules';
 
 /**
  * Canon vs AU comparison: run the same scenario, seed and fleets under two
@@ -110,10 +111,18 @@ export function explainDifferences(a: RuleSet, b: RuleSet, ra: BattleResult, rb:
       if (Math.abs(va - vb) > 1e-6) changed.push({ label: `${f}.${k}`, impact: Math.abs(vb - va) * 1.5, text: `${f} ${TECH_LABEL[k] ?? k}: ×${va.toFixed(2)} → ×${vb.toFixed(2)}` });
     }
   }
-  if (a.special.hyperMassAccelerators !== b.special.hyperMassAccelerators) changed.push({ label: 'hyperMA', impact: 4, text: `Hyper-mass accelerators ${b.special.hyperMassAccelerators ? 'enabled: dreadnought spinal guns replaced with ~3× yield AU weapons' : 'disabled'}` });
-  if (a.special.hadesRounds !== b.special.hadesRounds) changed.push({ label: 'hades', impact: 3.5, text: `HADES rounds ${b.special.hadesRounds ? 'enabled: kinetic rounds bypass 50% of armour and pierce barriers more efficiently' : 'disabled'}` });
+  const hadesPerGun = WEAPONS[TITAN_GUN_ID]?.specialAmmo ?? 12;
+  if (a.special.hyperMassAccelerators !== b.special.hyperMassAccelerators) changed.push({ label: 'hyperMA', impact: 4, text: `Hyper-mass accelerators (Project Titan) ${b.special.hyperMassAccelerators ? `enabled: Alliance and Black Fleet dreadnought spinal guns become Titan guns carrying ${hadesPerGun} HADES penetrators each` : 'disabled'}` });
+  if (a.special.hadesRounds !== b.special.hadesRounds) changed.push({ label: 'hades', impact: 3.5, text: `HADES penetrators ${b.special.hadesRounds ? `enabled: each Titan gun holds ${hadesPerGun} HADES penetrators, fired at degraded Reaper capitals; the warhead detonates only after penetration` : 'disabled'}` });
   if (a.special.thanixAvailability !== b.special.thanixAvailability) changed.push({ label: 'thanix', impact: 1.5, text: `Thanix availability: ${a.special.thanixAvailability} → ${b.special.thanixAvailability}` });
   if (a.special.reaperCommandVulnerability !== b.special.reaperCommandVulnerability) changed.push({ label: 'cmd', impact: 1, text: `Reaper command vulnerability ${b.special.reaperCommandVulnerability ? 'enabled: capital losses degrade Reaper coordination' : 'disabled'}` });
+  if (a.special.valkyrieAvailable !== b.special.valkyrieAvailable) changed.push({ label: 'valkyrie', impact: 2, text: `Normandy Valkyrie ${b.special.valkyrieAvailable ? 'available: the 2,000 m AU command dreadnought may be fielded' : 'unavailable'}` });
+  if (a.special.legacyNova !== b.special.legacyNova) changed.push({ label: 'nova', impact: 2.5, text: `Legacy Nova ${b.special.legacyNova ? 'fitted: the 0.1c single-shot capital killer (AU HIGH POWER — easier by design)' : 'not fitted'}` });
+  if (a.special.driveAttacks !== b.special.driveAttacks) changed.push({ label: 'drive', impact: 1.2, text: `Black Fleet drive attacks: ${a.special.driveAttacks} → ${b.special.driveAttacks}` });
+  if (a.special.heavyPlatforms !== b.special.heavyPlatforms) changed.push({ label: 'platforms', impact: 1.2, text: `Heavy Sol platforms (super-accelerator) ${b.special.heavyPlatforms ? 'enabled' : 'disabled'}` });
+  if (a.special.superDreadnoughts !== b.special.superDreadnoughts) changed.push({ label: 'superdn', impact: 1.5, text: `Heavy dreadnoughts (Olympus-class, Praetor-class) ${b.special.superDreadnoughts ? 'available' : 'unavailable'}` });
+  if (a.special.reaperDoctrine !== b.special.reaperDoctrine) changed.push({ label: 'doctrine', impact: 1, text: `Reaper doctrine: ${a.special.reaperDoctrine} → ${b.special.reaperDoctrine}${b.special.reaperDoctrine === 'apex' ? ' (threatened groups fall back and return; damaged harvest ships are abandoned)' : ''}` });
+  if (Math.abs(a.special.readinessScale - b.special.readinessScale) > 1e-6) changed.push({ label: 'readiness', impact: Math.abs(a.special.readinessScale - b.special.readinessScale) * 1.5, text: `Readiness scale ×${a.special.readinessScale} → ×${b.special.readinessScale} (crew quality of tiered fleets)` });
   if (a.strategic.alliedCoordination !== b.strategic.alliedCoordination) changed.push({ label: 'coord', impact: Math.abs(a.strategic.alliedCoordination - b.strategic.alliedCoordination) * 1.2, text: `Allied coordination ${a.strategic.alliedCoordination} → ${b.strategic.alliedCoordination} (crew effectiveness)` });
   if (a.strategic.indoctrinationEffectiveness !== b.strategic.indoctrinationEffectiveness) changed.push({ label: 'indoc', impact: 0.5, text: `Indoctrination effectiveness ${a.strategic.indoctrinationEffectiveness} → ${b.strategic.indoctrinationEffectiveness}` });
   if (a.strategic.reaperCompetence !== b.strategic.reaperCompetence) changed.push({ label: 'rcomp', impact: Math.abs(a.strategic.reaperCompetence - b.strategic.reaperCompetence) * 2, text: `Reaper strategic competence ×${a.strategic.reaperCompetence} → ×${b.strategic.reaperCompetence}` });
@@ -137,7 +146,7 @@ export function explainDifferences(a: RuleSet, b: RuleSet, ra: BattleResult, rb:
     if (changed.length > 8) out.push(`• …and ${changed.length - 8} further changes with smaller effect.`);
   }
   if (a.id === CANON_ME3.id && b.special.hyperMassAccelerators) {
-    out.push('Under canon rules Alliance mass accelerators mostly feed Reaper barriers; the AU hyper-mass accelerator and HADES rounds let dreadnought salvoes reach Reaper hulls, which is what converts attrition into kills.');
+    out.push('Under canon rules Alliance mass accelerators mostly feed Reaper barriers; under Apex the Titan guns and their HADES penetrators — a penetrator with a nuclear warhead that detonates only after a penetrating hit — let dreadnought salvoes reach Reaper hulls once a barrier has failed, which is what converts attrition into kills.');
   }
   return out;
 }

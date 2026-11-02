@@ -70,19 +70,31 @@ describe('damage model', () => {
     expect(b.hullDamage / 1000).toBeGreaterThan(0.8); // dreadnought rounds get through
   });
 
-  it('HADES rounds (Prime/Apex) bypass armour and pierce barriers more efficiently', () => {
+  it('the Titan gun (Prime/Apex) carries round-level HADES penetrators; a HADES round against a full barrier is absorbed like a slug', () => {
     const canonReaper = makeShip('reaper_capital', CANON_ME3, 'B');
     const apexReaper = makeShip('reaper_capital', PRIME_APEX, 'B');
     const canonGun = weapon('alliance_dn_main', 'alliance', 'alliance_dreadnought', CANON_ME3);
     const apexGun = weapon('alliance_dn_main', 'alliance', 'alliance_dreadnought', PRIME_APEX);
     expect(apexGun.substitutedFrom).toBe('alliance_dn_main');
     expect(apexGun.id).toBe('apex_hyper_ma');
-    expect(apexGun.armourBypass).toBeGreaterThan(0);
+    expect(apexGun.specialAmmo).toBe(12);
+    expect(apexGun.hadesRound?.armourBypass).toBe(0.5);
+    expect(apexGun.hadesRound?.barrierEfficiencyMultiplier).toBe(1);
+    expect(apexGun.hadesRound?.warhead.damage).toBe(2260);
+    expect(apexGun.hadesRound?.fuse.residualFraction).toBe(0.5);
+    // The faction-wide bypass is gone: every ordinary round, the Titan slug included, keeps slug values.
+    expect(apexGun.armourBypass).toBe(0);
+    expect(apexGun.barrierEfficiencyMultiplier).toBe(1);
+    const broadside = weapon('alliance_broadside', 'alliance', 'alliance_dreadnought', PRIME_APEX);
+    expect(broadside.armourBypass).toBe(0);
+    expect(broadside.hadesRound).toBeUndefined();
     const a = applyDamage(canonReaper, 1000, canonGun, new Rng(1), 0);
     const b = applyDamage(apexReaper, 1000, apexGun, new Rng(1), 0);
-    // With full barriers: canon absorbs everything; HADES lets some through.
+    // With full barriers both rounds are absorbed outright: the warhead never arms (residual below the fuse).
     expect(a.hullDamage).toBe(0);
-    expect(b.hullDamage).toBeGreaterThan(0);
+    expect(b.hullDamage).toBe(0);
+    expect(b.residual).toBeLessThan(0.5 * 1000);
+    expect(apexReaper.hull).toBe(apexReaper.maxHull);
   });
 
   it('hit probability drops for fighters targeted by capital guns and rises for large targets', () => {

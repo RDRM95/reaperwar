@@ -38,8 +38,8 @@ export function assessReapers(sim: BattleSimulation): ReaperAssessment {
 
   const unexpected: string[] = [];
   const rules = sim.rules;
-  if (rules.special.hyperMassAccelerators) unexpected.push('Hyper-mass accelerator signatures exceeding all archived organic weapon yields.');
-  if (rules.special.hadesRounds) unexpected.push('Penetrator rounds defeating hull plating at anomalous rates.');
+  if (rules.special.hyperMassAccelerators) unexpected.push('Project Titan accelerator signatures exceeding all archived organic weapon yields.');
+  if (rules.special.hadesRounds) unexpected.push('Penetrator rounds detonating inside hull plating at anomalous rates.');
   if (rules.special.thanixAvailability === 'fleetwide') unexpected.push('Widespread deployment of weapons derived from our own technology.');
   if (rules.organic.kineticBarrierStrength > 1.3) unexpected.push('Barrier capacity above projected organic capability.');
   if (rules.special.reaperCommandVulnerability) unexpected.push('Command network degradation following capital unit loss.');
@@ -48,7 +48,8 @@ export function assessReapers(sim: BattleSimulation): ReaperAssessment {
   const coordination = Math.max(0, Math.min(1, rules.strategic.alliedCoordination * 0.6 + (organicShots > 50 ? 0.3 : 0.1)));
 
   let threatLevel: ReaperAssessment['threatLevel'] = 'NEGLIGIBLE';
-  const score = reaperLossesFraction * 3 + reaperCapitalLosses * 0.6 + organicTechCapability * 0.8 + (organicFleetStrength > 0.6 && sim.time > 60 ? 0.5 : 0);
+  // ADOPTION_PLAN.md §3.2 re-base: any Reaper loss is itself an anomaly; thresholds unchanged.
+  const score = reaperLossesFraction * 2 + reaperCapitalLosses * 0.4 + organicTechCapability * 0.8 + (organicFleetStrength > 0.6 && sim.time > 60 ? 0.6 : 0) + (reaperLost > 0 ? 1.2 : 0);
   if (score > 3.2) threatLevel = 'CRITICAL';
   else if (score > 2.2) threatLevel = 'SEVERE';
   else if (score > 1.3) threatLevel = 'ELEVATED';
@@ -56,8 +57,11 @@ export function assessReapers(sim: BattleSimulation): ReaperAssessment {
   else if (score > 0.3) threatLevel = 'LOW';
 
   const lines: string[] = [];
+  const harbingerDestroyed = sim.events.some((e) => e.type === 'flagship_destroyed' && e.tier === 'harbinger');
   let headline: string;
-  if (reaperCapitalLosses === 0 && reaperLossesFraction < 0.05) {
+  if (harbingerDestroyed) {
+    headline = 'HARVEST COMMAND VESSEL DESTROYED. THE CYCLE CONTINUES WITHOUT IT.';
+  } else if (reaperCapitalLosses === 0 && reaperLossesFraction < 0.05) {
     headline = 'HARVEST RESISTANCE WITHIN EXPECTED PARAMETERS.';
   } else if (reaperCapitalLosses === 0) {
     headline = 'MINOR UNIT LOSSES RECORDED. HARVEST PROCEEDING.';
@@ -71,6 +75,7 @@ export function assessReapers(sim: BattleSimulation): ReaperAssessment {
   lines.push(`Organic fleet strength: ${(organicFleetStrength * 100).toFixed(0)}% of initial deployment.`);
   lines.push(`Harvest fleet losses: ${(reaperLossesFraction * 100).toFixed(0)}% of committed force value.`);
   if (reaperCapitalLosses > 0) lines.push(`Capital units destroyed: ${reaperCapitalLosses}.`);
+  if (harbingerDestroyed && rules.special.reaperCommandVulnerability) lines.push('Coordination penalty active.');
   lines.push(`Organic weapon effectiveness index: ${(organicTechCapability * 100).toFixed(0)}.`);
   if (sim.finished && sim.result) {
     const reaperSide = reaperShips[0]?.side;

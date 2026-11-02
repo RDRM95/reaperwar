@@ -179,6 +179,7 @@ export const PRIME_APEX: RuleSet = {
     cerberus: { electronicWarfare: 1.6, sensors: 1.6 },
   },
   special: {
+    ...CANON_SPECIAL,
     hyperMassAccelerators: true,
     hadesRounds: true,
     thanixAvailability: 'fleetwide',

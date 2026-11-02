@@ -75,7 +75,7 @@ describe('battle simulation', () => {
     apex.run();
     const a = assessReapers(canon);
     const b = assessReapers(apex);
-    expect(['NEGLIGIBLE', 'LOW', 'MODERATE', 'ELEVATED']).toContain(a.threatLevel);
+    expect(['MODERATE', 'ELEVATED', 'SEVERE']).toContain(a.threatLevel);
     expect(['SEVERE', 'CRITICAL']).toContain(b.threatLevel);
     expect(b.reaperCapitalLosses).toBeGreaterThan(a.reaperCapitalLosses);
   });

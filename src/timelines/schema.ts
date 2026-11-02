@@ -3,6 +3,8 @@ import {
   CANON_SPECIAL,
   CANON_STRATEGIC,
   CANON_TECH,
+  SPECIAL_KEYS,
+  STRATEGIC_KEYS,
   TECH_KEYS,
   type FleetStrength,
   type RuleSet,
@@ -48,6 +50,8 @@ export const TECH_RANGE: Record<keyof TechModifiers, [number, number]> = {
 };
 
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+
+export const READINESS_SCALE_RANGE: [number, number] = [0.5, 1.5];
 
 function num(v: unknown, fallback: number, range: [number, number], path: string, warnings: string[]): number {
   if (typeof v !== 'number' || !Number.isFinite(v)) {
@@ -111,12 +115,21 @@ export function validateRuleSet(input: unknown): ValidationResult {
 
   const sp = isObj(input.special) ? input.special : {};
   const thanix = sp.thanixAvailability;
+  const drive = sp.driveAttacks;
+  const doctrine = sp.reaperDoctrine;
   const special: SpecialTechnology = {
     hyperMassAccelerators: bool(sp.hyperMassAccelerators, CANON_SPECIAL.hyperMassAccelerators, 'special.hyperMassAccelerators', warnings),
     hadesRounds: bool(sp.hadesRounds, CANON_SPECIAL.hadesRounds, 'special.hadesRounds', warnings),
     thanixAvailability: thanix === 'canon' || thanix === 'fleetwide' || thanix === 'none' ? thanix : 'canon',
     reaperCommandVulnerability: bool(sp.reaperCommandVulnerability, false, 'special.reaperCommandVulnerability', warnings),
     indoctrinationDisabled: bool(sp.indoctrinationDisabled, false, 'special.indoctrinationDisabled', warnings),
+    valkyrieAvailable: bool(sp.valkyrieAvailable, CANON_SPECIAL.valkyrieAvailable, 'special.valkyrieAvailable', warnings),
+    legacyNova: bool(sp.legacyNova, CANON_SPECIAL.legacyNova, 'special.legacyNova', warnings),
+    driveAttacks: drive === 'off' || drive === 'rare' || drive === 'upper' ? drive : CANON_SPECIAL.driveAttacks,
+    heavyPlatforms: bool(sp.heavyPlatforms, CANON_SPECIAL.heavyPlatforms, 'special.heavyPlatforms', warnings),
+    superDreadnoughts: bool(sp.superDreadnoughts, CANON_SPECIAL.superDreadnoughts, 'special.superDreadnoughts', warnings),
+    reaperDoctrine: doctrine === 'canon' || doctrine === 'apex' ? doctrine : CANON_SPECIAL.reaperDoctrine,
+    readinessScale: num(sp.readinessScale, CANON_SPECIAL.readinessScale, READINESS_SCALE_RANGE, 'special.readinessScale', warnings),
   };
 
   const fs = isObj(input.fleetStrength) ? input.fleetStrength : {};
@@ -182,6 +195,89 @@ export function validateRuleSet(input: unknown): ValidationResult {
 }
 
 export const exportRuleSet = (rules: RuleSet): string => JSON.stringify(rules, null, 2);
+
+const finiteOr = (v: unknown, fallback: number): number => (typeof v === 'number' && Number.isFinite(v) ? v : fallback);
+const clamp = (v: number, range: [number, number]): number => Math.min(range[1], Math.max(range[0], v));
+
+/**
+ * Fill a stored rule set up to the current shape without judging it: every
+ * missing or malformed `special` key takes its canon value, every missing
+ * `strategic` key its canon value, `readinessScale` is clamped, and the
+ * technology blocks and fleet strengths get finite numbers. Unlike
+ * `validateRuleSet` it never renames an id, never changes a category and
+ * never rewrites the name, history or any value that is already valid, so a
+ * campaign snapshot or a custom timeline saved under v0.11 reaches the
+ * simulation with every key defined. Total (never throws) and idempotent;
+ * returns a new object and leaves the input untouched.
+ */
+export function normaliseRules(rules: RuleSet): RuleSet {
+  const r = (isObj(rules) ? rules : {}) as Record<string, unknown>;
+  const sp = isObj(r.special) ? r.special : {};
+  const special = { ...CANON_SPECIAL };
+  for (const k of SPECIAL_KEYS) {
+    const v = sp[k];
+    const canonValue = CANON_SPECIAL[k];
+    if (typeof canonValue === 'boolean') {
+      if (typeof v === 'boolean') (special as Record<string, unknown>)[k] = v;
+    } else if (typeof canonValue === 'number') {
+      (special as Record<string, unknown>)[k] = v === undefined ? canonValue : clamp(finiteOr(v, canonValue), READINESS_SCALE_RANGE);
+    } else if (k === 'thanixAvailability') {
+      if (v === 'canon' || v === 'fleetwide' || v === 'none') special.thanixAvailability = v;
+    } else if (k === 'driveAttacks') {
+      if (v === 'off' || v === 'rare' || v === 'upper') special.driveAttacks = v;
+    } else if (k === 'reaperDoctrine') {
+      if (v === 'canon' || v === 'apex') special.reaperDoctrine = v;
+    }
+  }
+  const st = isObj(r.strategic) ? r.strategic : {};
+  const strategic = { ...CANON_STRATEGIC };
+  for (const k of STRATEGIC_KEYS) {
+    const v = st[k];
+    const canonValue = CANON_STRATEGIC[k];
+    if (typeof canonValue === 'boolean') {
+      if (typeof v === 'boolean') (strategic as Record<string, unknown>)[k] = v;
+    } else if (typeof canonValue === 'number') {
+      (strategic as Record<string, unknown>)[k] = finiteOr(v, canonValue);
+    } else if (k === 'cerberusStance') {
+      if (v === 'hostile' || v === 'neutral' || v === 'cooperative' || v === 'controls_reapers') strategic.cerberusStance = v;
+    }
+  }
+  const techBlock = (v: unknown): TechModifiers => {
+    const src = isObj(v) ? v : {};
+    const out = { ...CANON_TECH };
+    for (const k of TECH_KEYS) out[k] = finiteOr(src[k], CANON_TECH[k]);
+    return out;
+  };
+  const fs = isObj(r.fleetStrength) ? r.fleetStrength : {};
+  const fleetStrength = { ...CANON_FLEETS };
+  for (const f of FACTION_IDS) fleetStrength[f] = finiteOr(fs[f], 1);
+  const factionOverrides: RuleSet['factionOverrides'] = {};
+  if (isObj(r.factionOverrides)) {
+    for (const f of FACTION_IDS) {
+      const o = r.factionOverrides[f];
+      if (!isObj(o)) continue;
+      const partial: Partial<TechModifiers> = {};
+      for (const k of TECH_KEYS) if (o[k] !== undefined) partial[k] = finiteOr(o[k], CANON_TECH[k]);
+      factionOverrides[f] = partial;
+    }
+  }
+  const category = r.category === 'canon' || r.category === 'au' || r.category === 'custom' ? r.category : 'custom';
+  return {
+    ...(r as unknown as RuleSet),
+    id: typeof r.id === 'string' && r.id ? r.id : 'custom',
+    name: typeof r.name === 'string' ? r.name : 'Custom Timeline',
+    tagline: typeof r.tagline === 'string' ? r.tagline : '',
+    category,
+    description: typeof r.description === 'string' ? r.description : '',
+    historyChanges: Array.isArray(r.historyChanges) ? r.historyChanges.filter((x): x is string => typeof x === 'string') : [],
+    organic: techBlock(r.organic),
+    reaper: techBlock(r.reaper),
+    factionOverrides,
+    special,
+    strategic,
+    fleetStrength,
+  };
+}
 
 export function importRuleSet(json: string): ValidationResult {
   let parsed: unknown;
