@@ -207,3 +207,38 @@ Beyond the §8.1 movement model (which decides where ships go), the renderer get
 | HUD indicators, dashed overlay brackets, strike camera, director cue | B | ship panel shows SILENT RUNNING / REVEALED / VENTING; cue fires in the Final Battle |
 | Custom editor labels (one Normandy; stealth frigates by count), order of battle wording | C | editor shows "SR-2-pattern stealth frigate" |
 | Codex (IES canon paragraph, the compression as an estimate), database rows (capacity, vent time, detect range), KNOWN_ISSUES note, e2e | D | codex test and wording test green |
+
+## 16. Graphics and cinematic gameplay overhaul (owner's requirement, 2 Nov; binding)
+
+Owner's words (verbatim intent): "a major graphics and cinematic gameplay overhaul … make the simulator visually resemble a high-quality Mass Effect 3 space battle while keeping the existing deterministic combat engine, fleet AI, statistics and timeline rules intact." Three phases, staged, each verified by looking at rendered results.
+
+### 16.1 Phase 1 — Graphics
+- Audit the current Three.js renderer and ship-generation code first; profile it and write down its graphical limitations before changing anything.
+- Models: authentic Sovereign-class Reaper anatomy first (correct head orientation, articulated forward limbs, hull proportions, weapon-emitter locations), then Alliance dreadnoughts, the Normandy and SSV Omaha, then every other class against its design sheet.
+- Materials: detailed armour plating, surface textures and normal maps (procedural, original), metallic response, emissive components.
+- Lighting and image: space lighting, realistic engine illumination, cinematic colour grading, bloom, anti-aliasing.
+- Weapon effects: replace the simple beam cylinders with convincing effects; shield impacts, armour penetration, staged explosions, persistent wreckage.
+- Cinematic close-ups must look good without compromising large-fleet performance.
+
+### 16.2 Phase 2 — Gameplay and performance
+- Preserve the formation, targeting, motion, collision-avoidance and fire-control behaviour the simulation delivers (CORE); the renderer never changes an outcome.
+- Improve player battle commands, fleet visibility and cinematic camera selection.
+- Large battles: instancing, appropriate LOD, selective visual effects.
+- A separate **Cinematic Graphics** preset (quality tier) next to the existing presets.
+
+### 16.3 Phase 3 — Cinematic recording and replay
+- Clean HUD-free footage; 4K output target where practical; 30 / 60 fps capture options.
+- Cinematic camera tracking and controlled camera cuts; slow-motion combat.
+- Deterministic playback, including recorded player orders (the replay file carries the seed, configuration and every order with its tick; the replay re-issues them).
+- Optional offline frame-by-frame rendering: the simulation steps by exactly one frame interval per rendered frame and each frame is captured at full quality, so recording quality is not limited by real-time performance.
+
+### 16.4 Engineering requirements
+- Work in the existing repository; the combat simulator stays; no other engine.
+- Implement in manageable stages; preserve existing working functionality and battle-outcome determinism; add automated tests and visual comparisons; run build, typecheck and the regression suites after changes.
+- Before-and-after screenshots from identical camera positions and battle seeds (a committed baseline set and a script that reproduces the positions).
+- Completion is never claimed from code alone: the rendered results are inspected (screenshots read by the reviewer) and problems corrected.
+- Priorities: accurate Mass Effect ship designs, convincing combat effects and high-quality cinematic footage over decorative interface changes.
+
+### 16.5 How it is run
+- A planning workflow audits and profiles the renderer, captures the baseline screenshots and writes `docs/apex/GRAPHICS_OVERHAUL_PLAN.md` (staged tasks with owners, tests and visual checks), vetted by adversarial critics.
+- Stage A (rendering) executes phases 1 and 2's render side and the likeness/animation passes of §10 and §15; stage B executes the camera, command, preset and recording/replay work of phases 2 and 3; CORE adds the order log the replay needs. Integration runs the before/after comparison and the perf ladder.
