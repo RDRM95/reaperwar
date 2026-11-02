@@ -22,6 +22,16 @@ Written 2 Nov 2026 by the lead session while its context was nearly full. Everyt
 - A second workflow prepares stage D documents while CORE runs: `apex-v2-stage-d-prep` (run `wf_2f8b94ec-2bf`, script `~/.claude/projects/-home-user-reaperwar/<session>/workflows/scripts/apex-v2-stage-d-prep-wf_2f8b94ec-2bf.js`), writing `docs/apex/CHARACTER_BIBLE.md`, `docs/apex/CONTINUITY_CHECKLIST.md` and the `docs/design/` sheets + `silhouettes.json` in worktrees `/home/user/reaperwar-Dprep` (branch `stage/D-prep`) and `/home/user/reaperwar-Dprep2` (`stage/D-prep-sheets`, merged into `stage/D-prep` at the end). **When it finishes:** in the main checkout, `git merge --no-ff stage/D-prep` (docs only; retry if the CORE agent's index is busy), push the branch, then `git worktree remove /home/user/reaperwar-Dprep && git branch -d stage/D-prep`. Do this before launching stages A–D so B finds the real bible and D continues the sheets (D then fills proportion tables and writes the tests/e2e/codex of §5.3).
 - Stage scripts: `stages-abcd.js` agents run with `isolation: 'worktree'`; the prompt tells them to create `../reaperwar-<X>` on `stage/<X>` per §0.1 — if an agent instead works in the orchestrator's temporary worktree, its report names the real path and branch; the integration agent must merge whatever branches the reports name (pass them via `args` if they differ from `stage/A..D`).
 
+## State on 2 Nov, 18:40 UTC — three workflows running
+
+| Run | What | Worktree / branch | When it finishes |
+| --- | --- | --- | --- |
+| `wf_2f3d7476-5c1` (CORE) | T1–T20 + acceptance; T1, T2 landed | main checkout, integration branch | launch stages B, C, D |
+| `wf_2f8b94ec-2bf` (D-prep) | character bible, continuity checklist, design sheets | `/home/user/reaperwar-Dprep` → `stage/D-prep` | merge `stage/D-prep` into the integration branch, push, remove worktree |
+| `wf_c90f6423-5b9` (graphics plan) | renderer audits, baseline shots `docs/graphics/before`, `scripts/compare-shots.mjs`, `docs/apex/GRAPHICS_OVERHAUL_PLAN.md` (brief §16) | `/home/user/reaperwar-Gplan` → `stage/G-plan` | merge into the integration branch, push; patch the stage A and B prompts in `docs/apex/workflows/stages-abcd.js` from the plan's §9; then launch stage A alone (`args: { only: ['A'] }`) in parallel with CORE |
+
+Owner requirements added today and binding everywhere: brief §15 (stealth classes, animation layer) and §16 (graphics and cinematic overhaul in three phases; CORE adds a tick-stamped order log for deterministic replay). Stage A may start before CORE finishes because `src/rendering/**` and `src/audio/**` are not CORE-owned and the T2 integration stubs are already on the branch; stage A merges the integration branch into `stage/A` before it finishes. Stages B, C, D start after CORE acceptance. Then `integration-release.js` with `args: { branches: [...] }`, the before/after comparison, the perf ladder, 1.0.0, the `main` fast-forward and the deployment check.
+
 ## Operating rules learned the hard way
 
 - Usage windows: five-hour limits and a separate Fable limit interrupt long workflows; every agent must commit green checkpoints so resumes lose nothing. Never let an agent push `main`; never force-push or rebase; stage branches are merged by INTEGRATION only.
