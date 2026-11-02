@@ -36,3 +36,7 @@ Priority order agreed on 1 Nov 2026: finish and ship the V2 build first, then ad
 ## V2.1 — System theatre (first phase after 1.0.0)
 
 In-system travel and combat at Sol scale: system map with bodies and objectives, FTL hops with drive heat and discharge tempo, the mass relay as the attackers' entry and exit point with a transit mechanic matching the games (alignment, corridor, ordered departure, arrival scatter, blockade), engagements resolved by the battle simulation at the body where fleets meet, campaign tie-in. Design in `docs/V2_CINEMATIC_BRIEF.md` §13.
+
+## V2.2 — Alternate Timelines hub (after V2.1)
+
+A separate section for timeline families inside or next to the Mass Effect tech tree: Early Beacon (1800), First Contact Ascendant, One Humanity (Cerberus-Alliance aligned), Prothean Victory, Dark Lane (non-eezo FTL), HFY Terran Hegemony, a Stellaris-style player civilisation as a real faction with politics and fleet power, and Multiverse Earths (machine ascendancy vs Reapers and others). Needs tech families in the rules engine, a faction builder and politics model. Design in `docs/V2_CINEMATIC_BRIEF.md` §14.

@@ -156,3 +156,19 @@ Everything ships at a higher quality bar, with likeness and accuracy to Mass Eff
 - **Engagements** occur where fleets meet: the existing battle simulation runs at that body with its environment, platforms and arriving reinforcements by FTL hop or relay.
 - **Campaign tie-in**: the galaxy campaign's system defence index becomes the system map's platforms and garrisons; victories and losses flow back.
 - Everything labelled: canon mechanics (relay use, discharge) as CANON_INFERRED where the codex supports them, numbers as SIMULATION_ESTIMATE.
+
+## 14. Alternate Timelines hub (owner's requirement, 2 Nov; scheduled V2.2)
+
+A dedicated, clearly separated section of the game ("Alternate Timelines", never mixed with canon screens) holding timeline families that stay inside or next to the Mass Effect tech tree but take other paths. Each family is a bundle: a rule set (the existing preset engine, extended with tech families below), factions and fleets, scenarios, a campaign variant, codex pages and a lore page, all labelled AU. The Reapers remain a challenge in every family unless the family is explicitly a HFY power fantasy, which is labelled as such.
+
+Catalogue (first set; names are placeholders and can change):
+1. **Early Beacon (1800)** — a Prothean beacon on Mars warns humanity in 1800; ~300 years of isolated development and military build-up before the Charon relay is opened in 2149 as instructed. Fully built navy, fortress Sol, mature eezo tech, Prothean-derived doctrine; Council relations start from strength.
+2. **First Contact Ascendant** — a more extreme, prepared humanity wins the First Contact War decisively in 2157 and keeps going: Farixen rejected, aggressive expansion, strained Council, larger dreadnought line, harder Alliance doctrine.
+3. **One Humanity** — Cerberus and the Systems Alliance are one organisation or ideologically aligned from the start: the Illusive Man as a director inside the Alliance, Black Fleet electronics and Thanix fits fleet-wide, Cerberus politics as state policy; the moral cost shows in the campaign's politics.
+4. **Prothean Victory** — the Protheans beat or survived the Reapers; a living Prothean polity exists in 2186 as ally, rival or overlord; Prothean hulls and beam weapons; Javik as an envoy, not a relic.
+5. **Dark Lane (non-eezo FTL)** — humanity never gets element zero to work and develops an alternative drive; no mass effect fields, so no kinetic barriers: ablative armour, thick point defence, railguns, lasers and nuclear warheads; relay-independent movement gives strategic surprise; Reaper weapons still work. New tech families in the rules engine: drive type, shield type, weapon class.
+6. **HFY: Terran Hegemony** — the extreme prepared humanity, labelled power fantasy; still has to win on the field.
+7. **Player civilisation (Stellaris-style)** — a custom civilisation builder (origin, ethics, government, species traits, tech focus) producing a real faction with its own fleet doctrine, production, politics and diplomacy inside the campaign; plays alongside or instead of the Alliance.
+8. **Multiverse Earths** (its own sub-section, pinned earlier): other franchises' Earths as original stand-in factions with their own tech trees — a machine ascendancy (Skynet-like) against the Reapers, a UNSC-like navy, and others; no assets or names from those games, designs original, clearly labelled.
+
+Engine work implied (why this is V2.2): tech families in the rule engine (drive, shields, weapons, armour, AI), faction builder and politics model, timeline-specific scenarios and campaign starts, codex sections per family, and a hub screen. Mechanics stay deterministic and tested; every number is SIMULATION_ESTIMATE or AU_MODIFIED.
