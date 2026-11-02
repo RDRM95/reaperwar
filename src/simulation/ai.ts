@@ -1,6 +1,7 @@
 import type { Rng } from '@/core/rng';
 import { add, distance, lengthSq, normalize, scale, sub, v3, type Vec3 } from '@/core/vec3';
 import { FACTIONS, type FactionDoctrine } from '@/data/factions';
+import { isCapitalRole } from '@/data/types';
 import type { RuleSet } from '@/timelines/rules';
 import { slotToWorld } from './formations';
 import { BATTLESPACE_SCALE as S } from './constants';
@@ -66,7 +67,7 @@ export function priorityMultiplier(priority: TargetPriority, target: ShipState):
     case 'reaper_capitals':
       return target.role === 'reaper_capital' ? 4 : 1;
     case 'capitals':
-      return target.role === 'dreadnought' || target.role === 'carrier' || target.role === 'reaper_capital' ? 4 : 1;
+      return isCapitalRole(target.role) ? 4 : 1;
     case 'escorts':
       return target.role === 'frigate' || target.role === 'cruiser' || target.role === 'reaper_destroyer' ? 3 : 1;
     case 'fighters':
@@ -101,7 +102,7 @@ export function scoreTarget(ctx: AiContext, shooter: ShipState, fleet: FleetStat
   // Protect capitals: escorts favour enemies that are attacking our capitals.
   if (fleet.orders.protectCapitals && (shooter.role === 'frigate' || shooter.role === 'cruiser')) {
     const tgt = target.targetId ? ctx.getShip(target.targetId) : undefined;
-    if (tgt && (tgt.role === 'dreadnought' || tgt.role === 'carrier') && tgt.side === shooter.side) score *= 1.8;
+    if (tgt && isCapitalRole(tgt.role) && tgt.side === shooter.side) score *= 1.8;
   }
   return score;
 }

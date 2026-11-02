@@ -1,11 +1,12 @@
 import * as THREE from 'three';
+import type { CameraPose } from './cameraDriver';
 
 /**
  * Battle camera rig. All modes write a desired position/look target; the rig
  * smooths toward them so switching modes produces a transition rather than a
  * cut. Positions are in render units.
  */
-export type CameraMode = 'tactical' | 'cinematic' | 'follow' | 'free' | 'projectile' | 'reaper' | 'command';
+export type CameraMode = 'tactical' | 'cinematic' | 'follow' | 'free' | 'projectile' | 'reaper' | 'command' | 'shot';
 
 export const CAMERA_MODE_LABELS: Record<CameraMode, string> = {
   tactical: 'Tactical',
@@ -15,6 +16,7 @@ export const CAMERA_MODE_LABELS: Record<CameraMode, string> = {
   projectile: 'Projectile',
   reaper: 'Reaper',
   command: 'Command',
+  shot: 'Shot list',
 };
 
 export interface CameraSubject {
@@ -43,6 +45,8 @@ export class CameraRig {
   private transition = 0;
   private shake = 0;
   private readonly tmp = new THREE.Vector3();
+  /** A pose handed in by a camera driver for the coming frame (shot / cinematic modes). */
+  private pendingPose?: { instant: boolean };
 
   constructor(aspect: number) {
     this.camera = new THREE.PerspectiveCamera(50, aspect, 1, 600_000);
@@ -71,6 +75,21 @@ export class CameraRig {
 
   addShake(amount: number): void {
     this.shake = Math.min(1, this.shake + amount);
+  }
+
+  /**
+   * Accept a pose from a camera driver (shot list or director): copies pos/look
+   * into the desired position and look target and sets the field of view. The
+   * next `update()` applies it instead of the mode's own framing.
+   */
+  setPose(pose: CameraPose, instant: boolean): void {
+    this.desiredPos.copy(pose.pos);
+    this.desiredLook.copy(pose.look);
+    if (Math.abs(this.camera.fov - pose.fov) > 1e-3) {
+      this.camera.fov = pose.fov;
+      this.camera.updateProjectionMatrix();
+    }
+    this.pendingPose = { instant };
   }
 
   // --- Input hooks (called by the controller).
@@ -107,7 +126,16 @@ export class CameraRig {
   update(dt: number, opts: { subject?: CameraSubject; cinematic?: { from: CameraSubject; to?: CameraSubject; age: number }; projectile?: CameraSubject; fleetCentre: THREE.Vector3 }): void {
     const cam = this.camera;
     let instant = false;
+    if (this.pendingPose) {
+      const inst = this.pendingPose.instant;
+      this.pendingPose = undefined;
+      this.apply(dt, inst);
+      return;
+    }
     switch (this.mode) {
+      case 'shot':
+        // No driver pose this frame: tactical framing (the showcase treats it as "scene over").
+        return this.fallback(dt, opts.fleetCentre);
       case 'tactical': {
         this.desiredLook.copy(this.focus);
         const off = new THREE.Vector3(Math.sin(this.yaw) * Math.cos(this.pitch), Math.sin(this.pitch), Math.cos(this.yaw) * Math.cos(this.pitch)).multiplyScalar(this.distance);

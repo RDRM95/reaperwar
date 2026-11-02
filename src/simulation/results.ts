@@ -1,9 +1,9 @@
 import { getShipClass } from '@/data/ships';
-import type { FactionId } from '@/data/types';
+import { isCapitalRole, type FactionId } from '@/data/types';
 import type { BattleSimulation } from './battle';
 import type { BattleResult, Side, SideSummary } from './types';
 
-const isCapital = (role: string): boolean => role === 'dreadnought' || role === 'carrier' || role === 'reaper_capital';
+const isCapital = isCapitalRole;
 
 export function summariseSide(sim: BattleSimulation, side: Side): SideSummary {
   const ships = sim.ships.filter((s) => s.side === side);

@@ -18,12 +18,13 @@ import {
 } from '@/core/vec3';
 import { FACTIONS, type CommsEvent } from '@/data/factions';
 import { getShipClass } from '@/data/ships';
-import type { FactionId } from '@/data/types';
+import { NAMED_FLAGSHIPS, isCapitalRole, type DamageType, type FactionId } from '@/data/types';
 import { WEAPONS, getWeapon } from '@/data/weapons';
 import { applyRulesToShip, applyRulesToWeapon, cloneRules, type EffectiveWeapon, type RuleSet } from '@/timelines/rules';
 import { fleetDecision, movementGoal, shipDecision, type AiContext } from './ai';
 import { applyDamage, hitProbability } from './damage';
 import { assignSlots } from './formations';
+import { SimProfile } from './profile';
 import { summarise } from './results';
 import { BATTLESPACE_SCALE as S } from './constants';
 
@@ -33,6 +34,7 @@ import type {
   BattleConfig,
   BattleEvent,
   BattleResult,
+  DestructionCause,
   FleetOrders,
   FleetSpec,
   FleetState,
@@ -76,6 +78,8 @@ export class BattleSimulation implements AiContext {
   flashes: { from: Vec3; to: Vec3; kind: 'gardian' | 'reaper_pd'; ttl: number }[] = [];
   finished = false;
   result?: BattleResult;
+  /** Per-phase step timings; zero cost and no clock while `profile.enabled` is false (the default). */
+  readonly profile = new SimProfile();
   private nextId = 1;
   private shipCounter = new Map<string, number>();
   private fleetRules = new Map<string, RuleSet>();
@@ -111,6 +115,11 @@ export class BattleSimulation implements AiContext {
       startPoints: 0,
       commsCooldown: 0,
       coordinationPenalty: 0,
+      approachBearing: normalize(v3(spec.heading.x, 0, spec.heading.z)),
+      headingLocked: false,
+      static: spec.static ?? false,
+      doctrineFacing: 'bow',
+      decisionSlowTimer: 0,
     };
     this.fleets.set(spec.id, fleet);
     const created: ShipState[] = [];
@@ -199,9 +208,10 @@ export class BattleSimulation implements AiContext {
       }
     });
     const lengthKm = cls.lengthM.value / 1000;
+    const shipName = name ?? `${cls.shortName ?? cls.name} ${String(n).padStart(2, '0')}`;
     const ship: ShipState = {
       id,
-      name: name ?? `${cls.shortName ?? cls.name} ${String(n).padStart(2, '0')}`,
+      name: shipName,
       classId,
       faction: cls.faction,
       role: cls.role,
@@ -239,9 +249,17 @@ export class BattleSimulation implements AiContext {
       escaped: false,
       lastHitAt: -100,
       aiTimer: this.rng.next() * 1.5,
-      stats: { damageDealt: 0, damageTaken: 0, shotsFired: 0, hits: 0, kills: 0 },
+      stats: { damageDealt: 0, damageTaken: 0, shotsFired: 0, hits: 0, kills: 0, recentDamage: 0 },
       pointValue: cls.pointValue,
       carrierId,
+      flagship: cls.flagship === true || NAMED_FLAGSHIPS.includes(shipName),
+      rogue: spec.rogue ?? false,
+      solutions: [],
+      regenSuppressedUntil: 0,
+      recentHitTimes: [],
+      flagshipEvents: { destroyed: false, missionKill: false },
+      barrierRegenUnderFire: 0,
+      barrierLoadThreshold: 0,
     };
     if (cls.fighterComplement) {
       ship.hangar = { classId: cls.fighterComplement.classId, remaining: cls.fighterComplement.count, launchTimer: 2 };
@@ -532,7 +550,7 @@ export class BattleSimulation implements AiContext {
           ship.stats.damageDealt += out.hullDamage + out.barrierDamage;
           if (out.barriersCollapsed) this.emit({ t: this.time, type: 'barriers_down', shipId: target.id });
           if (out.subsystem) this.emit({ t: this.time, type: 'subsystem_disabled', shipId: target.id, subsystem: out.subsystem.name, level: out.subsystem.level });
-          if (out.destroyed) this.destroyShip(target, ship);
+          if (out.destroyed) this.destroyShip(target, ship, w.def.damageType, w.def.id);
         } else if (target && w.beamEnd) {
           // Missed beam keeps pointing at its miss point.
         } else {
@@ -702,6 +720,7 @@ export class BattleSimulation implements AiContext {
           vel: scale(dir, def.projectileSpeed),
           ttl: (def.range * 1.6) / def.projectileSpeed + 0.5,
           intendedTargetId: target.id,
+          special: false,
         });
         break;
       }
@@ -771,7 +790,7 @@ export class BattleSimulation implements AiContext {
     });
     if (out.barriersCollapsed) this.emit({ t: this.time, type: 'barriers_down', shipId: target.id });
     if (out.subsystem) this.emit({ t: this.time, type: 'subsystem_disabled', shipId: target.id, subsystem: out.subsystem.name, level: out.subsystem.level });
-    if (out.destroyed) this.destroyShip(target, shooter);
+    if (out.destroyed) this.destroyShip(target, shooter, weapon.damageType, weapon.id);
   }
 
   // ------------------------------------------------------------ projectiles
@@ -841,7 +860,7 @@ export class BattleSimulation implements AiContext {
 
   // ------------------------------------------------------------- lifecycle
 
-  private destroyShip(ship: ShipState, killer?: ShipState): void {
+  private destroyShip(ship: ShipState, killer?: ShipState, cause: DestructionCause | DamageType = 'kinetic', weaponId?: string): void {
     if (killer) killer.stats.kills++;
     ship.alive = false;
     ship.destroyedAt = this.time;
@@ -862,10 +881,12 @@ export class BattleSimulation implements AiContext {
       name: ship.name,
       pos: clone(ship.pos),
       role: ship.role,
+      cause,
+      weaponId,
     });
     const fleet = this.fleets.get(ship.fleetId);
     const enemySide: Side = ship.side === 'A' ? 'B' : 'A';
-    const isCapital = ship.role === 'dreadnought' || ship.role === 'carrier' || ship.role === 'reaper_capital';
+    const isCapital = isCapitalRole(ship.role);
     if (ship.role !== 'fighter') {
       if (isCapital) {
         this.comms(ship.side, 'capital_lost', ship.name, fleet);

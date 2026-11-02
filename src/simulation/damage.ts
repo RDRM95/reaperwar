@@ -13,6 +13,8 @@ export interface DamageOutcome {
   /** Subsystem knocked down (if any). */
   subsystem?: { name: keyof Subsystems; level: number };
   destroyed: boolean;
+  /** Energy that passed the barrier before armour; the HADES fuse reads it. */
+  residual: number;
 }
 
 /**
@@ -25,7 +27,7 @@ export interface DamageOutcome {
  * slowly. The remainder strikes the hull and may disable a subsystem.
  */
 export function applyDamage(target: ShipState, raw: number, weapon: EffectiveWeapon, rng: Rng, now: number): DamageOutcome {
-  const out: DamageOutcome = { barrierDamage: 0, hullDamage: 0, barriersCollapsed: false, destroyed: false };
+  const out: DamageOutcome = { barrierDamage: 0, hullDamage: 0, barriersCollapsed: false, destroyed: false, residual: 0 };
   if (!target.alive || raw <= 0) return out;
   target.lastHitAt = now;
 
@@ -41,6 +43,7 @@ export function applyDamage(target: ShipState, raw: number, weapon: EffectiveWea
       out.barriersCollapsed = true;
     }
   }
+  out.residual = Math.max(0, amount);
   if (amount <= 0) return out;
 
   const armourEff = target.armour * (1 - weapon.armourBypass);

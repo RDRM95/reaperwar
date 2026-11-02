@@ -20,7 +20,9 @@ const tier = (role: ShipRole): number => {
   switch (role) {
     case 'reaper_capital':
     case 'dreadnought':
+    case 'super_dreadnought':
     case 'carrier':
+    case 'fixed_platform':
       return 0;
     case 'cruiser':
     case 'reaper_destroyer':
@@ -49,7 +51,29 @@ export function assignSlots(ships: SlotShip[], formation: FormationType): Map<st
   return slots;
 }
 
-function assignSlotsNominal(ships: SlotShip[], formation: FormationType): Map<string, Vec3> {
+/**
+ * The 3D formations (layered_line, stacked_wedge, box, swarm_descent,
+ * broadside_line, static) get their own slot maths in the formations task
+ * (WORK_BREAKDOWN.md T9). Until then each falls through to the closest
+ * existing layout so a config that names them still deploys sensibly.
+ */
+const LEGACY_LAYOUT: Record<FormationType, 'defensive_screen' | 'line_abreast' | 'strike_wedge' | 'capital_column' | 'fighter_screen' | 'dispersed'> = {
+  defensive_screen: 'defensive_screen',
+  line_abreast: 'line_abreast',
+  strike_wedge: 'strike_wedge',
+  capital_column: 'capital_column',
+  fighter_screen: 'fighter_screen',
+  dispersed: 'dispersed',
+  layered_line: 'line_abreast',
+  stacked_wedge: 'strike_wedge',
+  box: 'capital_column',
+  swarm_descent: 'dispersed',
+  broadside_line: 'line_abreast',
+  static: 'line_abreast',
+};
+
+function assignSlotsNominal(ships: SlotShip[], requested: FormationType): Map<string, Vec3> {
+  const formation = LEGACY_LAYOUT[requested];
   const slots = new Map<string, Vec3>();
   const byTier: SlotShip[][] = [[], [], [], []];
   for (const s of ships) byTier[tier(s.role)].push(s);

@@ -5,6 +5,8 @@ import { SIM_DT } from '@/simulation/battle';
 import type { BattleEvent, ShipState } from '@/simulation/types';
 import { getFaction } from '@/data/factions';
 import { CameraRig, type CameraSubject } from './cameras';
+import type { CameraDriver, SubjectPose, SubjectRef } from './cameraDriver';
+import type { ShipRef } from '@/simulation/types';
 import { EffectsSystem } from './effects';
 import { buildEnvironment, type EnvironmentBuild } from './environment';
 import { KM } from './geometry';
@@ -71,6 +73,10 @@ export class BattleView {
   /** Draw calls of the last rendered frame. */
   drawCalls = 0;
   lodCounts = { full: 0, reduced: 0, point: 0 };
+  /** Camera driver (director or shot-list player); undefined keeps today's camera paths. */
+  driver?: CameraDriver;
+  /** Interpolated simulation time of the frame being rendered: sim.time − SIM_DT + alpha × SIM_DT. */
+  renderTime = 0;
 
   constructor(canvas: HTMLCanvasElement, sim: BattleSimulation, settings: GraphicsSettings) {
     this.settings = settings;
@@ -201,8 +207,14 @@ export class BattleView {
     }
   }
 
+  /** Attach (or detach, with undefined) a camera driver for the shot and cinematic modes. */
+  attachDriver(driver?: CameraDriver): void {
+    this.driver = driver;
+  }
+
   update(dt: number, alpha: number): void {
     this.alpha = alpha;
+    this.renderTime = this.sim.time - SIM_DT + alpha * SIM_DT;
     this.processEvents();
     const sim = this.sim;
     const cam = this.rig.camera.position;
@@ -357,6 +369,7 @@ export class BattleView {
     const q = this.eventQueue;
     this.eventQueue = [];
     for (const e of q) {
+      this.driver?.onEvent(e);
       switch (e.type) {
         case 'weapon_fired': {
           if (e.kind !== 'mass_accelerator') break;
@@ -414,6 +427,51 @@ export class BattleView {
     };
   }
 
+  /** Resolve a beat-style ship reference; the simulation's own resolver is used once it exists (beats task), else id / name / fleet refs only. */
+  private findShip(ref: ShipRef): ShipState | undefined {
+    const sim = this.sim as BattleSimulation & { resolveShipRef?: (r: ShipRef) => ShipState | undefined };
+    if (typeof sim.resolveShipRef === 'function') return sim.resolveShipRef(ref);
+    if ('id' in ref) return sim.getShip(ref.id);
+    if ('name' in ref) return sim.ships.find((s) => s.name === ref.name);
+    if ('fleetId' in ref) {
+      const matches = sim.ships.filter((s) => s.fleetId === ref.fleetId && (!ref.classId || s.classId === ref.classId) && (!ref.role || s.role === ref.role));
+      return matches[ref.nth ?? 0];
+    }
+    return undefined;
+  }
+
+  /**
+   * Resolve a camera subject for a driver. The CORE stub resolves ship,
+   * fleetCentre and point references; stage A adds the rest (between,
+   * lastEvent, projectile, planetLimb, camera).
+   */
+  resolveSubject(ref: SubjectRef): SubjectPose | undefined {
+    if ('ship' in ref) {
+      const ship = this.findShip(ref.ship);
+      return this.subjectFor(ship && ship.alive ? ship : undefined);
+    }
+    if ('fleetCentre' in ref) {
+      const key = ref.fleetCentre;
+      const members = key === 'A' || key === 'B' ? this.sim.ships.filter((s) => s.side === key) : this.sim.ships.filter((s) => s.fleetId === key);
+      const alive = members.filter((s) => s.alive && !s.escaped && s.role !== 'fighter');
+      if (alive.length === 0) return undefined;
+      const position = new THREE.Vector3();
+      let size = 0;
+      for (const s of alive) {
+        position.add(new THREE.Vector3(s.pos.x, s.pos.y, s.pos.z).multiplyScalar(KM));
+        size = Math.max(size, this.visuals.get(s.id)?.built.lengthUnits ?? s.lengthKm * KM);
+      }
+      position.multiplyScalar(1 / alive.length);
+      const fleet = key === 'A' || key === 'B' ? undefined : this.sim.fleets.get(key);
+      const h = fleet ? fleet.heading : alive[0].heading;
+      return { position, heading: new THREE.Vector3(h.x, h.y, h.z), velocity: new THREE.Vector3(), size: Math.max(size, 20) };
+    }
+    if ('point' in ref) {
+      return { position: new THREE.Vector3(ref.point.x, ref.point.y, ref.point.z).multiplyScalar(KM), heading: new THREE.Vector3(0, 0, 1), velocity: new THREE.Vector3(), size: 2 };
+    }
+    return undefined;
+  }
+
   sideCentre(side: 'A' | 'B'): THREE.Vector3 {
     const c = new THREE.Vector3();
     let n = 0;
@@ -428,6 +486,16 @@ export class BattleView {
   private updateCamera(dt: number): void {
     const sim = this.sim;
     const fleetCentre = this.sideCentre(sim.config.perspectiveSide);
+    // A camera driver (shot list or director) owns the shot and cinematic modes while it returns poses;
+    // when it returns nothing the view falls back to its own paths below.
+    if (this.driver && (this.rig.mode === 'shot' || this.rig.mode === 'cinematic')) {
+      const pose = this.driver.update(this.renderTime, (ref) => this.resolveSubject(ref));
+      if (pose) {
+        this.rig.setPose(pose, true);
+        this.rig.update(dt, { fleetCentre });
+        return;
+      }
+    }
     let subject: CameraSubject | undefined;
     if (this.rig.mode === 'follow') {
       const id = this.followId ?? [...this.selectedIds][0];

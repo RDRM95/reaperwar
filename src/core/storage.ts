@@ -6,6 +6,7 @@ import type { BattleResult } from '@/simulation/types';
 import type { RuleSet } from '@/timelines/rules';
 import type { GraphicsSettings } from '@/rendering/battleView';
 import type { AudioSettings } from '@/audio/engine';
+import { DEFAULT_PERF_BUDGET, type PerfBudget } from './perfGovernor';
 
 export interface Preferences {
   graphics: GraphicsSettings;
@@ -14,6 +15,10 @@ export interface Preferences {
   lastTimelineId: string;
   lastScenarioId: string;
   showOverlay: boolean;
+  /** Showcase mode (stage B reads it): pace, Record mode, letterbox and captions. */
+  showcase: { beatScale: 0.75 | 1 | 1.25 | 1.5; record: boolean; letterbox: boolean; captions: boolean };
+  /** Performance budget (measured or default) and whether the visual governor runs. */
+  perf: { budget: PerfBudget; governor: boolean };
 }
 
 export interface SaveData {
@@ -32,11 +37,13 @@ export interface SaveData {
 
 export const DEFAULT_PREFERENCES: Preferences = {
   graphics: { quality: 'high', showEngineGlow: true, pixelRatioCap: 2, lod: true },
-  audio: { master: 0.8, sfx: 0.9, music: 0.5, muted: false },
+  audio: { master: 0.8, sfx: 0.9, music: 0.5, muted: false, seismicAu: true, lightBeforeSound: true },
   subtitles: true,
   lastTimelineId: 'canon_me3',
   lastScenarioId: 'battle_of_earth',
   showOverlay: true,
+  showcase: { beatScale: 1, record: false, letterbox: true, captions: true },
+  perf: { budget: { ...DEFAULT_PERF_BUDGET }, governor: true },
 };
 
 const DB_NAME = 'reaperwar';

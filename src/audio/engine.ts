@@ -24,6 +24,10 @@ export interface AudioSettings {
   sfx: number;
   music: number;
   muted: boolean;
+  /** Seismic AU rounds: the delayed low "bwaaam" after a Titan/HADES hit (stage A voices). */
+  seismicAu: boolean;
+  /** Light-before-sound delay by camera distance (stage A). */
+  lightBeforeSound: boolean;
 }
 
 export class AudioEngine {
@@ -34,7 +38,7 @@ export class AudioEngine {
   private noiseBuffer?: AudioBuffer;
   private ambienceStarted = false;
   private lastPlay = new Map<SoundId, number>();
-  settings: AudioSettings = { master: 0.8, sfx: 0.9, music: 0.5, muted: false };
+  settings: AudioSettings = { master: 0.8, sfx: 0.9, music: 0.5, muted: false, seismicAu: true, lightBeforeSound: true };
   /** Max simultaneous one-shots per 100 ms window to avoid clipping during big battles. */
   private budget = 0;
   private budgetTime = 0;

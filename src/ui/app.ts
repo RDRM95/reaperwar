@@ -1,5 +1,6 @@
 import { audio, type SoundId } from '@/audio/engine';
 import { DEFAULT_PREFERENCES, storage, type Preferences } from '@/core/storage';
+import { DEFAULT_PERF_BUDGET, type PerfBudget } from '@/core/perfGovernor';
 import { BattleView } from '@/rendering/battleView';
 import type { CameraMode } from '@/rendering/cameras';
 import { BattleSimulation, SIM_DT } from '@/simulation/battle';
@@ -71,6 +72,10 @@ export class BattleController {
   readonly isReplay: boolean;
   /** Set when this battle resolves a campaign engagement. */
   campaignLink?: CampaignBattleLink;
+  /** Coordinated-volley entry point for the HUD (stage B wires it; the HUD renders without it while undefined). */
+  volley?: () => void;
+  /** Showcase player state (stage B). */
+  showcase?: unknown;
 
   constructor(
     readonly app: App,
@@ -492,6 +497,8 @@ export class App {
     this.prefs = { ...DEFAULT_PREFERENCES, ...(await storage.get('preferences', DEFAULT_PREFERENCES)) };
     this.prefs.graphics = { ...DEFAULT_PREFERENCES.graphics, ...this.prefs.graphics };
     this.prefs.audio = { ...DEFAULT_PREFERENCES.audio, ...this.prefs.audio };
+    this.prefs.showcase = { ...DEFAULT_PREFERENCES.showcase, ...this.prefs.showcase };
+    this.prefs.perf = { ...DEFAULT_PREFERENCES.perf, ...this.prefs.perf, budget: { ...DEFAULT_PERF_BUDGET, ...this.prefs.perf?.budget } };
     this.customTimelines = await storage.get('customTimelines', []);
     this.history = await storage.get('battleHistory', []);
     audio.settings = { ...this.prefs.audio };
@@ -530,6 +537,11 @@ export class App {
     this.customTimelines = this.customTimelines.filter((t) => t.id !== id);
     if (this.prefs.lastTimelineId === id) this.prefs.lastTimelineId = 'canon_me3';
     void storage.set('customTimelines', this.customTimelines);
+  }
+
+  /** Measure the machine's performance budget (stage B's controller measurement loop replaces the stub, which returns the stored budget). */
+  async measurePerfBudget(): Promise<PerfBudget> {
+    return this.prefs.perf.budget;
   }
 
   async savePrefs(): Promise<void> {
