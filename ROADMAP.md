@@ -31,7 +31,7 @@ Priority order agreed on 1 Nov 2026: finish and ship the V2 build first, then ad
 1. **Collector ships** (ME2 Collector cruiser as an optional earlier-campaign opponent; original model).
 2. **First Contact War scenarios** (2157 Relay 314 incident: Alliance patrol vs Hierarchy, Shanxi; canon-anchored, pre-Reaper technology).
 3. **Non-eezo timelines**: alternate-universe presets where element zero is scarce or absent (different drive, weapon and barrier assumptions; clearly labelled AU).
-4. **Multiverse ship battles**: cross-IP fleets (Halo and comparable universes) as a separate, clearly labelled AU mode with original stand-in models; no assets from any game. Design only after V2 ships.
+4. **Multiverse ship battles**: real franchises by name (Halo's UNSC and Covenant, Skynet and others), lore- and scale-accurate from their own canon (CROSSOVER_CANON provenance), original models and text, trademarks acknowledged; a separate labelled section. Design only after V2 ships.
 
 ## V2.1 — System theatre (first phase after 1.0.0)
 
@@ -39,4 +39,4 @@ In-system travel and combat at Sol scale: system map with bodies and objectives,
 
 ## V2.2 — Alternate Timelines hub (after V2.1)
 
-A separate section for timeline families inside or next to the Mass Effect tech tree: Early Beacon (1800), First Contact Ascendant, One Humanity (Cerberus-Alliance aligned), Prothean Victory, Dark Lane (non-eezo FTL), HFY Terran Hegemony, a Stellaris-style player civilisation as a real faction with politics and fleet power, and Multiverse Earths (machine ascendancy vs Reapers and others). Needs tech families in the rules engine, a faction builder and politics model. Design in `docs/V2_CINEMATIC_BRIEF.md` §14.
+A separate section for timeline families inside or next to the Mass Effect tech tree: Early Beacon (1800), First Contact Ascendant, One Humanity (Cerberus-Alliance aligned), Prothean Victory, Dark Lane (non-eezo FTL), HFY Terran Hegemony, a Stellaris-style player civilisation as a real faction with politics and fleet power, and a Multiverse section with real franchises by name, lore- and scale-accurate (UNSC, Covenant, Skynet and others). Needs tech families in the rules engine, a faction builder and politics model. Design in `docs/V2_CINEMATIC_BRIEF.md` §14.
