@@ -15,7 +15,9 @@ const STAGES = [
 const R = { type: 'object', properties: { worktree: { type: 'string' }, branch: { type: 'string' }, commits: { type: 'array', items: { type: 'string' } }, green: { type: 'boolean' }, notes: { type: 'string' } }, required: ['worktree', 'branch', 'commits', 'green', 'notes'] }
 const V = { type: 'object', properties: { verdict: { type: 'string', enum: ['pass', 'fix-needed'] }, findings: { type: 'array', items: { type: 'object', properties: { severity: { type: 'string' }, where: { type: 'string' }, problem: { type: 'string' }, fix: { type: 'string' } }, required: ['severity', 'where', 'problem', 'fix'] } } }, required: ['verdict', 'findings'] }
 phase('Stages A-D')
-const results = await pipeline(STAGES,
+const SELECTED = (args && Array.isArray(args.only)) ? STAGES.filter((s) => args.only.includes(s.id)) : STAGES
+log(`stages in this run: ${SELECTED.map((s) => s.id).join(', ')}`)
+const results = await pipeline(SELECTED,
   (s) => agent(`${COMMON}\nYOUR STAGE: ${s.id} — ${s.what}`, { label: `stage:${s.id}`, phase: 'Stages A-D', schema: R, isolation: 'worktree' }),
   async (r, s) => {
     if (!r) return null
