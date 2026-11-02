@@ -32,3 +32,7 @@ Priority order agreed on 1 Nov 2026: finish and ship the V2 build first, then ad
 2. **First Contact War scenarios** (2157 Relay 314 incident: Alliance patrol vs Hierarchy, Shanxi; canon-anchored, pre-Reaper technology).
 3. **Non-eezo timelines**: alternate-universe presets where element zero is scarce or absent (different drive, weapon and barrier assumptions; clearly labelled AU).
 4. **Multiverse ship battles**: cross-IP fleets (Halo and comparable universes) as a separate, clearly labelled AU mode with original stand-in models; no assets from any game. Design only after V2 ships.
+
+## V2.1 — System theatre (first phase after 1.0.0)
+
+In-system travel and combat at Sol scale: system map with bodies and objectives, FTL hops with drive heat and discharge tempo, the mass relay as the attackers' entry and exit point with a transit mechanic matching the games (alignment, corridor, ordered departure, arrival scatter, blockade), engagements resolved by the battle simulation at the body where fleets meet, campaign tie-in. Design in `docs/V2_CINEMATIC_BRIEF.md` §13.
