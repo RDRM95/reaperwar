@@ -1,0 +1,53 @@
+{
+  "tolerance": 0.08,
+  "classes": {
+    "reaper_capital": { "lengthUnits": 20.0, "beamToLength": 0.34, "heightToLength": 0.34, "status": "TARGET" },
+    "harbinger": { "lengthUnits": 22.0, "beamToLength": 0.38, "heightToLength": 0.38, "status": "TARGET" },
+    "reaper_destroyer": { "lengthUnits": 1.6, "beamToLength": 0.55, "heightToLength": 0.6, "status": "TARGET" },
+    "reaper_oculus": { "lengthUnits": 0.24, "beamToLength": 1.0, "heightToLength": 1.0, "status": "TARGET" },
+
+    "alliance_dreadnought_k": { "lengthUnits": 10.0, "beamToLength": 0.16, "heightToLength": 0.12, "status": "TARGET" },
+    "alliance_dreadnought": { "lengthUnits": 8.88, "beamToLength": 0.16, "heightToLength": 0.12, "status": "TARGET" },
+    "alliance_cruiser": { "lengthUnits": 7.0, "beamToLength": 0.18, "heightToLength": 0.14, "status": "TARGET" },
+    "alliance_carrier": { "lengthUnits": 9.0, "beamToLength": null, "heightToLength": null, "status": "MEASURE" },
+    "alliance_frigate": { "lengthUnits": 1.7, "beamToLength": null, "heightToLength": null, "status": "MEASURE" },
+    "normandy_sr2": { "lengthUnits": 2.16, "beamToLength": null, "heightToLength": null, "status": "MEASURE" },
+    "alliance_frigate_thanix": { "lengthUnits": 2.16, "beamToLength": null, "heightToLength": null, "status": "MEASURE" },
+    "alliance_fighter": { "lengthUnits": 0.36, "beamToLength": null, "heightToLength": null, "status": "MEASURE" },
+    "normandy_valkyrie": { "lengthUnits": 20.0, "beamToLength": 0.45, "heightToLength": 0.14, "status": "TARGET" },
+    "alliance_super_dreadnought": { "lengthUnits": 18.0, "beamToLength": 0.18, "heightToLength": 0.13, "status": "TARGET" },
+    "sol_defence_platform": { "lengthUnits": 12.0, "beamToLength": 0.5, "heightToLength": 0.5, "status": "TARGET" },
+    "sol_platform_heavy": { "lengthUnits": 14.0, "beamToLength": 0.45, "heightToLength": 0.45, "status": "TARGET" },
+
+    "turian_dreadnought": { "lengthUnits": 9.5, "beamToLength": null, "heightToLength": null, "status": "MEASURE" },
+    "turian_super_dreadnought": { "lengthUnits": 19.0, "beamToLength": 0.26, "heightToLength": 0.14, "status": "TARGET" },
+    "turian_cruiser": { "lengthUnits": 5.6, "beamToLength": null, "heightToLength": null, "status": "MEASURE" },
+    "turian_frigate": { "lengthUnits": 1.6, "beamToLength": null, "heightToLength": null, "status": "MEASURE" },
+    "turian_fighter": { "lengthUnits": 0.34, "beamToLength": null, "heightToLength": null, "status": "MEASURE" },
+
+    "asari_dreadnought": { "lengthUnits": 9.0, "beamToLength": null, "heightToLength": null, "status": "MEASURE" },
+    "asari_cruiser": { "lengthUnits": 5.0, "beamToLength": null, "heightToLength": null, "status": "MEASURE" },
+    "destiny_ascension": { "lengthUnits": 16.0, "beamToLength": null, "heightToLength": null, "status": "MEASURE" },
+
+    "salarian_dreadnought": { "lengthUnits": 8.6, "beamToLength": null, "heightToLength": null, "status": "MEASURE" },
+    "salarian_cruiser": { "lengthUnits": 5.2, "beamToLength": null, "heightToLength": null, "status": "MEASURE" },
+    "salarian_frigate": { "lengthUnits": 1.5, "beamToLength": null, "heightToLength": null, "status": "MEASURE" },
+    "salarian_fighter": { "lengthUnits": 0.36, "beamToLength": null, "heightToLength": null, "status": "MEASURE" },
+
+    "geth_dreadnought": { "lengthUnits": 11.0, "beamToLength": null, "heightToLength": null, "status": "MEASURE" },
+    "geth_cruiser": { "lengthUnits": 5.2, "beamToLength": null, "heightToLength": null, "status": "MEASURE" },
+    "geth_frigate": { "lengthUnits": 1.5, "beamToLength": null, "heightToLength": null, "status": "MEASURE" },
+    "geth_fighter": { "lengthUnits": 0.32, "beamToLength": null, "heightToLength": null, "status": "MEASURE" },
+
+    "quarian_liveship": { "lengthUnits": 22.0, "beamToLength": null, "heightToLength": null, "status": "MEASURE" },
+    "quarian_heavy": { "lengthUnits": 8.2, "beamToLength": null, "heightToLength": null, "status": "MEASURE" },
+    "quarian_cruiser": { "lengthUnits": 4.8, "beamToLength": null, "heightToLength": null, "status": "MEASURE" },
+    "quarian_fighter": { "lengthUnits": 0.36, "beamToLength": null, "heightToLength": null, "status": "MEASURE" },
+
+    "cerberus_dreadnought": { "lengthUnits": 10.0, "beamToLength": 0.18, "heightToLength": 0.13, "status": "TARGET" },
+    "cerberus_heavy_cruiser": { "lengthUnits": 6.5, "beamToLength": 0.2, "heightToLength": 0.16, "status": "TARGET" },
+    "cerberus_cruiser": { "lengthUnits": 5.6, "beamToLength": null, "heightToLength": null, "status": "MEASURE" },
+    "cerberus_frigate": { "lengthUnits": 1.8, "beamToLength": null, "heightToLength": null, "status": "MEASURE" },
+    "cerberus_fighter": { "lengthUnits": 0.34, "beamToLength": null, "heightToLength": null, "status": "MEASURE" }
+  }
+}
