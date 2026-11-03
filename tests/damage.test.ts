@@ -35,6 +35,25 @@ describe('damage model', () => {
     expect(frigate.hull).toBe(frigate.maxHull);
   });
 
+  it('a Reaper capital’s field is loaded only in proportion to the hit (M2): a frigate round is stopped but loads 4.9, a dreadnought round loads 1,000', () => {
+    const reaper = makeShip('reaper_capital', CANON_ME3, 'B');
+    expect(reaper.barrierLoadThreshold).toBe(1000);
+    const frigateGun = weapon('alliance_frigate_main', 'alliance', 'alliance_frigate');
+    const small = applyDamage(reaper, 70, frigateGun, new Rng(1), 0);
+    expect(small.hullDamage).toBe(0);
+    expect(small.residual).toBe(0);
+    expect(small.barrierDamage).toBeCloseTo(4.9, 6);
+    expect(reaper.barriers).toBeCloseTo(reaper.maxBarriers - 4.9, 6);
+    const dnGun = weapon('alliance_dn_main', 'alliance', 'alliance_dreadnought');
+    const big = applyDamage(reaper, 1000, dnGun, new Rng(1), 0);
+    expect(big.hullDamage).toBe(0);
+    expect(big.barrierDamage).toBe(1000);
+    expect(reaper.barriers).toBeCloseTo(reaper.maxBarriers - 4.9 - 1000, 6);
+    // A hull without a threshold (the frigate) is loaded in full by the same small round.
+    const frigate = makeShip('alliance_frigate');
+    expect(applyDamage(frigate, 70, frigateGun, new Rng(1), 0).barrierDamage).toBe(70);
+  });
+
   it('a dreadnought slug destroys a frigate outright', () => {
     const frigate = makeShip('alliance_frigate');
     const slug = weapon('alliance_dn_main', 'alliance', 'alliance_dreadnought');
@@ -95,6 +114,31 @@ describe('damage model', () => {
     expect(b.hullDamage).toBe(0);
     expect(b.residual).toBeLessThan(0.5 * 1000);
     expect(apexReaper.hull).toBe(apexReaper.maxHull);
+    // Resolved through the simulation: against a full barrier a HADES round is absorbed like a slug and does not
+    // detonate; against a collapsed barrier it detonates (the kinetic step plus 2,260 inside) while an ordinary
+    // Titan slug from the same gun does not.
+    const sim = new BattleSimulation(buildScenario('alliance_fleet_engagement', 'prime_apex', 1));
+    const dn = sim.ships.find((s) => s.classId === 'alliance_dreadnought')!;
+    const titan = dn.weapons.find((w) => w.def.id === 'apex_hyper_ma')!.def;
+    const intact = sim.ships.find((s) => s.classId === 'reaper_capital')!;
+    sim.applyHit(dn, intact, titan, titan.damage, intact.pos, { special: true });
+    expect(intact.hull).toBe(intact.maxHull);
+    expect(sim.events.filter((e) => e.type === 'hades_detonation').length).toBe(0);
+    const collapsed = sim.ships.filter((s) => s.classId === 'reaper_capital')[1];
+    collapsed.barriers = 0;
+    const hullBefore = collapsed.hull;
+    sim.applyHit(dn, collapsed, titan, titan.damage, collapsed.pos, { special: true });
+    const detonations = sim.events.filter((e) => e.type === 'hades_detonation');
+    expect(detonations.length).toBe(1);
+    const kinetic = sim.events.filter((e) => e.type === 'projectile_impact' && e.targetId === collapsed.id).pop()!;
+    expect(kinetic.type === 'projectile_impact' && kinetic.hullDamage).toBeGreaterThan(0);
+    expect(hullBefore - collapsed.hull).toBeCloseTo((kinetic.type === 'projectile_impact' ? kinetic.hullDamage : 0) + 2260, 6);
+    const slugTarget = sim.ships.filter((s) => s.classId === 'reaper_capital')[2];
+    slugTarget.barriers = 0;
+    const slugBefore = slugTarget.hull;
+    sim.applyHit(dn, slugTarget, titan, titan.damage, slugTarget.pos);
+    expect(sim.events.filter((e) => e.type === 'hades_detonation').length).toBe(1);
+    expect(slugBefore - slugTarget.hull).toBeLessThan(2260);
   });
 
   it('hit probability drops for fighters targeted by capital guns and rises for large targets', () => {

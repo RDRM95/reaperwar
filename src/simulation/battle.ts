@@ -18,11 +18,11 @@ import {
 } from '@/core/vec3';
 import { FACTIONS, type CommsEvent } from '@/data/factions';
 import { getShipClass } from '@/data/ships';
-import { NAMED_FLAGSHIPS, isCapitalRole, type DamageType, type FactionId } from '@/data/types';
+import { HADES_GATE, NAMED_FLAGSHIPS, isCapitalRole, type DamageType, type FactionId, type WarheadDef } from '@/data/types';
 import { WEAPONS, getWeapon } from '@/data/weapons';
 import { applyRulesToShip, applyRulesToWeapon, cloneRules, type EffectiveWeapon, type RuleSet } from '@/timelines/rules';
 import { fleetDecision, movementGoal, shipDecision, type AiContext } from './ai';
-import { applyDamage, hitProbability } from './damage';
+import { applyDamage, barrierFraction, hitProbability } from './damage';
 import { assignSlots } from './formations';
 import { SimProfile } from './profile';
 import { summarise } from './results';
@@ -42,10 +42,35 @@ import type {
   Projectile,
   ShipState,
   Side,
+  Subsystems,
   WeaponState,
 } from './types';
 
 export const SIM_DT = 0.05;
+
+/** Heat pool of a `perMountHeat` mount (heavy Thanix channel): the mount fires only while a shot fits under this (AP §14.3). */
+export const MOUNT_HEAT_CAPACITY = 100;
+/** `stats.recentDamage` decays exponentially with τ = 10 s (AP §10). */
+const RECENT_DAMAGE_DECAY = Math.exp(-SIM_DT / 10);
+/** Hits taken in the last 3 s are the "final salvo" of a flagship event (AP §22.2). */
+const RECENT_HIT_WINDOW = 3;
+
+/** Options of a resolved hit (`BattleSimulation.applyHit`). */
+export interface HitOptions {
+  /** The round is a HADES penetrator (left the gun through the gate or a forced strike). */
+  special?: boolean;
+  /** A forced strike names the subsystem the warhead knocks out; otherwise `rng.pick(['weapons', 'engines'])`. */
+  outage?: 'weapons' | 'engines';
+  /** A forced `hit_penetrating` strike arms the warhead whatever the residual (logged by the caller). */
+  forcePenetrate?: boolean;
+}
+
+/**
+ * The HADES gate (AP §7): the AI spends a penetrator only on a Reaper capital
+ * whose barriers are collapsed or below `HADES_GATE.barrierFractionBelow`.
+ */
+export const hadesGateOpen = (target: ShipState): boolean =>
+  target.role === 'reaper_capital' && (target.barriers <= 0 || barrierFraction(target) < HADES_GATE.barrierFractionBelow);
 
 const DEFAULT_ORDERS: FleetOrders = {
   order: 'attack',
@@ -208,6 +233,8 @@ export class BattleSimulation implements AiContext {
           burstRecover: 0,
           // The Titan gun's separate HADES magazine (counts down only when a HADES round leaves the gun).
           ...(def.hadesRound && def.specialAmmo !== undefined ? { specialAmmo: def.specialAmmo } : {}),
+          // A heavy Thanix channel keeps its own heat pool.
+          ...(def.perMountHeat ? { heat: 0 } : {}),
         });
       }
     });
@@ -446,7 +473,8 @@ export class BattleSimulation implements AiContext {
     if (speed > maxSpeed) ship.vel = scale(ship.vel, maxSpeed / speed);
     ship.pos = addScaled(ship.pos, ship.vel, dt);
 
-    // Heading.
+    // Heading. A mount in its visible charge (legacy Nova) holds the hull's heading until it fires.
+    if (ship.weapons.some((w) => w.charging !== undefined)) return;
     let faceDir: Vec3 | undefined;
     if (goal.face) faceDir = sub(goal.face, ship.pos);
     else if (speed > maxSpeed * 0.15) faceDir = ship.vel;
@@ -481,10 +509,61 @@ export class BattleSimulation implements AiContext {
     if (regenFrac > 0 && ship.barriers < ship.maxBarriers && this.time >= ship.regenSuppressedUntil) {
       ship.barriers = Math.min(ship.maxBarriers, ship.barriers + ship.barrierRegen * regenFrac * dt);
     }
-    // Heat.
-    ship.heat = Math.max(0, ship.heat - ship.heatCapacity * 0.08 * dt);
+    // A HADES outage restores its drop when its time is up.
+    const outage = ship.outageUntil;
+    if (outage && this.time >= outage.until) {
+      ship.subsystems[outage.subsystem] = Math.min(1, ship.subsystems[outage.subsystem] + outage.amount);
+      ship.outageUntil = undefined;
+    }
+    // Recent damage dealt decays with τ = 10 s.
+    ship.stats.recentDamage = ship.stats.recentDamage < 1e-6 ? 0 : ship.stats.recentDamage * RECENT_DAMAGE_DECAY;
+    // Heat: a stealth hull radiates nothing while silent or revealed (cooling suspended, the sink fills) and
+    // sheds its heat only while venting, which is forced when the sink reaches capacity (brief §15.2).
+    const st = ship.stealth;
+    if (st && st.state !== 'venting') {
+      st.sinkHeat += dt;
+      if (st.state === 'revealed' && this.time >= st.revealedUntil) {
+        st.state = 'silent';
+        this.emit({ t: this.time, type: 'stealth_engaged', shipId: ship.id });
+      }
+      if (st.sinkHeat >= st.capacity) {
+        st.state = 'venting';
+        st.ventingUntil = this.time + st.ventTime;
+        this.emit({ t: this.time, type: 'stealth_venting', shipId: ship.id });
+        this.emit({ t: this.time, type: 'stealth_revealed', shipId: ship.id, reason: 'venting' });
+      }
+    } else {
+      if (st) {
+        st.sinkHeat = Math.max(0, st.sinkHeat - (st.capacity / st.ventTime) * dt);
+        if (this.time >= st.ventingUntil) {
+          st.sinkHeat = 0;
+          st.state = 'silent';
+          this.emit({ t: this.time, type: 'stealth_engaged', shipId: ship.id });
+        }
+      }
+      ship.heat = Math.max(0, ship.heat - ship.heatCapacity * 0.08 * dt);
+    }
     if (ship.overheated && ship.heat < ship.heatCapacity * 0.55) ship.overheated = false;
     if (!ship.overheated && ship.heat > ship.heatCapacity) ship.overheated = true;
+  }
+
+  /** A stealth hull is revealed by firing, by taking a hit or (T10) by an enemy inside its detection range. */
+  private revealStealth(ship: ShipState, reason: 'fired' | 'hit' | 'detected'): void {
+    const st = ship.stealth;
+    if (!st || st.state === 'venting') return;
+    st.revealedUntil = Math.max(st.revealedUntil, this.time + st.revealOnFire);
+    if (st.state === 'silent') {
+      st.state = 'revealed';
+      this.emit({ t: this.time, type: 'stealth_revealed', shipId: ship.id, reason });
+    }
+  }
+
+  /** Bookkeeping for a hit taken: the final-salvo window of the flagship events and the stealth reveal. */
+  private noteHit(target: ShipState): void {
+    const times = target.recentHitTimes;
+    times.push(this.time);
+    while (times.length > 0 && times[0] < this.time - RECENT_HIT_WINDOW) times.shift();
+    this.revealStealth(target, 'hit');
   }
 
   private updateCarrier(ship: ShipState, fleet: FleetState, dt: number): void {
@@ -556,7 +635,7 @@ export class BattleSimulation implements AiContext {
 
   private updateWeapons(ship: ShipState, fleet: FleetState, dt: number): void {
     const wpnFactor = 0.4 + 0.6 * ship.subsystems.weapons;
-    for (const w of this.iterWeapons(ship)) {
+    for (const w of ship.weapons) {
       // Active beams deal damage over time.
       if (w.beamRemaining > 0) {
         w.beamRemaining -= dt;
@@ -568,6 +647,7 @@ export class BattleSimulation implements AiContext {
           // Beams are judged by their whole burst for the M2 load threshold, not by the per-tick chunk.
           const out = applyDamage(target, dmg, w.def, this.rng, this.time, { hitSize: w.def.damage * (w.def.beamDuration ?? 1.5) });
           ship.stats.damageDealt += out.hullDamage + out.barrierDamage;
+          ship.stats.recentDamage += out.hullDamage + out.barrierDamage;
           if (out.barriersCollapsed) this.emit({ t: this.time, type: 'barriers_down', shipId: target.id });
           if (out.subsystem) this.emit({ t: this.time, type: 'subsystem_disabled', shipId: target.id, subsystem: out.subsystem.name, level: out.subsystem.level });
           if (out.destroyed) this.destroyShip(target, ship, w.def.damageType, w.def.id);
@@ -583,6 +663,16 @@ export class BattleSimulation implements AiContext {
         }
         continue;
       }
+      // A per-mount heat pool cools on its own, like a hull.
+      if (w.heat !== undefined) w.heat = Math.max(0, w.heat - MOUNT_HEAT_CAPACITY * 0.08 * dt);
+      // A charging mount counts its charge down and fires at the end of it.
+      if (w.charging !== undefined) {
+        w.charging -= dt;
+        if (w.charging > 0) continue;
+        w.charging = undefined;
+        this.tryFire(ship, fleet, w);
+        continue;
+      }
       w.cooldown -= dt * wpnFactor;
       // Heat-limited point-defence bursts recover while the mount is silent.
       if (w.def.burst && w.burstLeft !== undefined && w.burstLeft <= 0) {
@@ -592,17 +682,33 @@ export class BattleSimulation implements AiContext {
       }
       if (w.cooldown > 0) continue;
       if (w.ammo !== undefined && w.ammo <= 0) continue;
-      if (ship.overheated && w.def.heat > 0) continue;
+      // Heat: a per-mount pool fires only while the shot fits under its capacity; everything else waits on the hull.
+      if (w.def.perMountHeat ? (w.heat ?? 0) + w.def.heat > MOUNT_HEAT_CAPACITY : ship.overheated && w.def.heat > 0) continue;
       if (fleet.orders.order === 'retreat' && ship.role !== 'fighter' && w.def.arc < 180) continue;
+      if (w.def.chargeTime) {
+        // The visible charge begins only with something to shoot at; the shot itself is resolved at release.
+        if (!this.acquireTarget(ship, fleet, w)) continue;
+        w.charging = w.def.chargeTime;
+        this.emit({ t: this.time, type: 'weapon_charging', shipId: ship.id, weaponIndex: w.index, seconds: w.def.chargeTime });
+        continue;
+      }
       this.tryFire(ship, fleet, w);
     }
   }
 
-  private *iterWeapons(ship: ShipState): Generator<WeaponState> {
-    for (const w of ship.weapons) yield w;
+  /**
+   * Whether a Titan mount spends a HADES penetrator on this target (AP §7): the mount carries HADES rounds, the
+   * magazine is not empty, the fleet is not holding special ammunition and the gate is open (a Reaper capital
+   * whose barriers are collapsed or degraded below `HADES_GATE.barrierFractionBelow`).
+   */
+  useSpecialAmmo(ship: ShipState, w: WeaponState, target: ShipState): boolean {
+    if (!w.def.hadesRound || (w.specialAmmo ?? 0) <= 0) return false;
+    if (this.fleets.get(ship.fleetId)?.orders.holdSpecialAmmo) return false;
+    return hadesGateOpen(target);
   }
 
-  private tryFire(ship: ShipState, fleet: FleetState, w: WeaponState): void {
+  /** What the mount would shoot at right now, or undefined. */
+  private acquireTarget(ship: ShipState, fleet: FleetState, w: WeaponState): { target?: ShipState; missile?: Missile; origin: Vec3 } | undefined {
     const def = w.def;
     const origin = this.weaponWorldOffset(ship, w);
     let target: ShipState | undefined;
@@ -663,15 +769,25 @@ export class BattleSimulation implements AiContext {
           }
         }
         // Spinal guns wait for the primary target rather than wasting a shot.
-        if (target && def.antiCapital && def.arc <= 20 && primary && primary.alive && target.id !== primary.id && this.rng.chance(0.6)) return;
+        if (target && def.antiCapital && def.arc <= 20 && primary && primary.alive && target.id !== primary.id && this.rng.chance(0.6)) return undefined;
       }
-      if (!target) return;
+      if (!target) return undefined;
     }
+    return { target, missile, origin };
+  }
+
+  private tryFire(ship: ShipState, fleet: FleetState, w: WeaponState): void {
+    const acquired = this.acquireTarget(ship, fleet, w);
+    if (!acquired) return;
+    const { target, missile, origin } = acquired;
+    const def = w.def;
 
     // Fire.
     w.cooldown = def.cooldown * (0.95 + 0.1 * this.rng.next());
-    ship.heat += def.heat;
-    ship.stats.shotsFired++;
+    if (def.perMountHeat) w.heat = (w.heat ?? 0) + def.heat;
+    else ship.heat += def.heat;
+    const shots = def.salvo ?? 1;
+    ship.stats.shotsFired += shots;
     if (w.burstLeft !== undefined && def.burst) {
       w.burstLeft--;
       if (w.burstLeft <= 0) w.burstRecover = def.burst.recovery;
@@ -690,8 +806,12 @@ export class BattleSimulation implements AiContext {
         this.comms(ship.side, 'engage', undefined, fleet);
       }
     }
+    // A HADES penetrator leaves the gun only through the gate; it counts against the separate magazine.
+    const special = target !== undefined && this.useSpecialAmmo(ship, w, target);
+    if (special) w.specialAmmo = (w.specialAmmo ?? 1) - 1;
+    this.revealStealth(ship, 'fired');
     const targetId = target?.id ?? `missile-${missile!.id}`;
-    this.emit({ t: this.time, type: 'weapon_fired', shipId: ship.id, weaponId: def.id, targetId, weaponIndex: w.index, kind: def.kind });
+    this.emit({ t: this.time, type: 'weapon_fired', shipId: ship.id, weaponId: def.id, targetId, weaponIndex: w.index, kind: def.kind, ...(shots > 1 ? { shots } : {}), ...(special ? { special: true } : {}) });
 
     const coordination = 1 - fleet.coordinationPenalty * 0.5;
 
@@ -741,7 +861,7 @@ export class BattleSimulation implements AiContext {
           vel: scale(dir, def.projectileSpeed),
           ttl: (def.range * 1.6) / def.projectileSpeed + 0.5,
           intendedTargetId: target.id,
-          special: false,
+          special,
         });
         break;
       }
@@ -751,7 +871,10 @@ export class BattleSimulation implements AiContext {
         w.beamRemaining = def.beamDuration ?? 1.5;
         w.beamTargetId = target.id;
         w.beamHit = hit;
-        if (hit) ship.stats.hits++;
+        if (hit) {
+          ship.stats.hits++;
+          this.noteHit(target);
+        }
         w.beamStart = origin;
         if (hit) w.beamEnd = clone(target.pos);
         else {
@@ -776,34 +899,53 @@ export class BattleSimulation implements AiContext {
       case 'disruptor_torpedo':
       case 'missile': {
         const dir = normalize(sub(target.pos, origin));
-        this.missiles.push({
-          id: this.nextId++,
-          shooterId: ship.id,
-          side: ship.side,
-          weapon: def,
-          pos: clone(origin),
-          prevPos: clone(origin),
-          vel: scale(dir, def.projectileSpeed),
-          targetId: target.id,
-          hp: def.missileHp ?? 10,
-          ttl: (def.range * 2.5) / def.projectileSpeed + 4,
-          alive: true,
-        });
+        // A salvo rack launches `salvo` torpedoes abreast; each homes on the target on its own.
+        let perp = cross(dir, v3(0, 1, 0));
+        if (lengthSq(perp) < 1e-6) perp = v3(1, 0, 0);
+        perp = normalize(perp);
+        for (let i = 0; i < shots; i++) {
+          const start = addScaled(origin, perp, (i - (shots - 1) / 2) * 0.03);
+          this.missiles.push({
+            id: this.nextId++,
+            shooterId: ship.id,
+            side: ship.side,
+            weapon: def,
+            pos: clone(start),
+            prevPos: clone(start),
+            vel: scale(dir, def.projectileSpeed),
+            targetId: target.id,
+            hp: def.missileHp ?? 10,
+            ttl: (def.range * 2.5) / def.projectileSpeed + 4,
+            alive: true,
+          });
+        }
         break;
       }
     }
   }
 
-  private applyHit(shooter: ShipState, target: ShipState, weapon: EffectiveWeapon, damage: number, pos: Vec3): void {
-    const out = applyDamage(target, damage, weapon, this.rng, this.time);
+  /**
+   * Resolve a hit on a hull: the kinetic step, then — for a HADES penetrator — the fuse and the warhead.
+   * Public because the scripted specials (`hadesStrike`) and the tests resolve hits through it.
+   */
+  applyHit(shooter: ShipState, target: ShipState, weapon: EffectiveWeapon, damage: number, pos: Vec3, opts: HitOptions = {}): void {
+    const hr = opts.special ? weapon.hadesRound : undefined;
+    // The Valkyrie's kill rule (AP §8): a degraded target takes the bonus multiplier.
+    let raw = damage;
+    if (weapon.degradedTargetBonus && barrierFraction(target) < weapon.degradedTargetBonus.barrierFractionBelow) raw *= weapon.degradedTargetBonus.multiplier;
+    // A HADES penetrator meets the barrier like a slug (multiplier 1.0) and ignores half the armour (AP §7).
+    const round: EffectiveWeapon = hr ? { ...weapon, armourBypass: hr.armourBypass, barrierEfficiencyMultiplier: hr.barrierEfficiencyMultiplier } : weapon;
+    const out = applyDamage(target, raw, round, this.rng, this.time);
     shooter.stats.hits++;
     shooter.stats.damageDealt += out.hullDamage + out.barrierDamage;
+    shooter.stats.recentDamage += out.hullDamage + out.barrierDamage;
+    this.noteHit(target);
     this.emit({
       t: this.time,
       type: 'projectile_impact',
       shipId: shooter.id,
       targetId: target.id,
-      damage,
+      damage: raw,
       damageType: weapon.damageType,
       barrierDamage: out.barrierDamage,
       hullDamage: out.hullDamage,
@@ -811,7 +953,43 @@ export class BattleSimulation implements AiContext {
     });
     if (out.barriersCollapsed) this.emit({ t: this.time, type: 'barriers_down', shipId: target.id });
     if (out.subsystem) this.emit({ t: this.time, type: 'subsystem_disabled', shipId: target.id, subsystem: out.subsystem.name, level: out.subsystem.level });
-    if (out.destroyed) this.destroyShip(target, shooter, weapon.damageType, weapon.id);
+    if (out.destroyed) {
+      this.destroyShip(target, shooter, weapon.damageType, weapon.id);
+      return;
+    }
+    // The fuse: the warhead arms only when at least `residualFraction` of the round passed the barrier
+    // (a collapsed or nearly collapsed field at the impact point); otherwise the penetrator was an expensive slug.
+    if (hr && (opts.forcePenetrate || out.residual >= hr.fuse.residualFraction * raw)) this.detonateWarhead(shooter, target, weapon, hr.warhead, pos, opts.outage);
+  }
+
+  /** The HADES burst inside the hull: barriers and armour ignored, one subsystem outage, barrier recovery suppressed. */
+  private detonateWarhead(shooter: ShipState, target: ShipState, weapon: EffectiveWeapon, warhead: WarheadDef, pos: Vec3, forcedOutage?: 'weapons' | 'engines'): void {
+    const burst: EffectiveWeapon = { ...weapon, damageType: warhead.damageType, damage: warhead.damage, barrierEfficiencyMultiplier: warhead.barrierEfficiencyMultiplier, armourBypass: warhead.armourBypass };
+    const out = applyDamage(target, warhead.damage, burst, this.rng, this.time, { subsystemRoll: false });
+    shooter.stats.damageDealt += out.hullDamage;
+    shooter.stats.recentDamage += out.hullDamage;
+    const outage = forcedOutage ?? this.rng.pick(['weapons', 'engines'] as const);
+    this.applyOutage(target, outage, warhead.subsystemOutage.drop, warhead.subsystemOutage.seconds);
+    target.regenSuppressedUntil = Math.max(target.regenSuppressedUntil, this.time + warhead.regenSuppressSeconds);
+    this.emit({ t: this.time, type: 'hades_detonation', shipId: shooter.id, targetId: target.id, pos: clone(pos), damage: warhead.damage, outage });
+    if (out.destroyed) this.destroyShip(target, shooter, 'warhead', weapon.id);
+  }
+
+  /**
+   * Knock a subsystem down by `drop` for `seconds`. One outage is pending per hull: a second burst on the same
+   * subsystem deepens and extends it; a burst on a different subsystem restores the pending one first.
+   */
+  private applyOutage(target: ShipState, subsystem: keyof Subsystems, drop: number, seconds: number): void {
+    const pending = target.outageUntil;
+    if (pending && pending.subsystem !== subsystem) {
+      target.subsystems[pending.subsystem] = Math.min(1, target.subsystems[pending.subsystem] + pending.amount);
+      target.outageUntil = undefined;
+    }
+    const before = target.subsystems[subsystem];
+    const level = Math.max(0.1, before - drop);
+    target.subsystems[subsystem] = level;
+    target.outageUntil = { subsystem, until: this.time + seconds, amount: (target.outageUntil?.amount ?? 0) + (before - level) };
+    this.emit({ t: this.time, type: 'subsystem_disabled', shipId: target.id, subsystem, level });
   }
 
   // ------------------------------------------------------------ projectiles
@@ -838,7 +1016,7 @@ export class BattleSimulation implements AiContext {
       }
       if (hitShip && hitPoint) {
         const shooter = this.shipById.get(p.shooterId);
-        if (shooter) this.applyHit(shooter, hitShip, p.weapon, p.weapon.damage, hitPoint);
+        if (shooter) this.applyHit(shooter, hitShip, p.weapon, p.weapon.damage, hitPoint, p.special ? { special: true } : undefined);
         continue;
       }
       if (p.ttl > 0) survivors.push(p);

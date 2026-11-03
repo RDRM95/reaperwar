@@ -24,7 +24,12 @@ export interface DamageOptions {
    * damage arrives in per-tick chunks. Defaults to `raw`.
    */
   hitSize?: number;
+  /** Roll the random subsystem knock-down (default true). A HADES burst applies its own deterministic outage instead. */
+  subsystemRoll?: boolean;
 }
+
+/** Barrier fraction of a hull; a hull with no barriers at all counts as fully degraded. */
+export const barrierFraction = (target: ShipState): number => (target.maxBarriers > 0 ? target.barriers / target.maxBarriers : 0);
 
 /**
  * Resolve a quantity of incoming damage against a ship.
@@ -74,7 +79,7 @@ export function applyDamage(target: ShipState, raw: number, weapon: EffectiveWea
 
   // Subsystem damage: proportional to how large the hit was relative to the hull.
   const severity = hullDamage / target.maxHull;
-  if (severity > 0.03 && rng.chance(Math.min(0.6, severity * 4))) {
+  if (opts?.subsystemRoll !== false && severity > 0.03 && rng.chance(Math.min(0.6, severity * 4))) {
     const which = rng.pick(['engines', 'weapons', 'sensors'] as const);
     const drop = Math.min(0.5, severity * 3);
     target.subsystems[which] = Math.max(0.1, target.subsystems[which] - drop);

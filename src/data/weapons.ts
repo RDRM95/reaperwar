@@ -503,14 +503,12 @@ export const WEAPONS: Record<string, WeaponDef> = {
     name: 'Project Titan heavy accelerator (HADES penetrators)',
     kind: 'mass_accelerator',
     damageType: 'kinetic',
-    // The AP §14.3 numeric re-base (1,235 / 6.0 s / 48 / 44 / 0.76 / 1.1, '≈ 1.23 DKE') lands with the HADES round
-    // mechanics of T6: re-basing the gun before the penetrators exist flips the Apex reference engagement.
-    damage: 3200,
-    cooldown: 4.5,
-    range: 44,
-    projectileSpeed: 48,
-    accuracy: 0.78,
-    penetration: 1.4,
+    damage: 1235,
+    cooldown: 6.0,
+    range: 48,
+    projectileSpeed: 44,
+    accuracy: 0.76,
+    penetration: 1.1,
     heat: 24,
     antiSmall: false,
     antiCapital: true,
@@ -521,7 +519,7 @@ export const WEAPONS: Record<string, WeaponDef> = {
       value:
         'Alternate-universe weapon (Project Titan). Heavy spinal accelerator whose separate magazine holds twelve HADES penetrators — each a penetrator with a nuclear warhead fused to detonate only after a penetrating hit — beside unlimited ordinary slugs. Not part of the Mass Effect trilogy.',
       provenance: 'AU_MODIFIED',
-      note: 'Project Titan, AU proposal. Prime/Apex timelines only.',
+      note: 'Project Titan, AU proposal; 25 kg at 4,000 km/s ≈ 47.8 kt ≈ 1.23 DKE. Prime/Apex timelines only.',
     },
   },
   nova_array: {

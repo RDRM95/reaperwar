@@ -261,11 +261,12 @@ describe('new classes (AP §14.2, §22.1, brief §15)', () => {
 });
 
 describe('new weapons (AP §14.3, §7)', () => {
-  it('the Titan gun carries twelve HADES penetrators beside its slugs', () => {
+  it('the Titan gun is re-based to 1.23 dreadnought rounds with twelve HADES penetrators', () => {
     const t = WEAPONS.apex_hyper_ma;
-    expect([t.heat, t.arc, t.specialAmmo, t.antiCapital, t.kind]).toEqual([24, 12, 12, true, 'mass_accelerator']);
+    expect([t.damage, t.cooldown, t.range, t.projectileSpeed, t.accuracy, t.penetration, t.heat, t.arc, t.specialAmmo]).toEqual([1235, 6.0, 48, 44, 0.76, 1.1, 24, 12, 12]);
     expect(t.name).toBe('Project Titan heavy accelerator (HADES penetrators)');
     expect(t.provenance.provenance).toBe('AU_MODIFIED');
+    expect(t.provenance.note).toMatch(/1\.23 DKE/);
     expect(HADES_WARHEAD.damage).toBe(2260);
   });
 
