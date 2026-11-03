@@ -48,8 +48,12 @@ export function assessReapers(sim: BattleSimulation): ReaperAssessment {
   const coordination = Math.max(0, Math.min(1, rules.strategic.alliedCoordination * 0.6 + (organicShots > 50 ? 0.3 : 0.1)));
 
   let threatLevel: ReaperAssessment['threatLevel'] = 'NEGLIGIBLE';
-  // ADOPTION_PLAN.md §3.2 re-base: any Reaper loss is itself an anomaly; thresholds unchanged.
-  const score = reaperLossesFraction * 2 + reaperCapitalLosses * 0.4 + organicTechCapability * 0.8 + (organicFleetStrength > 0.6 && sim.time > 60 ? 0.6 : 0) + (reaperLost > 0 ? 1.2 : 0);
+  // ADOPTION_PLAN.md §3.2 re-base (BALANCE_AUDIT.md §8): the 1.2 term is "the Reapers lost the engagement" — a finished
+  // battle the Reaper side did not win — so a canon fleet that trades two capitals for its own destruction reads ELEVATED,
+  // not CRITICAL; thresholds unchanged.
+  const reaperSideId = reaperShips[0]?.side;
+  const reapersLostEngagement = sim.finished && sim.result !== undefined && reaperSideId !== undefined && sim.result.winner !== reaperSideId;
+  const score = reaperLossesFraction * 2 + reaperCapitalLosses * 0.4 + organicTechCapability * 0.8 + (organicFleetStrength > 0.6 && sim.time > 60 ? 0.6 : 0) + (reapersLostEngagement ? 1.2 : 0);
   if (score > 3.2) threatLevel = 'CRITICAL';
   else if (score > 2.2) threatLevel = 'SEVERE';
   else if (score > 1.3) threatLevel = 'ELEVATED';

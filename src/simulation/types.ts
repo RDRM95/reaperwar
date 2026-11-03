@@ -182,6 +182,29 @@ export interface InterposeState {
 
 export type ManoeuvreState = { phase: 'approach' | 'run' | 'turnIn' | 'extend' | 'pass' | 'turn'; until: number; line?: { from: Vec3; to: Vec3 } };
 
+/** IES stealth state of a stealth hull (brief §15.2): silent, revealed or venting. */
+export type StealthMode = 'silent' | 'revealed' | 'venting';
+
+/**
+ * Runtime stealth state, present only on hulls whose class carries a `stealth`
+ * block (the Normandy and the SR-2-pattern stealth frigates). Every other hull
+ * leaves it undefined and behaves exactly as before.
+ */
+export interface StealthState {
+  state: StealthMode;
+  /** Seconds of combat heat stored in the sink while not venting; venting is forced at `capacity`. */
+  sinkHeat: number;
+  /** The ship stays revealed until this time (firing, taking a hit, detection). */
+  revealedUntil: number;
+  /** A vent ends at this time; the sink is empty afterwards. */
+  ventingUntil: number;
+  capacity: number;
+  ventTime: number;
+  /** Compressed-battlespace km inside which a silent hull is detected. */
+  detectRange: number;
+  revealOnFire: number;
+}
+
 /** Firing solution against one target: q in 0..1 builds while tracking and decays off-target. */
 export interface Solution {
   targetId: string;
@@ -440,6 +463,8 @@ export interface ShipState {
   barrierLoadThreshold: number;
   /** Tactical-withdrawal recovery station behind the line (km). */
   recoveryStation?: Vec3;
+  /** IES stealth runtime state; only stealth hulls carry it. */
+  stealth?: StealthState;
 }
 
 export interface Projectile {

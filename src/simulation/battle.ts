@@ -265,6 +265,19 @@ export class BattleSimulation implements AiContext {
       barrierRegenUnderFire: stats.barrierRegenUnderFire,
       barrierLoadThreshold: stats.barrierLoadThreshold,
     };
+    if (cls.stealth) {
+      // Stealth hulls start silent (brief §15.2); every other hull leaves the field undefined.
+      ship.stealth = {
+        state: 'silent',
+        sinkHeat: 0,
+        revealedUntil: 0,
+        ventingUntil: 0,
+        capacity: cls.stealth.capacity.value,
+        ventTime: cls.stealth.ventTime.value,
+        detectRange: cls.stealth.detectRange.value * S,
+        revealOnFire: cls.stealth.revealOnFire.value,
+      };
+    }
     if (cls.fighterComplement) {
       ship.hangar = { classId: cls.fighterComplement.classId, remaining: cls.fighterComplement.count, launchTimer: 2 };
     }
@@ -462,9 +475,11 @@ export class BattleSimulation implements AiContext {
   }
 
   private updateHousekeeping(ship: ShipState, dt: number): void {
-    // Barrier regeneration after a pause in incoming fire.
-    if (ship.barriers < ship.maxBarriers && this.time - ship.lastHitAt > 3) {
-      ship.barriers = Math.min(ship.maxBarriers, ship.barriers + ship.barrierRegen * dt);
+    // Barrier regeneration: in full after a 3 s pause in incoming fire, and under fire at the hull's
+    // recovery-under-fire fraction (M1: Reaper capitals 1, everything else 0); never while HADES-suppressed.
+    const regenFrac = this.time - ship.lastHitAt > 3 ? 1 : ship.barrierRegenUnderFire;
+    if (regenFrac > 0 && ship.barriers < ship.maxBarriers && this.time >= ship.regenSuppressedUntil) {
+      ship.barriers = Math.min(ship.maxBarriers, ship.barriers + ship.barrierRegen * regenFrac * dt);
     }
     // Heat.
     ship.heat = Math.max(0, ship.heat - ship.heatCapacity * 0.08 * dt);
@@ -550,7 +565,8 @@ export class BattleSimulation implements AiContext {
         if (target && target.alive && w.beamHit) {
           w.beamEnd = clone(target.pos);
           const dmg = w.def.damage * dt;
-          const out = applyDamage(target, dmg, w.def, this.rng, this.time);
+          // Beams are judged by their whole burst for the M2 load threshold, not by the per-tick chunk.
+          const out = applyDamage(target, dmg, w.def, this.rng, this.time, { hitSize: w.def.damage * (w.def.beamDuration ?? 1.5) });
           ship.stats.damageDealt += out.hullDamage + out.barrierDamage;
           if (out.barriersCollapsed) this.emit({ t: this.time, type: 'barriers_down', shipId: target.id });
           if (out.subsystem) this.emit({ t: this.time, type: 'subsystem_disabled', shipId: target.id, subsystem: out.subsystem.name, level: out.subsystem.level });
@@ -630,7 +646,8 @@ export class BattleSimulation implements AiContext {
       if (!missile && !target) return;
     } else {
       const primary = ship.targetId ? this.shipById.get(ship.targetId) : undefined;
-      if (primary && primary.alive && !primary.escaped && distance(origin, primary.pos) <= def.range && this.inArc(ship, w, primary.pos)) {
+      // Anti-ship mounts never engage small craft (a torpedo or a spinal round is not spent on a fighter or a drone).
+      if (primary && primary.alive && !primary.escaped && primary.role !== 'fighter' && distance(origin, primary.pos) <= def.range && this.inArc(ship, w, primary.pos)) {
         target = primary;
       } else {
         // Secondary target of opportunity in arc.

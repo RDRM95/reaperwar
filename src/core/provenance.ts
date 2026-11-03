@@ -32,6 +32,12 @@ export const estimate = <T>(value: T, note?: string): Sourced<T> => ({
   provenance: 'SIMULATION_ESTIMATE',
   note,
 });
+/** An alternate-universe value: never shown as canon, always AU-badged (ADOPTION_PLAN.md §14.1). */
+export const au = <T>(value: T, note?: string): Sourced<T> => ({
+  value,
+  provenance: 'AU_MODIFIED',
+  note,
+});
 
 export const PROVENANCE_LABEL: Record<Provenance, string> = {
   CANON_CONFIRMED: 'Canon (confirmed)',

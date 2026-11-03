@@ -356,7 +356,7 @@ export const FACTIONS: Record<FactionId, FactionDef> = {
       victory: ['Resistance eliminated. The harvest continues.'],
       defeat: ['This outcome is... unanticipated. We will adapt.'],
       heavy_losses: ['Organic military development requires strategic re-evaluation.'],
-      fighters_launch: ['Insignificant craft detected.'],
+      fighters_launch: ['Deploying Oculus.'],
     },
   },
 };

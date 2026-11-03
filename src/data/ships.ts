@@ -1,4 +1,4 @@
-import { canon, estimate, inferred } from '@/core/provenance';
+import { au, canon, estimate, inferred, type Sourced } from '@/core/provenance';
 import type { ShipClassDef } from './types';
 
 /**
@@ -6,8 +6,43 @@ import type { ShipClassDef } from './types';
  * barrier values are SIMULATION_ESTIMATES tuned so that canon relationships
  * hold: a dreadnought slug destroys a frigate, a Reaper capital ship weapon
  * guts a cruiser in one burst and a dreadnought in roughly two, and a Reaper
- * capital ship's barriers soak sustained fire from an entire fleet.
+ * capital ship's barriers recover under fire fast enough that two
+ * dreadnoughts cannot overwhelm them (ADOPTION_PLAN.md §3).
+ *
+ * Alternate-universe hulls carry `AU_MODIFIED` design provenance and "(AU)"
+ * in their name; they never appear under canon unless a player fields them
+ * in a custom battle, where they are badged.
  */
+
+/** Heat capacity by hull role (ADOPTION_PLAN.md §3.1 M3). */
+const heatCap = (n: number): Sourced<number> => estimate(n, 'Heat capacity by hull role: dreadnought 200, super-dreadnought 260, carrier 180, cruiser 140 (heavy cruiser 160), frigate 110, platform 240 (heavy 260); fighters and Reaper hulls 100 (ADOPTION_PLAN.md §3.1 M3).');
+
+/**
+ * The IES stealth block of the Normandy and the SR-2-pattern stealth frigates
+ * (docs/V2_CINEMATIC_BRIEF.md §15.2). Canon anchor, paraphrased (CANON_CONFIRMED,
+ * no codex text copied): the Normandy's Internal Emission Sink stores the ship's
+ * heat in internal sinks so it emits nothing for passive thermal sensors to see;
+ * it can run silent for hours (longer in cold deep space), must eventually vent
+ * the stored heat in a bright thermal bloom, and stays visible to eyes and to
+ * close-range active sensors. Every number below compresses that into battle
+ * time and is a SIMULATION_ESTIMATE. `detectRange` is in nominal km; the
+ * simulation multiplies it by the battlespace scale when the ship is deployed.
+ */
+const IES_ANCHOR = 'IES canon anchor (paraphrased): the Normandy’s Internal Emission Sink stores heat internally so passive thermal sensors see nothing; it runs silent for hours, must eventually vent in a bright thermal bloom, and stays visible to eyes and close-range active sensors. Compressed into battle time: SIMULATION_ESTIMATE (brief §15.2).';
+export const IES_STEALTH: NonNullable<ShipClassDef['stealth']> = {
+  capacity: estimate(120, `Seconds of combat heat the sink holds before venting is forced. ${IES_ANCHOR}`),
+  ventTime: estimate(18, `Seconds a vent lasts; the ship is detectable at any range while venting. ${IES_ANCHOR}`),
+  detectRange: estimate(2.5, `Nominal km inside which a silent hull is detected (multiplied by the battlespace scale at deployment). ${IES_ANCHOR}`),
+  revealOnFire: estimate(10, `Seconds a ship stays revealed after firing or taking a hit. ${IES_ANCHOR}`),
+};
+
+/** Oculus complements are extrapolations: the drone is canon, launching it from Reaper warships in a fleet battle is not (ADOPTION_PLAN.md §13.1). */
+export const OCULUS_COMPLEMENT_NOTE = 'Reaper warships launching Oculi in fleet battle is an extrapolation; the trilogy shows them only at the Collector base';
+const oculi = (count: number): NonNullable<ShipClassDef['fighterComplement']> => ({ classId: 'reaper_oculus', count, source: estimate(count, OCULUS_COMPLEMENT_NOTE) });
+
+/** Ship-local strafing lane between a Reaper's arms, in metres (x right, y up, z forward), for Specials.strafeThrough. */
+const reaperStrafeLane = (scale: number): NonNullable<ShipClassDef['strafeLane']> => ({ from: { x: 0, y: -260 * scale, z: 950 * scale }, to: { x: 0, y: -260 * scale, z: -350 * scale } });
+
 export const SHIP_CLASSES: Record<string, ShipClassDef> = {
   // ================================================================ ALLIANCE
   alliance_fighter: {
@@ -63,16 +98,49 @@ export const SHIP_CLASSES: Record<string, ShipClassDef> = {
       { weaponId: 'gardian', offset: [0, 8, 0], facing: 0, count: 2 },
     ],
     pointValue: 20,
+    heatCapacity: heatCap(110),
     description:
       'Fast escort built for reconnaissance and screening. Frigate wolfpacks harass larger ships with disruptor torpedoes while GARDIAN lasers cover the fleet against fighters.',
   },
   alliance_frigate_thanix: {
     id: 'alliance_frigate_thanix',
-    name: 'Normandy SR-2 (Thanix-armed frigate)',
-    shortName: 'Thanix frigate',
+    name: 'SR-2-pattern stealth frigate',
+    shortName: 'Stealth frigate',
     faction: 'alliance',
     role: 'frigate',
-    designProvenance: canon('The Normandy SR-2 is canon, including its Thanix cannon refit (ME2).'),
+    designProvenance: estimate(
+      'SR-2-pattern stealth frigate with the Thanix refit. The trilogy shows only the Normandy itself; a small number of sister hulls is a simulation estimate. Apex timelines build the pattern in numbers (AU).',
+    ),
+    lengthM: inferred(216, 'Commonly cited SR-2 length, not stated in the codex.'),
+    hull: estimate(680),
+    armour: estimate(14),
+    barriers: estimate(500),
+    barrierRegen: estimate(16),
+    maxSpeed: estimate(1.55),
+    acceleration: estimate(0.38),
+    turnRate: estimate(25),
+    sensorRange: estimate(78),
+    signature: 0.32,
+    ecm: 0.5,
+    crewQuality: 1.15,
+    hardpoints: [
+      { weaponId: 'alliance_thanix', offset: [0, -3, 60], facing: 0, count: 1 },
+      { weaponId: 'disruptor_torpedo', offset: [0, -4, 20], facing: 0, count: 2 },
+      { weaponId: 'gardian', offset: [0, 8, 0], facing: 0, count: 2 },
+    ],
+    pointValue: 30,
+    heatCapacity: heatCap(110),
+    stealth: IES_STEALTH,
+    description:
+      'A stealth frigate built to the Normandy SR-2 pattern: the same internal emission sink and a Thanix cannon on a hull crewed by regular squadrons rather than the one-off ship’s hand-picked crew. It hunts, never holds a line — a silent flank approach, one close-range pass, a hard break-away and a vent out of range. Under canon only a handful of sister hulls exist (simulation estimate); Apex timelines build the pattern in numbers.',
+  },
+  normandy_sr2: {
+    id: 'normandy_sr2',
+    name: 'Normandy SR-2 (command vessel)',
+    shortName: 'Normandy',
+    faction: 'alliance',
+    role: 'frigate',
+    designProvenance: canon('The Normandy SR-2 and its Thanix refit are canon (ME2–ME3). Original model.'),
     lengthM: inferred(216, 'Commonly cited SR-2 length, not stated in the codex.'),
     hull: estimate(700),
     armour: estimate(14),
@@ -91,8 +159,12 @@ export const SHIP_CLASSES: Record<string, ShipClassDef> = {
       { weaponId: 'gardian', offset: [0, 8, 0], facing: 0, count: 2 },
     ],
     pointValue: 32,
+    heatCapacity: heatCap(110),
+    flagship: true,
+    unique: true,
+    stealth: IES_STEALTH,
     description:
-      'Stealth reconnaissance frigate with a Thanix cannon, giving it cruiser-grade punch. Its IES stealth system makes it unusually hard to target.',
+      'Shepard’s command vessel: the one SR-2, with its internal emission sink, its Thanix cannon and the best crew in the fleet. Exactly one exists in any battle. It fights the way a stealth frigate should — silent approach, a single decisive pass against the most valuable target it can reach, break away, re-stealth, vent out of range.',
   },
   alliance_cruiser: {
     id: 'alliance_cruiser',
@@ -102,7 +174,7 @@ export const SHIP_CLASSES: Record<string, ShipClassDef> = {
     designProvenance: inferred(
       'Alliance cruisers are canon (e.g. SSV Emden, Geneva-class); this is an original hull in that visual language.',
     ),
-    lengthM: estimate(520, 'Cruiser lengths are not established.'),
+    lengthM: estimate(700, 'York-class; fan size chart ≈ 707 m (docs/design/SCALE_REFERENCE.md). Cruiser lengths are not established in the codex.'),
     hull: estimate(2400),
     armour: estimate(45),
     barriers: estimate(1600),
@@ -121,19 +193,20 @@ export const SHIP_CLASSES: Record<string, ShipClassDef> = {
       { weaponId: 'gardian', offset: [0, 14, 60], facing: 0, count: 4 },
     ],
     pointValue: 80,
+    heatCapacity: heatCap(140),
     description:
       'The workhorse of Alliance fleets: a spinal mass accelerator, broadside batteries and a GARDIAN network. Cruisers lead frigate flotillas and screen dreadnoughts.',
   },
   alliance_dreadnought: {
     id: 'alliance_dreadnought',
-    name: 'Kilimanjaro-class dreadnought',
+    name: 'Everest-class dreadnought',
     shortName: 'Dreadnought',
     faction: 'alliance',
     role: 'dreadnought',
     designProvenance: canon(
-      'Kilimanjaro-class dreadnoughts (e.g. SSV Kilimanjaro, SSV Orizaba) are canon; hull is an original model.',
+      'The Everest-class is canon (ME1 codex: the Everest-class main gun); the Kilimanjaro-class is the separate alliance_dreadnought_k. Original model.',
     ),
-    lengthM: inferred(888, 'Everest-class length is commonly cited as 888 m; Kilimanjaro is a later class.'),
+    lengthM: inferred(888, 'Everest-class length is commonly cited as 888 m.'),
     hull: estimate(9000),
     armour: estimate(130),
     barriers: estimate(5200),
@@ -152,8 +225,41 @@ export const SHIP_CLASSES: Record<string, ShipClassDef> = {
       { weaponId: 'gardian', offset: [0, 24, 150], facing: 0, count: 8 },
     ],
     pointValue: 320,
+    heatCapacity: heatCap(200),
     description:
-      'The Alliance’s kilometre-long capital ship, built around a spinal mass accelerator whose 20 kg slugs strike with the force of a 38-kiloton bomb. Limited in number by the Treaty of Farixen.',
+      'The Alliance’s kilometre-long capital ship, built around a spinal mass accelerator whose 20 kg slugs strike with the force of a 38-kiloton bomb every two seconds. Limited in number by the Treaty of Farixen.',
+  },
+  alliance_dreadnought_k: {
+    id: 'alliance_dreadnought_k',
+    name: 'Kilimanjaro-class dreadnought',
+    shortName: 'K-class dreadnought',
+    faction: 'alliance',
+    role: 'dreadnought',
+    designProvenance: canon(
+      'The Kilimanjaro-class (SSV Kilimanjaro, SSV Orizaba) is canon; combat values identical to the Everest-class so the balance is untouched. Original model.',
+    ),
+    lengthM: estimate(1000, 'Kilimanjaro-class length from the fan size chart (~1,000 m); not stated in the codex.'),
+    hull: estimate(9000),
+    armour: estimate(130),
+    barriers: estimate(5200),
+    barrierRegen: estimate(55),
+    maxSpeed: estimate(0.65),
+    acceleration: estimate(0.09),
+    turnRate: estimate(4.5),
+    sensorRange: estimate(90),
+    signature: 1.9,
+    ecm: 0.15,
+    crewQuality: 1.05,
+    hardpoints: [
+      { weaponId: 'alliance_dn_main', offset: [0, 0, 470], facing: 0, count: 1 },
+      { weaponId: 'alliance_broadside', offset: [32, 6, 110], facing: 90, count: 4 },
+      { weaponId: 'alliance_broadside', offset: [-32, 6, 110], facing: -90, count: 4 },
+      { weaponId: 'gardian', offset: [0, 26, 160], facing: 0, count: 8 },
+    ],
+    pointValue: 320,
+    heatCapacity: heatCap(200),
+    description:
+      'The later Alliance dreadnought class, a kilometre of hull around the same 20 kg-slug spinal accelerator as the Everest-class. SSV Kilimanjaro and SSV Orizaba lead the Sol fleets.',
   },
   alliance_carrier: {
     id: 'alliance_carrier',
@@ -182,8 +288,132 @@ export const SHIP_CLASSES: Record<string, ShipClassDef> = {
     ],
     fighterComplement: { classId: 'alliance_fighter', count: 24 },
     pointValue: 300,
+    heatCapacity: heatCap(180),
     description:
       'Dreadnought-sized hull devoted to fighter operations. Carriers hang back behind the line and launch Trident squadrons whose torpedoes bypass enemy barriers.',
+  },
+  alliance_super_dreadnought: {
+    id: 'alliance_super_dreadnought',
+    name: 'Olympus-class heavy dreadnought (AU)',
+    shortName: 'Olympus-class',
+    faction: 'alliance',
+    role: 'super_dreadnought',
+    designProvenance: au('Alternate-universe heavy dreadnought line of the Systems Alliance, led by SSV Omaha: twin spinal accelerators on an 1,800 m hull built for long-range standoff. Not part of the Mass Effect trilogy. Original model.', 'AU PROPOSAL (Apex); spawned only under superDreadnoughts or in badged custom battles.'),
+    lengthM: au(1800, 'AU proposal.'),
+    hull: au(19000),
+    armour: au(170),
+    barriers: au(11500),
+    barrierRegen: au(95),
+    maxSpeed: au(0.52),
+    acceleration: au(0.07),
+    turnRate: au(3.2),
+    sensorRange: au(120),
+    signature: 2.8,
+    ecm: 0.25,
+    crewQuality: 1.1,
+    hardpoints: [
+      { weaponId: 'alliance_dn_main', offset: [60, 0, 850], facing: 0, count: 1 },
+      { weaponId: 'alliance_dn_main', offset: [-60, 0, 850], facing: 0, count: 1 },
+      { weaponId: 'alliance_broadside', offset: [44, 8, 160], facing: 90, count: 8 },
+      { weaponId: 'alliance_broadside', offset: [-44, 8, 160], facing: -90, count: 8 },
+      { weaponId: 'gardian', offset: [0, 34, 240], facing: 0, count: 16 },
+    ],
+    pointValue: 560,
+    heatCapacity: heatCap(260),
+    description:
+      'AU heavy dreadnought: two dreadnought-class spinal accelerators side by side on an 1,800 m hull. Doctrine is standoff — it holds the outer band of its spinal range with a bow solution and never closes to broadside range. SSV Omaha leads the line. Not part of the trilogy.',
+  },
+  normandy_valkyrie: {
+    id: 'normandy_valkyrie',
+    name: 'Normandy Valkyrie (AU command dreadnought)',
+    shortName: 'Valkyrie',
+    faction: 'alliance',
+    role: 'super_dreadnought',
+    designProvenance: au('Alternate-universe one-off: a 2,000 m Normandy-lineage heavy command dreadnought (AU LOCK). Not part of the Mass Effect trilogy. Original model.', 'AU LOCK; spawned only under valkyrieAvailable or in badged custom battles.'),
+    lengthM: au(2000, 'AU LOCK length; engineering values AU proposal.'),
+    hull: au(22500),
+    armour: au(180),
+    barriers: au(14800),
+    barrierRegen: au(128),
+    maxSpeed: au(0.65),
+    acceleration: au(0.09),
+    turnRate: au(4.5),
+    sensorRange: au(130),
+    signature: 3.0,
+    ecm: 0.3,
+    crewQuality: 1.25,
+    hardpoints: [
+      { weaponId: 'nova_array', offset: [0, 0, 900], facing: 0, count: 1 },
+      { weaponId: 'thanix_heavy', offset: [0, -30, 500], facing: 0, count: 1 },
+      { weaponId: 'thanix_heavy', offset: [60, 10, 300], facing: 0, count: 1 },
+      { weaponId: 'thanix_heavy', offset: [-60, 10, 300], facing: 0, count: 1 },
+      { weaponId: 'alliance_broadside', offset: [50, 8, 200], facing: 90, count: 6 },
+      { weaponId: 'alliance_broadside', offset: [-50, 8, 200], facing: -90, count: 6 },
+      { weaponId: 'gardian', offset: [0, 36, 260], facing: 0, count: 14 },
+      { weaponId: 'nova_legacy', offset: [0, 0, 880], facing: 0, count: 1 },
+    ],
+    pointValue: 900,
+    heatCapacity: heatCap(260),
+    flagship: true,
+    unique: true,
+    description:
+      'AU LOCK. A 2,000 m command dreadnought built by the people who built the Normandy: long reinforced spine, buried bridge, wide swept wings, blue drives at capital scale, EDI aboard. Its Nova Array and three heavy Thanix channels only finish Reapers that escorts have already degraded. Not part of the trilogy.',
+  },
+  sol_defence_platform: {
+    id: 'sol_defence_platform',
+    name: 'Sol orbital defence platform',
+    shortName: 'Platform',
+    faction: 'alliance',
+    role: 'fixed_platform',
+    designProvenance: estimate('Orbital defence platform as modelled in the simulation (no canon description of Earth’s orbital network exists); the 612-platform Sol network is an AU caption value. Original model.', 'Existence as modelled: SIMULATION_ESTIMATE; present under every preset.'),
+    lengthM: estimate(1200, 'Not established.'),
+    hull: estimate(36000),
+    armour: estimate(220),
+    barriers: estimate(13000),
+    barrierRegen: estimate(73),
+    maxSpeed: estimate(0, 'A fixed station: it slews but never moves.'),
+    acceleration: estimate(0),
+    turnRate: estimate(2.5),
+    sensorRange: estimate(140),
+    signature: 3.4,
+    ecm: 0.2,
+    crewQuality: 1.1,
+    hardpoints: [
+      { weaponId: 'platform_gun', offset: [120, 0, 200], facing: 0, count: 1 },
+      { weaponId: 'platform_gun', offset: [-120, 0, 200], facing: 0, count: 1 },
+      { weaponId: 'gardian', offset: [0, 40, 0], facing: 0, count: 12 },
+    ],
+    pointValue: 700,
+    heatCapacity: heatCap(240),
+    description:
+      'Orbital defence platform as modelled in the simulation (no canon description of Earth’s orbital network exists): two dreadnought-class accelerator channels, a power plant and heat infrastructure on a station that cannot chase anything. The 612-platform Sol network is an AU caption value.',
+  },
+  sol_platform_heavy: {
+    id: 'sol_platform_heavy',
+    name: 'Sol heavy platform, super-accelerator (AU)',
+    shortName: 'Heavy platform',
+    faction: 'alliance',
+    role: 'fixed_platform',
+    designProvenance: au('AU: Sol heavy platform with a super-accelerator; not part of the trilogy. Original model.', 'AU PROPOSAL; spawned only under heavyPlatforms or in badged custom battles.'),
+    lengthM: au(1400, 'AU proposal.'),
+    hull: au(44000),
+    armour: au(240),
+    barriers: au(16000),
+    barrierRegen: au(80),
+    maxSpeed: au(0, 'A fixed station: it slews but never moves.'),
+    acceleration: au(0),
+    turnRate: au(2.0),
+    sensorRange: au(150),
+    signature: 3.6,
+    ecm: 0.2,
+    crewQuality: 1.1,
+    hardpoints: [
+      { weaponId: 'platform_gun_heavy', offset: [0, 0, 300], facing: 0, count: 1 },
+      { weaponId: 'gardian', offset: [0, 44, 0], facing: 0, count: 16 },
+    ],
+    pointValue: 1000,
+    heatCapacity: heatCap(260),
+    description: 'AU: Sol heavy platform with a super-accelerator; not part of the trilogy. One 2.4 dreadnought-round channel on a fixed station.',
   },
 
   // ================================================================= TURIAN
@@ -238,6 +468,7 @@ export const SHIP_CLASSES: Record<string, ShipClassDef> = {
       { weaponId: 'gardian', offset: [0, 8, 0], facing: 0, count: 2 },
     ],
     pointValue: 20,
+    heatCapacity: heatCap(110),
     description: 'Disciplined escort that holds station in tight Hierarchy formations.',
   },
   turian_cruiser: {
@@ -266,6 +497,7 @@ export const SHIP_CLASSES: Record<string, ShipClassDef> = {
       { weaponId: 'gardian', offset: [0, 14, 60], facing: 0, count: 4 },
     ],
     pointValue: 84,
+    heatCapacity: heatCap(140),
     description: 'Heavily armoured line cruiser; the backbone of Hierarchy fleets.',
   },
   turian_dreadnought: {
@@ -294,7 +526,38 @@ export const SHIP_CLASSES: Record<string, ShipClassDef> = {
       { weaponId: 'gardian', offset: [0, 24, 150], facing: 0, count: 8 },
     ],
     pointValue: 330,
+    heatCapacity: heatCap(200),
     description: 'Hierarchy capital ship: thicker plating than its Alliance counterpart and crews drilled to hold the line.',
+  },
+  turian_super_dreadnought: {
+    id: 'turian_super_dreadnought',
+    name: 'Praetor-class heavy dreadnought (AU)',
+    shortName: 'Praetor-class',
+    faction: 'turian',
+    role: 'super_dreadnought',
+    designProvenance: au('Alternate-universe heavy dreadnought of the Turian Hierarchy: twin spinal accelerators on a 1,900 m hull. Not part of the Mass Effect trilogy. Original model.', 'AU PROPOSAL (Apex); spawned only under superDreadnoughts or in badged custom battles.'),
+    lengthM: au(1900, 'AU proposal.'),
+    hull: au(20000),
+    armour: au(185),
+    barriers: au(11000),
+    barrierRegen: au(95),
+    maxSpeed: au(0.5),
+    acceleration: au(0.07),
+    turnRate: au(3.2),
+    sensorRange: au(115),
+    signature: 2.9,
+    ecm: 0.2,
+    crewQuality: 1.15,
+    hardpoints: [
+      { weaponId: 'turian_dn_main', offset: [60, 0, 900], facing: 0, count: 1 },
+      { weaponId: 'turian_dn_main', offset: [-60, 0, 900], facing: 0, count: 1 },
+      { weaponId: 'alliance_broadside', offset: [46, 8, 170], facing: 90, count: 8 },
+      { weaponId: 'alliance_broadside', offset: [-46, 8, 170], facing: -90, count: 8 },
+      { weaponId: 'gardian', offset: [0, 34, 250], facing: 0, count: 16 },
+    ],
+    pointValue: 570,
+    heatCapacity: heatCap(260),
+    description: 'AU heavy dreadnought of the Hierarchy: two spinal accelerators and the thickest plating in Citadel space on a 1,900 m hull. Not part of the trilogy.',
   },
 
   // =============================================================== SALARIAN
@@ -349,7 +612,8 @@ export const SHIP_CLASSES: Record<string, ShipClassDef> = {
       { weaponId: 'gardian', offset: [0, 7, 0], facing: 0, count: 2 },
     ],
     pointValue: 24,
-    description: 'Low-signature reconnaissance and torpedo frigate; hard to target, easy to kill once found.',
+    heatCapacity: heatCap(110),
+    description: 'Low-signature reconnaissance and torpedo frigate; hard to target, easy to kill once found. It keeps its low signature only: the IES stealth model belongs to the SR-2 pattern.',
   },
   salarian_cruiser: {
     id: 'salarian_cruiser',
@@ -378,6 +642,7 @@ export const SHIP_CLASSES: Record<string, ShipClassDef> = {
     ],
     fighterComplement: { classId: 'salarian_fighter', count: 4 },
     pointValue: 90,
+    heatCapacity: heatCap(140),
     description: 'Sensor-heavy cruiser with a small interceptor bay; fights on data rather than tonnage.',
   },
   salarian_dreadnought: {
@@ -406,6 +671,7 @@ export const SHIP_CLASSES: Record<string, ShipClassDef> = {
       { weaponId: 'gardian', offset: [0, 22, 140], facing: 0, count: 8 },
     ],
     pointValue: 335,
+    heatCapacity: heatCap(200),
     description: 'The Union’s few dreadnoughts trade plating for sensors and electronic warfare.',
   },
 
@@ -436,6 +702,7 @@ export const SHIP_CLASSES: Record<string, ShipClassDef> = {
       { weaponId: 'gardian', offset: [0, 12, 50], facing: 0, count: 4 },
     ],
     pointValue: 86,
+    heatCapacity: heatCap(140),
     description: 'Elegant cruiser with barriers well beyond Alliance standards but lighter plating.',
   },
   asari_dreadnought: {
@@ -464,6 +731,7 @@ export const SHIP_CLASSES: Record<string, ShipClassDef> = {
       { weaponId: 'gardian', offset: [0, 22, 140], facing: 0, count: 8 },
     ],
     pointValue: 340,
+    heatCapacity: heatCap(200),
     description: 'The Republics’ few dreadnoughts are individually the most advanced in Citadel space.',
   },
   destiny_ascension: {
@@ -471,8 +739,8 @@ export const SHIP_CLASSES: Record<string, ShipClassDef> = {
     name: 'Destiny Ascension',
     shortName: 'Destiny Ascension',
     faction: 'asari',
-    role: 'dreadnought',
-    designProvenance: canon('The Destiny Ascension is canon: flagship of the Citadel fleet, saved or lost at the Battle of the Citadel depending on the player. Original model.'),
+    role: 'super_dreadnought',
+    designProvenance: canon('The Destiny Ascension is canon: flagship of the Citadel fleet, saved or lost at the Battle of the Citadel depending on the player. Original model.', 'The super-dreadnought role is a simulation classification (SIMULATION_ESTIMATE), not a canon term; the trilogy’s navies build no class above the dreadnought and the Ascension is the only canon hull of this size.'),
     lengthM: inferred(1600, 'Larger than any other Council dreadnought; exact length unstated.'),
     hull: estimate(20000),
     armour: estimate(200),
@@ -492,7 +760,10 @@ export const SHIP_CLASSES: Record<string, ShipClassDef> = {
       { weaponId: 'gardian', offset: [0, 30, 150], facing: 0, count: 12 },
     ],
     pointValue: 1100,
-    description: 'The largest warship in Citadel space. Its survival in 2183 is a player-dependent outcome.',
+    heatCapacity: heatCap(260),
+    flagship: true,
+    unique: true,
+    description: 'The largest warship in Citadel space. Its survival in 2183 is a player-dependent outcome. The simulation classifies it in the super-dreadnought role (a simulation classification, not a canon term).',
   },
 
   // =============================================================== CERBERUS
@@ -547,6 +818,7 @@ export const SHIP_CLASSES: Record<string, ShipClassDef> = {
       { weaponId: 'gardian', offset: [0, 8, 0], facing: 0, count: 2 },
     ],
     pointValue: 24,
+    heatCapacity: heatCap(110),
     description: 'Fast, stealthy frigate built to Cerberus’ experimental standards.',
   },
   cerberus_cruiser: {
@@ -575,35 +847,69 @@ export const SHIP_CLASSES: Record<string, ShipClassDef> = {
       { weaponId: 'gardian', offset: [0, 14, 60], facing: 0, count: 4 },
     ],
     pointValue: 86,
+    heatCapacity: heatCap(140),
     description: 'Cerberus’ main warship: better electronics than its Alliance equivalent.',
   },
-  cerberus_dreadnought: {
-    id: 'cerberus_dreadnought',
-    name: 'Cerberus Black Fleet dreadnought',
-    shortName: 'Black Fleet dreadnought',
+  cerberus_heavy_cruiser: {
+    id: 'cerberus_heavy_cruiser',
+    name: 'Cerberus heavy cruiser (AU)',
+    shortName: 'Heavy cruiser',
     faction: 'cerberus',
-    role: 'dreadnought',
-    designProvenance: estimate('Cerberus is not known to field dreadnoughts in the trilogy. This class exists for the AU Cerberus Black Fleet and custom battles.'),
-    lengthM: estimate(900),
-    hull: estimate(8800),
-    armour: estimate(125),
-    barriers: estimate(5400),
-    barrierRegen: estimate(60),
-    maxSpeed: estimate(0.65),
-    acceleration: estimate(0.09),
-    turnRate: estimate(4.5),
-    sensorRange: estimate(100),
-    signature: 1.9,
+    role: 'cruiser',
+    designProvenance: au('Alternate-universe Black Fleet heavy cruiser: a 650 m hull with a dorsal heavy Thanix channel and a Javelin torpedo rack. Not part of the Mass Effect trilogy. Original model.', 'AU PROPOSAL (Apex Black Fleet); badged in custom battles.'),
+    lengthM: au(650, 'AU proposal.'),
+    hull: au(4900),
+    armour: au(70),
+    barriers: au(2400),
+    barrierRegen: au(32),
+    maxSpeed: au(0.85),
+    acceleration: au(0.15),
+    turnRate: au(8),
+    sensorRange: au(85),
+    signature: 1.25,
     ecm: 0.3,
     crewQuality: 1.05,
     hardpoints: [
-      { weaponId: 'alliance_dn_main', offset: [0, 0, 420], facing: 0, count: 1 },
-      { weaponId: 'alliance_broadside', offset: [30, 6, 100], facing: 90, count: 4 },
-      { weaponId: 'alliance_broadside', offset: [-30, 6, 100], facing: -90, count: 4 },
-      { weaponId: 'gardian', offset: [0, 24, 150], facing: 0, count: 8 },
+      { weaponId: 'cerberus_cruiser_main', offset: [0, 0, 300], facing: 0, count: 1 },
+      { weaponId: 'thanix_heavy', offset: [0, 22, 120], facing: 0, count: 1 },
+      { weaponId: 'javelin_rack', offset: [0, -10, 80], facing: 0, count: 1 },
+      { weaponId: 'alliance_broadside', offset: [22, 4, 40], facing: 90, count: 2 },
+      { weaponId: 'alliance_broadside', offset: [-22, 4, 40], facing: -90, count: 2 },
+      { weaponId: 'gardian', offset: [0, 16, 70], facing: 0, count: 6 },
     ],
-    pointValue: 320,
-    description: 'AU-only capital ship of the Cerberus Black Fleet. Not part of the trilogy.',
+    pointValue: 150,
+    heatCapacity: heatCap(160),
+    description: 'AU Black Fleet heavy cruiser: a spinal accelerator, a dorsal heavy Thanix channel and a four-torpedo Javelin rack on a 650 m hull. Not part of the trilogy.',
+  },
+  cerberus_dreadnought: {
+    id: 'cerberus_dreadnought',
+    name: 'Cerberus Black Fleet dreadnought (AU)',
+    shortName: 'Black Fleet dreadnought',
+    faction: 'cerberus',
+    role: 'dreadnought',
+    designProvenance: au('Alternate-universe capital ship of the Cerberus Black Fleet: a kilometre-long dreadnought with a spinal accelerator and a dorsal heavy Thanix channel. Cerberus fields no dreadnoughts in the trilogy. Original model.', 'AU PROPOSAL (Apex Black Fleet); badged in custom battles.'),
+    lengthM: au(1000, 'AU proposal.'),
+    hull: au(10800),
+    armour: au(135),
+    barriers: au(6300),
+    barrierRegen: au(69),
+    maxSpeed: au(0.65),
+    acceleration: au(0.09),
+    turnRate: au(4.5),
+    sensorRange: au(110),
+    signature: 1.9,
+    ecm: 0.3,
+    crewQuality: 1.1,
+    hardpoints: [
+      { weaponId: 'alliance_dn_main', offset: [0, 0, 480], facing: 0, count: 1 },
+      { weaponId: 'thanix_heavy', offset: [0, 30, 200], facing: 0, count: 1 },
+      { weaponId: 'alliance_broadside', offset: [32, 6, 110], facing: 90, count: 4 },
+      { weaponId: 'alliance_broadside', offset: [-32, 6, 110], facing: -90, count: 4 },
+      { weaponId: 'gardian', offset: [0, 26, 160], facing: 0, count: 10 },
+    ],
+    pointValue: 360,
+    heatCapacity: heatCap(200),
+    description: 'AU-only capital ship of the Cerberus Black Fleet: a spinal accelerator (a Titan gun under Project Titan) and a dorsal heavy Thanix channel. Not part of the trilogy.',
   },
 
   // =================================================================== GETH
@@ -658,6 +964,7 @@ export const SHIP_CLASSES: Record<string, ShipClassDef> = {
       { weaponId: 'gardian', offset: [0, 8, 0], facing: 0, count: 2 },
     ],
     pointValue: 22,
+    heatCapacity: heatCap(110),
     description: 'Compact synthetic escort with strong barriers and perfectly coordinated fire distribution.',
   },
   geth_cruiser: {
@@ -686,6 +993,7 @@ export const SHIP_CLASSES: Record<string, ShipClassDef> = {
       { weaponId: 'gardian', offset: [0, 12, 60], facing: 0, count: 4 },
     ],
     pointValue: 86,
+    heatCapacity: heatCap(140),
     description: 'Geth line cruiser. Networked crews react in fractions of a second.',
   },
   geth_dreadnought: {
@@ -715,6 +1023,7 @@ export const SHIP_CLASSES: Record<string, ShipClassDef> = {
     ],
     fighterComplement: { classId: 'geth_fighter', count: 12 },
     pointValue: 360,
+    heatCapacity: heatCap(200),
     description: 'Larger than any Council dreadnought, built without the compromises of a crew. Carries a fighter wing.',
   },
 
@@ -771,6 +1080,7 @@ export const SHIP_CLASSES: Record<string, ShipClassDef> = {
       { weaponId: 'gardian', offset: [0, 12, 60], facing: 0, count: 4 },
     ],
     pointValue: 76,
+    heatCapacity: heatCap(140),
     description: 'Patchwork cruiser of the Patrol Fleet: every hull is a repair history.',
   },
   quarian_heavy: {
@@ -799,6 +1109,7 @@ export const SHIP_CLASSES: Record<string, ShipClassDef> = {
       { weaponId: 'gardian', offset: [0, 24, 150], facing: 0, count: 6 },
     ],
     pointValue: 260,
+    heatCapacity: heatCap(200),
     description: 'A bulk freighter rebuilt around a spinal gun: the heaviest thing the Migrant Fleet can field.',
   },
   quarian_liveship: {
@@ -825,10 +1136,35 @@ export const SHIP_CLASSES: Record<string, ShipClassDef> = {
     ],
     fighterComplement: { classId: 'quarian_fighter', count: 16 },
     pointValue: 400,
+    heatCapacity: heatCap(180),
     description: 'Not a warship. Losing a liveship means famine for the Fleet, so quarian doctrine protects them above everything.',
   },
 
   // ================================================================= REAPERS
+  reaper_oculus: {
+    id: 'reaper_oculus',
+    name: 'Oculus drone',
+    shortName: 'Oculus',
+    faction: 'reaper',
+    role: 'fighter',
+    designProvenance: canon('Oculus drones are canon (ME2, Collector base). Original model.'),
+    lengthM: inferred(12, 'Fighter-sized drone in ME2; not stated.'),
+    hull: estimate(48),
+    armour: estimate(5),
+    barriers: estimate(0, 'No barriers: ME2 shows an armour bar only (CANON_INFERRED, verify).'),
+    barrierRegen: estimate(0),
+    maxSpeed: estimate(3.6),
+    acceleration: estimate(1.8),
+    turnRate: estimate(110),
+    sensorRange: estimate(30),
+    signature: 0.05,
+    ecm: 0.1,
+    crewQuality: 1.2,
+    hardpoints: [{ weaponId: 'oculus_beam', offset: [0, 0, 5], facing: 0, count: 1 }],
+    pointValue: 4,
+    description:
+      'Fast, fragile Reaper combat drone launched in swarms. Its short particle beam burns fighters; it cannot hurt a hull. The drone is canon (ME2); Reaper warships launching Oculi in a fleet battle is an extrapolation of the simulation.',
+  },
   reaper_destroyer: {
     id: 'reaper_destroyer',
     name: 'Reaper destroyer',
@@ -836,10 +1172,10 @@ export const SHIP_CLASSES: Record<string, ShipClassDef> = {
     role: 'reaper_destroyer',
     designProvenance: canon('Reaper destroyers are canon (ME3). Hull is an original model.'),
     lengthM: canon(160, 'Codex: Reaper Destroyer.'),
-    hull: estimate(3200),
-    armour: estimate(160),
-    barriers: estimate(6500),
-    barrierRegen: estimate(80),
+    hull: estimate(700, 'A cruiser can kill one if it survives into effective range (CANON_INFERRED anchor); barrier = one dreadnought round, recovery only when left alone (ADOPTION_PLAN.md §3.2).'),
+    armour: estimate(120),
+    barriers: estimate(1000, 'Exactly one dreadnought round; a cruiser can kill one if it survives into effective range (CANON_INFERRED anchor, ADOPTION_PLAN.md §3.2).'),
+    barrierRegen: estimate(25, 'Pause-gated: recovers only when left alone for three seconds; ≤ 25/s or a cruiser’s hit gaps refill it.'),
     maxSpeed: estimate(1.6),
     acceleration: estimate(0.4),
     turnRate: estimate(16),
@@ -851,9 +1187,10 @@ export const SHIP_CLASSES: Record<string, ShipClassDef> = {
       { weaponId: 'reaper_destroyer_beam', offset: [0, -10, 60], facing: 0, count: 1 },
       { weaponId: 'reaper_point_defence', offset: [0, 0, 0], facing: 0, count: 3 },
     ],
+    fighterComplement: oculi(2),
     pointValue: 260,
     description:
-      'Smaller Reaper unit used for landings and close escort. Its barriers are extraordinary for its size, and its beam destroys frigates and cruisers in a single pass.',
+      'Smaller Reaper unit used for landings and close escort. Its barrier stops a single dreadnought round and recovers only when left alone; its beam destroys frigates and cruisers in a single pass.',
   },
   reaper_capital: {
     id: 'reaper_capital',
@@ -863,10 +1200,12 @@ export const SHIP_CLASSES: Record<string, ShipClassDef> = {
     role: 'reaper_capital',
     designProvenance: canon('Sovereign-class capital ships are canon. Hull is an original model.'),
     lengthM: canon(2000, 'Codex: Reaper Capital Ship — roughly two kilometres long.'),
-    hull: estimate(32000),
+    hull: estimate(12000, 'Tuned to a planning benchmark the reference pack attributes to the ME3 codex (unverified): concentrated, uninterrupted fire from four dreadnoughts destroys it in the isolated trial; in a live engagement with return fire four dreadnoughts usually lose (ADOPTION_PLAN.md §3.2).'),
     armour: estimate(320),
-    barriers: estimate(42000),
-    barrierRegen: estimate(240),
+    barriers: estimate(7000, 'Tuned to a planning benchmark the reference pack attributes to the ME3 codex (unverified): two dreadnoughts cannot overwhelm it, three impose a growing load, four collapse it; anchored on Sovereign withstanding the Citadel fleet (ADOPTION_PLAN.md §3.2).'),
+    barrierRegen: estimate(1000, 'Recovers continuously, also under fire (M1): two dreadnoughts’ worth of fire is absorbed indefinitely.'),
+    barrierRegenUnderFire: estimate(1, 'M1: the full recovery rate continues under fire. Anchors: Sovereign’s barriers withstood the Citadel fleet (CANON_CONFIRMED) and the pack’s unverified concentration-of-fire benchmark.'),
+    barrierLoadThreshold: estimate(1000, 'M2: hits below one dreadnought round load the field only in proportion to their size; the round is still stopped.'),
     maxSpeed: estimate(0.8),
     acceleration: estimate(0.14),
     turnRate: estimate(6),
@@ -879,9 +1218,11 @@ export const SHIP_CLASSES: Record<string, ShipClassDef> = {
       { weaponId: 'reaper_capital_beam', offset: [0, -40, 300], facing: 0, count: 1 },
       { weaponId: 'reaper_point_defence', offset: [0, 0, 0], facing: 0, count: 8 },
     ],
+    fighterComplement: oculi(8),
     pointValue: 2600,
+    strafeLane: reaperStrafeLane(1),
     description:
-      'Two-kilometre harvester with barriers that held off an entire fleet at the Citadel. Its magnetohydrodynamic weapon yields hundreds of kilotons per shot and can destroy a dreadnought.',
+      'Two-kilometre harvester whose barriers recover even under fire: two dreadnoughts cannot overwhelm them, three impose a growing load, four can bring them down with uninterrupted concentrated fire — and in a live engagement with return fire the four usually lose. Its magnetohydrodynamic weapon yields hundreds of kilotons per shot and can destroy a dreadnought.',
   },
   harbinger: {
     id: 'harbinger',
@@ -889,11 +1230,13 @@ export const SHIP_CLASSES: Record<string, ShipClassDef> = {
     faction: 'reaper',
     role: 'reaper_capital',
     designProvenance: canon('Harbinger is canon: the first and largest Reaper, commanding the Collectors in ME2 and present at Earth in ME3.'),
-    lengthM: inferred(2400, 'Described as larger than other Reapers; exact length unstated.'),
-    hull: estimate(44000),
+    lengthM: estimate(2200, 'Canon: larger than other Reapers, size unstated; rendered 2,200 m as the boss variant.'),
+    hull: estimate(18000, '1.5 × a Sovereign-class capital (the boss variant); two dreadnoughts never, four in the isolated trial (ADOPTION_PLAN.md §3.2).'),
     armour: estimate(380),
-    barriers: estimate(58000),
-    barrierRegen: estimate(300),
+    barriers: estimate(10500, '1.5 × a Sovereign-class capital (the boss variant).'),
+    barrierRegen: estimate(1300, 'Recovers continuously, also under fire (M1).'),
+    barrierRegenUnderFire: estimate(1, 'M1: the full recovery rate continues under fire.'),
+    barrierLoadThreshold: estimate(1000, 'M2: hits below one dreadnought round load the field only in proportion to their size.'),
     maxSpeed: estimate(0.75),
     acceleration: estimate(0.13),
     turnRate: estimate(5),
@@ -907,9 +1250,13 @@ export const SHIP_CLASSES: Record<string, ShipClassDef> = {
       { weaponId: 'reaper_capital_beam', offset: [0, -40, 360], facing: 0, count: 1 },
       { weaponId: 'reaper_point_defence', offset: [0, 0, 0], facing: 0, count: 10 },
     ],
+    fighterComplement: oculi(12),
     pointValue: 4000,
+    flagship: true,
+    unique: true,
+    strafeLane: reaperStrafeLane(1.1),
     description:
-      'The oldest and most powerful Reaper, directing the harvest. In the simulation it is a heavier Sovereign-class unit with an additional primary emitter.',
+      'The oldest and most powerful Reaper, directing the harvest. In the simulation it is a heavier Sovereign-class unit with an additional primary emitter and barriers half again as strong.',
   },
 };
 

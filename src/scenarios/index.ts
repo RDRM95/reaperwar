@@ -1,7 +1,8 @@
+import { au, canon, estimate, inferred, type Sourced } from '@/core/provenance';
 import { v3, type Vec3 } from '@/core/vec3';
 import { getPreset } from '@/timelines/presets';
 import { isApexRules, type RuleSet } from '@/timelines/rules';
-import type { FactionId } from '@/data/types';
+import { UNIQUE_CLASS_IDS, type FactionId } from '@/data/types';
 import type { BattleConfig, Environment, FleetSpec, FormationType, ShipSpec, Side } from '@/simulation/types';
 import { SHIP_CLASSES } from '@/data/ships';
 import { FACTIONS } from '@/data/factions';
@@ -47,23 +48,34 @@ export interface ScenarioDef {
  */
 export const FLEET_SCALING_KEY = 'fleet_scaling';
 
-const ALLIANCE_DN_NAMES = ['SSV Kilimanjaro', 'SSV Orizaba', 'SSV Fuji', 'SSV Elbrus', 'SSV Aconcagua', 'SSV Logan', 'SSV Tai Shan', 'SSV Shasta', 'SSV Everest', 'SSV Denali'];
+/** Everest-class dreadnoughts (ADOPTION_PLAN.md §14.2): the mountain convention, ending in SSV Ararat; no battle names. */
+const ALLIANCE_DN_NAMES = ['SSV Everest', 'SSV Fuji', 'SSV Elbrus', 'SSV Logan', 'SSV Denali', 'SSV Ararat'];
+/** Kilimanjaro-class dreadnoughts: SSV Kilimanjaro and SSV Orizaba are canon, the rest are the pack's list (verify). */
+const ALLIANCE_DN_K_NAMES = ['SSV Kilimanjaro', 'SSV Orizaba', 'SSV Tai Shan', 'SSV Shasta', 'SSV Aconcagua'];
 const ALLIANCE_CRUISER_NAMES = ['SSV Emden', 'SSV Geneva', 'SSV Warsaw', 'SSV Cairo', 'SSV Madrid', 'SSV Shanghai', 'SSV Cape Town', 'SSV Jakarta', 'SSV Hastings', 'SSV Agincourt', 'SSV Trafalgar', 'SSV Midway', 'SSV Leyte', 'SSV Jutland', 'SSV Salamis', 'SSV Lepanto'];
 const ALLIANCE_FRIGATE_NAMES = ['SSV Hong Kong', 'SSV Iwo Jima', 'SSV Cheyenne', 'SSV Agamemnon', 'SSV Achilles', 'SSV Perugia', 'SSV Hyderabad', 'SSV Trident', 'SSV Lexington', 'SSV Saratoga'];
+/** SR-2-pattern stealth frigates: original names (SIMULATION_ESTIMATE); the Normandy itself is `normandy_sr2`. */
+const ALLIANCE_PATTERN_FRIGATE_NAMES = ['SSV Thermopylae', 'SSV Austerlitz', 'SSV Sekigahara', 'SSV Adwa', 'SSV Plataea', 'SSV Carrhae', 'SSV Talas', 'SSV Lechfeld'];
 const TURIAN_DN_NAMES = ['PFS Indomitable', 'PFS Vengeance', 'PFS Cipritine', 'PFS Digeris', 'PFS Taetrus', 'PFS Invictus', 'PFS Macedyn', 'PFS Oma Ker'];
 const TURIAN_CRUISER_NAMES = ['PFS Resolute', 'PFS Steadfast', 'PFS Unyielding', 'PFS Adamant', 'PFS Vigilant', 'PFS Relentless', 'PFS Spirit of Menae', 'PFS Bastion', 'PFS Rampart', 'PFS Ardent', 'PFS Stalwart', 'PFS Tenacious'];
 const ASARI_DN_NAMES = ['Cyone', 'Serrice Guard', 'Armali', 'Lusia'];
 const ASARI_CRUISER_NAMES = ['Tevura', 'Athame', 'Lucen', 'Piares', 'Nevos', 'Dilinaga', 'Anthea', 'Illium Dawn', 'Thessia Star', 'Nos Astra', 'Sanves', 'Niacal'];
 const CERBERUS_NAMES = ['Minuteman', 'Cronos', 'Elbrus', 'Horizon', 'Sanctum', 'Covenant', 'Lazarus', 'Overlord', 'Firewalker', 'Arrival'];
 
-/** Canonical name lists by class (names are original where canon gives none). */
-const NAMES: Record<string, string[]> = {
+/** Canonical name lists by class (names are original where canon gives none). A name never appears in two lists. */
+export const NAMES: Record<string, string[]> = {
   alliance_dreadnought: ALLIANCE_DN_NAMES,
+  alliance_dreadnought_k: ALLIANCE_DN_K_NAMES,
+  /** The owner's AU super-dreadnought line is led by SSV Omaha (docs/apex/INTEGRATION_NOTES.md). */
+  alliance_super_dreadnought: ['SSV Omaha', 'SSV Olympus Mons', 'SSV Mauna Kea'],
   alliance_cruiser: ALLIANCE_CRUISER_NAMES,
   alliance_frigate: ALLIANCE_FRIGATE_NAMES,
   alliance_carrier: ['SSV Einstein', 'SSV Hawking', 'SSV Newton'],
-  alliance_frigate_thanix: ['SSV Normandy SR-2'],
+  alliance_frigate_thanix: ALLIANCE_PATTERN_FRIGATE_NAMES,
+  normandy_sr2: ['SSV Normandy SR-2'],
+  normandy_valkyrie: ['SSV Normandy Valkyrie'],
   turian_dreadnought: TURIAN_DN_NAMES,
+  turian_super_dreadnought: ['PFS Praetor', 'PFS Legate'],
   turian_cruiser: TURIAN_CRUISER_NAMES,
   asari_dreadnought: ASARI_DN_NAMES,
   asari_cruiser: ASARI_CRUISER_NAMES,
@@ -72,12 +84,28 @@ const NAMES: Record<string, string[]> = {
   salarian_cruiser: ['Talat', 'Nasurn', 'Aegohr', 'Halegeuse', 'Gorot', 'Heshtok', 'Dagnes', 'Senoquol', 'Tuchanka Watch', 'Kirrahe', 'Virmire', 'Solus'],
   salarian_frigate: ['STG Scalpel', 'STG Needle', 'STG Lancet', 'STG Quill', 'STG Thorn', 'STG Barb', 'STG Sliver', 'STG Spine', 'STG Awl', 'STG Stylus'],
   cerberus_cruiser: CERBERUS_NAMES,
-  cerberus_dreadnought: ['Black Fleet Flagship Prometheus'],
+  cerberus_heavy_cruiser: ['Erebus', 'Nyx'],
+  cerberus_dreadnought: ['Black Fleet Flagship Prometheus', 'Eos', 'Hyperion'],
   harbinger: ['Harbinger'],
   quarian_liveship: ['Rayya', 'Shellen', 'Tonbay'],
   quarian_heavy: ['Qwib-Qwib', 'Alarei', 'Neema', 'Idenna', 'Moreh', 'Iktomi'],
   quarian_cruiser: ['Usela', 'Tesleya', 'Chayym', 'Defrahnz', 'Honorata', 'Konesh', 'Rannoch Hope', 'Tasi', 'Ulnay', 'Yaska'],
   geth_dreadnought: ['Geth dreadnought'],
+};
+
+/**
+ * Per-name provenance for the lists ADOPTION_PLAN.md §14.2 anchors (stage D
+ * copies the CANON_INFERRED entries onto LORE_REFERENCE.md's verify list).
+ */
+export const NAME_PROVENANCE: Record<string, Sourced<string>> = {
+  'SSV Kilimanjaro': canon('Kilimanjaro-class dreadnought named in ME3 (LORE_REFERENCE.md).'),
+  'SSV Orizaba': canon('Kilimanjaro-class dreadnought named in ME3 (LORE_REFERENCE.md).'),
+  'SSV Everest': canon('The Everest-class name is canon (ME1 codex); the lead ship bears the class name.'),
+  ...Object.fromEntries(['SSV Fuji', 'SSV Elbrus', 'SSV Logan', 'SSV Denali', 'SSV Ararat', 'SSV Tai Shan', 'SSV Shasta', 'SSV Aconcagua'].map((n) => [n, inferred('pack list; verify class')])),
+  ...Object.fromEntries(ALLIANCE_PATTERN_FRIGATE_NAMES.map((n) => [n, estimate('Original name for an SR-2-pattern stealth frigate; the trilogy names only the Normandy.')])),
+  'SSV Normandy SR-2': canon('The Normandy SR-2 is canon (ME2–ME3).'),
+  'SSV Normandy Valkyrie': au('AU LOCK one-off (ADOPTION_PLAN.md §8).'),
+  ...Object.fromEntries(['SSV Omaha', 'SSV Olympus Mons', 'SSV Mauna Kea', 'PFS Praetor', 'PFS Legate', 'Erebus', 'Nyx', 'Black Fleet Flagship Prometheus', 'Eos', 'Hyperion'].map((n) => [n, au('Original name for an alternate-universe hull.')])),
 };
 
 /** Scale a ship count by a fleet strength multiplier, never below 1 if the base was >= 1. */
@@ -109,10 +137,12 @@ export function fleet(id: string, faction: FactionId, rules: RuleSet, opts: Flee
   const ships: ShipSpec[] = [];
   for (const [classId, base] of Object.entries(opts.counts)) {
     if (base <= 0) continue;
-    const fixed = opts.fixedClasses?.includes(classId);
+    // Unique hulls (Harbinger, the Ascension, the Normandy, the Valkyrie) exist once per battle and never scale (AP §22.1).
+    const unique = UNIQUE_CLASS_IDS.includes(classId);
+    const fixed = unique || opts.fixedClasses?.includes(classId);
     // Carriers scale more conservatively than the line.
     const mult = fixed ? 1 : classId.endsWith('carrier') ? Math.min(m, 1.5) : m;
-    const count = scaleCount(base, mult);
+    const count = unique ? Math.min(1, base) : scaleCount(base, mult);
     ships.push({ classId, count, names: NAMES[classId] });
   }
   const side = opts.side ?? (faction === 'reaper' ? 'B' : 'A');
@@ -207,7 +237,7 @@ export const SCENARIOS: ScenarioDef[] = [
       const commitment = ws.fleet_commitment ?? 'standard';
       const c = commitment === 'heavy' ? { alliance_dreadnought: 8, alliance_carrier: 2, alliance_cruiser: 18, alliance_frigate: 30 } : commitment === 'light' ? { alliance_dreadnought: 4, alliance_carrier: 1, alliance_cruiser: 10, alliance_frigate: 18 } : { alliance_dreadnought: 6, alliance_carrier: 1, alliance_cruiser: 14, alliance_frigate: 24 };
       return base('battle_of_earth', 'Battle of Earth', 'battle_of_earth', seed, rules, 'earth_orbit', 420, 'Hold Earth orbit against the Reaper harvest group.', ws, [
-        fleet('alliance-5th', 'alliance', rules, { counts: { ...c, alliance_frigate_thanix: (ws.normandy ?? 'yes') === 'yes' ? 1 : 0 }, fixedClasses: ['alliance_frigate_thanix'], name: 'Alliance Fifth Fleet', position: v3(0, 0, -34), ws }),
+        fleet('alliance-5th', 'alliance', rules, { counts: { ...c, normandy_sr2: (ws.normandy ?? 'yes') === 'yes' ? 1 : 0 }, name: 'Alliance Fifth Fleet', position: v3(0, 0, -34), ws }),
         reaperFleet('reaper-sol', rules, { capitals: 3, destroyers: 7, position: v3(6, 2, 46), heading: v3(-0.12, 0, -1), ws }),
         reaperFleet('reaper-sol-2', rules, { capitals: 1, destroyers: 3, position: v3(-40, -3, 70), heading: v3(0.4, 0, -1), arrivalTime: 55, name: 'Reaper second wave', ws }),
       ]);
@@ -339,7 +369,7 @@ export const SCENARIOS: ScenarioDef[] = [
     ],
     build: (rules, seed, ws) => {
       const cooperative = rules.strategic.cerberusStance === 'cooperative' || rules.strategic.cerberusStance === 'controls_reapers';
-      const alliance = fleet('alliance-tf', 'alliance', rules, { counts: { alliance_dreadnought: 2, alliance_cruiser: 8, alliance_frigate: 14, alliance_frigate_thanix: (ws.normandy ?? 'yes') === 'yes' ? 1 : 0 }, fixedClasses: ['alliance_frigate_thanix'], name: 'Alliance task force', position: v3(0, 0, -34), formation: 'line_abreast', ws });
+      const alliance = fleet('alliance-tf', 'alliance', rules, { counts: { alliance_dreadnought: 2, alliance_cruiser: 8, alliance_frigate: 14, normandy_sr2: (ws.normandy ?? 'yes') === 'yes' ? 1 : 0 }, name: 'Alliance task force', position: v3(0, 0, -34), formation: 'line_abreast', ws });
       if (!cooperative) {
         return base('cerberus_intervention', 'Cerberus Intervention', 'cerberus_intervention', seed, rules, 'deep_space', 360, 'Defeat the Cerberus strike fleet.', ws, [
           alliance,
@@ -434,7 +464,7 @@ export const SCENARIOS: ScenarioDef[] = [
       return base('battle_of_the_citadel', 'Battle of the Citadel', 'battle_of_the_citadel', seed, rules, 'citadel', 420, 'Destroy Sovereign and its geth escort.', ws, [
         fleet('citadel-fleet', 'turian', rules, { counts: { turian_dreadnought: 3, turian_cruiser: 10, turian_frigate: 14 }, name: 'Citadel Fleet (Hierarchy)', position: v3(-16, 0, -34), formation: 'line_abreast', ws }),
         fleet('republics-guard', 'asari', rules, { counts: { destiny_ascension: save ? 1 : 0, asari_cruiser: 6 }, fixedClasses: ['destiny_ascension'], name: 'Citadel Fleet (Republics)', position: v3(18, 0, -40), formation: 'defensive_screen', ws }),
-        fleet('alliance-5th', 'alliance', rules, { counts: { alliance_dreadnought: 3, alliance_cruiser: 10, alliance_frigate: 16, alliance_frigate_thanix: 0 }, name: 'Alliance Fifth Fleet', position: v3(0, 6, -70), formation: 'strike_wedge', arrivalTime: 40, initialOrder: save ? { order: 'escort', targetId: 'republics-guard-destiny_ascension-1', protectCapitals: true } : undefined, ws } as FleetOpts),
+        fleet('alliance-5th', 'alliance', rules, { counts: { alliance_dreadnought: 3, alliance_cruiser: 10, alliance_frigate: 16 }, name: 'Alliance Fifth Fleet', position: v3(0, 6, -70), formation: 'strike_wedge', arrivalTime: 40, initialOrder: save ? { order: 'escort', targetId: 'republics-guard-destiny_ascension-1', protectCapitals: true } : undefined, ws } as FleetOpts),
         {
           ...reaperFleet('sovereign', rules, { capitals: 1, destroyers: 0, name: 'Sovereign', position: v3(0, 0, 46), mult: 1, formation: 'capital_column' }),
           ships: [{ classId: 'reaper_capital', count: 1, names: ['Sovereign'] }],
@@ -486,7 +516,7 @@ export const SCENARIOS: ScenarioDef[] = [
         campaignCounts.forEach((f, i) => fleets.push(fleet(`sword-${i}`, f.faction, rules, { counts: f.counts, name: f.name, position: v3(-24 + (i % 4) * 16, 0, -34 - Math.floor(i / 4) * 8), formation: i === 0 ? 'line_abreast' : 'defensive_screen', mult: 1 })));
         fleets.push(fleet('reaper-blockade', 'reaper', rules, { counts: reaperCounts, fixedClasses: ['harbinger'], name: 'Reaper blockade', side: 'B', position: v3(0, 0, 46), heading: v3(0, 0, -1), formation: 'strike_wedge', mult: 1 }));
       } else {
-        fleets.push(fleet('sword-alliance', 'alliance', rules, { counts: { alliance_dreadnought: 6, alliance_carrier: 2, alliance_cruiser: 16, alliance_frigate: 24, alliance_frigate_thanix: 1 }, fixedClasses: ['alliance_frigate_thanix'], name: 'Sword Fleet (Alliance)', position: v3(-20, 0, -34), formation: 'line_abreast', ws }));
+        fleets.push(fleet('sword-alliance', 'alliance', rules, { counts: { alliance_dreadnought: 6, alliance_carrier: 2, alliance_cruiser: 16, alliance_frigate: 24, normandy_sr2: (ws.normandy ?? 'yes') === 'yes' ? 1 : 0 }, name: 'Sword Fleet (Alliance)', position: v3(-20, 0, -34), formation: 'line_abreast', ws }));
         fleets.push(fleet('sword-turian', 'turian', rules, { counts: { turian_dreadnought: 5, turian_cruiser: 10, turian_frigate: 16 }, name: 'Sword Fleet (Hierarchy)', position: v3(18, 0, -38), formation: 'line_abreast', ws }));
         fleets.push(fleet('sword-asari', 'asari', rules, { counts: { destiny_ascension: ws.ascension === 'absent' ? 0 : 1, asari_dreadnought: 2, asari_cruiser: 8 }, fixedClasses: ['destiny_ascension'], name: 'Sword Fleet (Republics)', position: v3(0, 4, -48), formation: 'defensive_screen', ws }));
         fleets.push(fleet('sword-quarian', 'quarian', rules, { counts: { quarian_heavy: 3, quarian_cruiser: 10 }, name: 'Migrant Fleet detachment', position: v3(-40, 0, -46), formation: 'defensive_screen', ws }));
@@ -511,7 +541,7 @@ export const SCENARIOS: ScenarioDef[] = [
     briefing: ['A Reaper task group has been located in deep space.', 'The dreadnought group will engage at maximum range.'],
     build: (rules, seed, ws) =>
       base('alliance_fleet_engagement', 'Alliance Fleet Engagement', 'alliance_fleet_engagement', seed, rules, 'deep_space', 360, 'Destroy the Reaper force.', ws, [
-        fleet('alliance-tf', 'alliance', rules, { counts: { alliance_dreadnought: 8, alliance_carrier: 1, alliance_cruiser: 16, alliance_frigate: 30, alliance_frigate_thanix: (ws.normandy ?? 'yes') === 'yes' ? 1 : 0 }, fixedClasses: ['alliance_frigate_thanix'], name: 'Alliance Task Force', formation: 'line_abreast', position: v3(0, 0, -36), ws }),
+        fleet('alliance-tf', 'alliance', rules, { counts: { alliance_dreadnought: 8, alliance_carrier: 1, alliance_cruiser: 16, alliance_frigate: 30, normandy_sr2: (ws.normandy ?? 'yes') === 'yes' ? 1 : 0 }, name: 'Alliance Task Force', formation: 'line_abreast', position: v3(0, 0, -36), ws }),
         reaperFleet('reaper-tg', rules, { capitals: 4, destroyers: 8, position: v3(0, 0, 40), ws }),
       ]),
   },
@@ -532,7 +562,7 @@ export const SCENARIOS: ScenarioDef[] = [
     ],
     build: (rules, seed, ws) =>
       base('prime_apex_sol_defence', 'Prime/Apex — Sol Defence', 'prime_apex_sol_defence', seed, rules, 'earth_orbit', 480, 'Defeat the Reaper invasion force in Sol without allied assistance.', ws, [
-        fleet('alliance-home', 'alliance', rules, { counts: { alliance_dreadnought: 8, alliance_carrier: 2, alliance_cruiser: 18, alliance_frigate: 30, alliance_frigate_thanix: 1 }, name: 'Alliance Home Fleet', formation: 'line_abreast', position: v3(0, 0, -36), mult: 1 }),
+        fleet('alliance-home', 'alliance', rules, { counts: { alliance_dreadnought: 8, alliance_carrier: 2, alliance_cruiser: 18, alliance_frigate: 30, normandy_sr2: 1 }, name: 'Alliance Home Fleet', formation: 'line_abreast', position: v3(0, 0, -36), mult: 1 }),
         reaperFleet('reaper-sol', rules, { capitals: 4, destroyers: 8, position: v3(0, 0, 44), mult: 1 }),
         reaperFleet('reaper-sol-2', rules, { capitals: 2, destroyers: 4, position: v3(-45, 0, 70), heading: v3(0.4, 0, -1), arrivalTime: 70, name: 'Reaper second wave', mult: 1 }),
       ]),

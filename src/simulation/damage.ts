@@ -17,16 +17,28 @@ export interface DamageOutcome {
   residual: number;
 }
 
+export interface DamageOptions {
+  /**
+   * Size of the whole hit for the M2 load threshold (ADOPTION_PLAN.md §3.1):
+   * beams pass their whole burst (`damage × beamDuration`) although the
+   * damage arrives in per-tick chunks. Defaults to `raw`.
+   */
+  hitSize?: number;
+}
+
 /**
  * Resolve a quantity of incoming damage against a ship.
  *
  * Kinetic barriers absorb a damage-type dependent fraction of each hit until
  * their capacity is exhausted (slugs: everything; Reaper streams: ~40%;
- * lasers: nothing; slow torpedoes: ~25%). Armour then reduces what passes
- * through by a flat amount scaled by the weapon's penetration, and ablates
- * slowly. The remainder strikes the hull and may disable a subsystem.
+ * lasers: nothing; slow torpedoes: ~25%). A hull with a barrier load
+ * threshold (M2: Reaper capitals, 1,000 points) still stops the round but is
+ * only loaded in proportion to the hit's size, so cruiser and frigate rounds
+ * cannot wear it down. Armour then reduces what passes through by a flat
+ * amount scaled by the weapon's penetration, and ablates slowly. The
+ * remainder strikes the hull and may disable a subsystem.
  */
-export function applyDamage(target: ShipState, raw: number, weapon: EffectiveWeapon, rng: Rng, now: number): DamageOutcome {
+export function applyDamage(target: ShipState, raw: number, weapon: EffectiveWeapon, rng: Rng, now: number, opts?: DamageOptions): DamageOutcome {
   const out: DamageOutcome = { barrierDamage: 0, hullDamage: 0, barriersCollapsed: false, destroyed: false, residual: 0 };
   if (!target.alive || raw <= 0) return out;
   target.lastHitAt = now;
@@ -35,9 +47,12 @@ export function applyDamage(target: ShipState, raw: number, weapon: EffectiveWea
   const eff = BARRIER_EFFICIENCY[weapon.damageType] * weapon.barrierEfficiencyMultiplier;
   if (target.barriers > 0 && eff > 0) {
     const absorbed = Math.min(target.barriers, amount * eff);
-    target.barriers -= absorbed;
+    // M2: the field sheds impacts far below its rating without being loaded in full.
+    const threshold = target.barrierLoadThreshold;
+    const load = threshold > 0 ? absorbed * Math.min(1, (opts?.hitSize ?? raw) / threshold) : absorbed;
+    target.barriers -= load;
     amount -= absorbed;
-    out.barrierDamage = absorbed;
+    out.barrierDamage = load;
     if (target.barriers <= 0.01) {
       target.barriers = 0;
       out.barriersCollapsed = true;
