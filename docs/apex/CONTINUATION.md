@@ -40,6 +40,16 @@ Owner requirements added today and binding everywhere: brief §15 (stealth class
 - **Programmes after 1.0.0, in the owner's priority order:** V2.1 Extreme Scale (brief §17; plan it with `Workflow({script: <docs/apex/workflows/extreme-scale-plan.js>})`, then staged implementation workflows from the plan's last section), then V2.2 Graphics and cinematic overhaul (brief §16; `docs/apex/GRAPHICS_OVERHAUL_PLAN.md` from the graphics plan run), then V2.3 System theatre (§13), V2.4 Alternate Timelines (§14); pinned: local-hardware build (§18), Collectors, First Contact War, non-eezo, Multiverse.
 - Owner requirements recorded today: brief §17 (extreme scale; CORE builds the seams now, see INTEGRATION_NOTES) and §18 (local hardware, pinned).
 
+## Owner decision, 3 Nov 21:30 UTC — the playable build is the only priority
+
+The owner: "you have full workflow auth, playable build is only priority, I leave the rest to you." Consequences:
+
+1. **CORE runs alone** until acceptance (one workflow at a time; resume on every window reset).
+2. **Intermediate playable deploys.** After CORE chunk 3 (T8–T10: spatial grid, 3D formations and platforms, the movement rewrite) and after chunk 4 (T11–T13: Oculus, Reaper AI, beats/volley/flagship events), the lead runs `npm run build && npx playwright test` in the main checkout while the agent is between tasks (tree clean); if green, bump the patch version, fast-forward `main` and verify the deployment. New classes render with the T2 role-based placeholder models until stage A lands; that is acceptable for an intermediate build and is noted in the changelog.
+3. **1.0.0 scope is trimmed to what playing needs**, in this order after CORE: stage C (custom battle v2 screen, briefing rows, results banner — the old screen only works minimally after T17), stage A-lite (models for the nine new classes incl. Normandy and SSV Omaha variants, the Reaper palette and scale, hull-shaped barriers, HADES/volley/arrival effects and audio, governor tiers applied, the animation layer of brief §15.3), stage B-lite (HUD simplification above 48 hulls, independent overlay toggle, flagship banner and priority comms, volley control, Record mode, the shot-list camera driver, Cinematics mode with the Final Battle scene and the Apex Refuse scene only), stage D-lite (codex entries for the new classes, README/CHANGELOG/KNOWN_ISSUES, the e2e specs). Then integration, 1.0.0, deploy.
+4. **Deferred past 1.0.0** (in this order): the remaining cinematic scenes and the full character bible (D-prep run `wf_2f8b94ec-2bf` stays paused; its drafts are in the worktrees), the design-sheet lock-down and likeness loop, the graphics overhaul plan (`wf_c90f6423-5b9`, paused; brief §16), the extreme-scale programme (brief §17), System theatre, Alternate Timelines, the local-hardware build.
+5. The stage prompts in `docs/apex/workflows/stages-abcd.js` are the full-scope prompts; for the 1.0.0 run pass `args: { only: [...] }` and prepend the "lite" scope paragraph from item 3 (write it into the script's COMMON before launching).
+
 ## Operating rules learned the hard way
 
 - Usage windows: five-hour limits and a separate Fable limit interrupt long workflows; every agent must commit green checkpoints so resumes lose nothing. Never let an agent push `main`; never force-push or rebase; stage branches are merged by INTEGRATION only.
