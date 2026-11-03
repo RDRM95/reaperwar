@@ -6,6 +6,7 @@ import { getPreset } from '@/timelines/presets';
 import { advanceQuarter, createPostWar, dismantle, setAllocation, requiredConventionalFleet } from '@/campaign/postwar';
 import { buildScenario } from '@/scenarios';
 import { crucibleRateModifier, effectiveGround, normaliseCampaign, researchModifier, researchTech, setResearch } from '@/campaign/depth';
+import { runCampaignAsync, runSimAsync, yieldToLoop } from './support/async';
 
 describe('galaxy', () => {
   it('every system is reachable from Sol', () => {
@@ -68,7 +69,7 @@ describe('campaign engine', () => {
     expect(orderMove(st, palaven.id, 'sol').ok).toBe(true);
   });
 
-  it('pauses on an engagement involving player fleets and resolves it through the battle simulation', () => {
+  it('pauses on an engagement involving player fleets and resolves it through the battle simulation', async () => {
     const st = createCampaign({ seed: 3, rules: getPreset('canon_me3'), worldState: {} });
     // Put the Reaper vanguard on Earth.
     const vanguard = st.fleets.find((f) => f.name === 'Reaper vanguard')!;
@@ -81,8 +82,9 @@ describe('campaign engine', () => {
     expect(cfg.fleets.some((f) => f.side === 'B' && f.faction === 'reaper')).toBe(true);
     expect(cfg.fleets.some((f) => f.name.includes('orbital defence'))).toBe(true);
     const before = fleetShipCount(st.fleets.find((f) => f.name === 'Alliance Fifth Fleet')!.counts);
-    const result = new BattleSimulation(cfg).run();
-    applyEngagementResult(st, st.pending!, result);
+    const sim = new BattleSimulation(cfg);
+    await runSimAsync(sim);
+    applyEngagementResult(st, st.pending!, sim.result!);
     expect(st.pending).toBeUndefined();
     const fifth = st.fleets.find((f) => f.name === 'Alliance Fifth Fleet');
     expect(!fifth || fleetShipCount(fifth.counts) < before).toBe(true);
@@ -98,31 +100,31 @@ describe('campaign engine', () => {
     expect(fleetsAt(st, 'sol').some((f) => f.playerControlled)).toBe(false);
   });
 
-  it('canon campaigns end in defeat or a Crucible decision; Prime/Apex can win conventionally', () => {
+  it('canon campaigns end in defeat or a Crucible decision; Prime/Apex can win conventionally', async () => {
     const canon = createCampaign({ seed: 5, rules: getPreset('canon_me3'), worldState: {} });
-    while (!canon.outcome && canon.tick < 160) advanceTick(canon, { interactive: false });
+    await runCampaignAsync(canon);
     expect(canon.outcome).toBeDefined();
     const apex = createCampaign({ seed: 5, rules: getPreset('prime_apex'), worldState: {} });
-    while (!apex.outcome && apex.tick < 160) advanceTick(apex, { interactive: false });
+    await runCampaignAsync(apex);
     expect(apex.outcome?.kind).toBe('victory');
     expect(reaperFleetValue(apex)).toBeLessThan(reaperFleetValue(canon) + 1);
-  });
+  }, 120_000);
 
-  it('timelines without a Crucible cannot win through it', () => {
+  it('timelines without a Crucible cannot win through it', async () => {
     const st = createCampaign({ seed: 6, rules: getPreset('cerberus_ascendant'), worldState: {} });
     expect(st.crucible.available).toBe(false);
-    for (let i = 0; i < 20; i++) advanceTick(st, { interactive: false });
+    await runCampaignAsync(st, 20);
     expect(st.crucible.progress).toBe(0);
   });
 
-  it('refusing the Crucible forces a conventional outcome; Prime/Apex can still win that way', () => {
+  it('refusing the Crucible forces a conventional outcome; Prime/Apex can still win that way', async () => {
     const st = createCampaign({ seed: 5, rules: getPreset('prime_apex'), worldState: { crucible: 'refuse' } });
     expect(st.crucible.available).toBe(false);
-    while (!st.outcome && st.tick < 160) advanceTick(st, { interactive: false });
+    await runCampaignAsync(st);
     expect(st.outcome?.kind).toBe('victory');
     expect(st.outcome?.reason).toMatch(/conventional|Refuse/);
     expect(reaperFleetValue(st)).toBe(0);
-  });
+  }, 120_000);
 
   it('round-trips through JSON (save format)', () => {
     const st = createCampaign({ seed: 7, rules: getPreset('prepared_galaxy'), worldState: {} });
@@ -153,12 +155,15 @@ describe('campaign depth', () => {
     expect(cured.events.some((e) => e.kind === 'ground')).toBe(true);
   });
 
-  it('research completes projects that change allied fleet technology in engagements', () => {
+  it('research completes projects that change allied fleet technology in engagements', async () => {
     const st = createCampaign({ seed: 13, rules: getPreset('canon_me3'), worldState: {} });
     expect(setResearch(st, 'barrier_overcharge').ok).toBe(true);
     expect(setResearch(st, 'nope').ok).toBe(false);
     let guard = 0;
-    while (!st.research.completed.includes('barrier_overcharge') && guard++ < 60) advanceTick(st, { interactive: false });
+    while (!st.research.completed.includes('barrier_overcharge') && guard++ < 60) {
+      advanceTick(st, { interactive: false });
+      await yieldToLoop();
+    }
     expect(st.research.completed).toContain('barrier_overcharge');
     expect(researchTech(st)?.kineticBarrierStrength).toBeCloseTo(st.rules.organic.kineticBarrierStrength * 1.15, 5);
     st.fleets.find((f) => f.name === 'Reaper vanguard')!.location = 'sol';
@@ -167,9 +172,9 @@ describe('campaign depth', () => {
     expect(cfg.fleets.find((f) => f.side === 'A' && f.name === 'Alliance Fifth Fleet')?.techOverride?.kineticBarrierStrength).toBeCloseTo(st.rules.organic.kineticBarrierStrength * 1.15, 5);
   });
 
-  it('refugees rise with the harvest and political events fire', () => {
+  it('refugees rise with the harvest and political events fire', async () => {
     const st = createCampaign({ seed: 14, rules: getPreset('reaper_escalation'), worldState: {} });
-    for (let i = 0; i < 30 && !st.outcome; i++) advanceTick(st, { interactive: false });
+    await runCampaignAsync(st, 30);
     expect(st.refugees).toBeGreaterThan(0);
     expect(st.events.some((e) => e.kind === 'political')).toBe(true);
   });
