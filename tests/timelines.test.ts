@@ -117,10 +117,48 @@ describe('AU isolation', () => {
     expect(CERBERUS_ASCENDANT.strategic.catalystOperational).toBe(false);
   });
 
-  it('Reaper technology is unchanged in Prepared Galaxy and Prime/Apex', () => {
-    for (const id of ['prepared_galaxy', 'prime_apex']) {
+  it('Reaper technology is unchanged in Prepared Galaxy and both Apex presets', () => {
+    for (const id of ['prepared_galaxy', 'prime_apex', 'apex_legacy']) {
       const p = getPreset(id);
       for (const k of TECH_KEYS) expect(p.reaper[k]).toBe(1);
+    }
+  });
+
+  it('the two Apex presets carry the AP §1 literals: Apex core, Apex legacy inheriting it, 0.1c and penetrator/warhead wording', () => {
+    const core = getPreset('prime_apex');
+    const legacy = getPreset('apex_legacy');
+    expect(core.name).toBe('Prime/Apex — Apex core');
+    expect(legacy.name).toBe('Prime/Apex — Apex legacy (high power)');
+    expect(core.name.startsWith('Prime/Apex')).toBe(true);
+    expect(core.historyChanges.some((h) => h.includes('Homeworld Defence Rule'))).toBe(true);
+    expect(core.strategic.crucibleAvailable).toBe(false);
+    expect(core.strategic.conventionalVictoryPossible).toBe(true);
+    expect(core.special).toMatchObject({ valkyrieAvailable: true, legacyNova: false, driveAttacks: 'rare', heavyPlatforms: true, superDreadnoughts: true, reaperDoctrine: 'apex', readinessScale: 1 });
+    expect(legacy.special).toEqual({ ...core.special, legacyNova: true, driveAttacks: 'upper' });
+    expect(legacy.organic).toEqual(core.organic);
+    expect(legacy.reaper).toEqual(core.reaper);
+    expect(legacy.factionOverrides).toEqual(core.factionOverrides);
+    expect(legacy.fleetStrength).toEqual(core.fleetStrength);
+    expect(legacy.strategic).toEqual(core.strategic);
+    expect(legacy.historyChanges.slice(0, core.historyChanges.length)).toEqual(core.historyChanges);
+    expect(legacy.historyChanges.length).toBe(core.historyChanges.length + 3);
+    expect(PRESETS.map((p) => p.id)).toEqual(['canon_me3', 'prepared_galaxy', 'humanity_ascendant', 'cerberus_reformed', 'reaper_escalation', 'prime_apex', 'apex_legacy', 'cerberus_ascendant']);
+    // Wording: the HADES history line names the penetrator and the warhead; nothing says "near-c" or quotes the old "~3×" yield.
+    const hades = core.historyChanges.find((h) => h.includes('HADES'))!;
+    expect(hades).toMatch(/penetrator/);
+    expect(hades).toMatch(/warhead/);
+    for (const p of PRESETS) {
+      const text = [p.name, p.tagline, p.description, ...p.historyChanges].join(' ');
+      expect(text).not.toMatch(/near-c|near light/i);
+      expect(text).not.toMatch(/3× canon slug|3x canon slug/);
+    }
+    expect(legacy.historyChanges.join(' ')).toMatch(/0\.1c|tenth of light speed/);
+    // The organic TUNE multipliers stay inside the AP §1.3 bounds: ≥ 1 and ≤ the v0.11 shipped values.
+    const shipped: Record<string, number> = { massAcceleratorDamage: 1.25, massAcceleratorPenetration: 1.3, massAcceleratorRange: 1.0, fireRate: 1.1, heatCapacity: 1.3, kineticBarrierStrength: 1.35, barrierRegen: 1.4, armourStrength: 1.3, hullIntegrity: 1.15, speed: 1.08, sensors: 1.4, electronicWarfare: 1.3, accuracy: 1.1, fighterStrength: 1.3, torpedoDamage: 1.4, gardianEffectiveness: 1.4, beamDamage: 1.35, crewQuality: 1.15 };
+    for (const k of TECH_KEYS) {
+      expect(core.organic[k], k).toBeGreaterThanOrEqual(1);
+      expect(core.organic[k], k).toBeLessThanOrEqual(shipped[k]);
+      expect(core.reaper[k], k).toBe(1);
     }
   });
 

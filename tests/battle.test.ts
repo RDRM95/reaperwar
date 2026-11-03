@@ -125,7 +125,7 @@ describe('battle simulation', () => {
 
   it('every scenario builds under every preset', () => {
     for (const s of ['battle_of_earth', 'defence_of_palaven', 'fall_of_thessia', 'cerberus_intervention', 'rannoch_campaign', 'battle_of_the_citadel', 'alliance_fleet_engagement', 'prime_apex_sol_defence', 'prime_apex_palaven_defence', 'cerberus_ascendant_harbinger']) {
-      for (const p of ['canon_me3', 'prepared_galaxy', 'humanity_ascendant', 'cerberus_reformed', 'reaper_escalation', 'prime_apex', 'cerberus_ascendant']) {
+      for (const p of ['canon_me3', 'prepared_galaxy', 'humanity_ascendant', 'cerberus_reformed', 'reaper_escalation', 'prime_apex', 'apex_legacy', 'cerberus_ascendant']) {
         const cfg = getScenario(s).build(getPreset(p), 1, {});
         const sim = new BattleSimulation(cfg);
         for (let i = 0; i < 40; i++) sim.step();

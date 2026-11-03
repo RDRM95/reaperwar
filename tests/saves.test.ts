@@ -42,7 +42,7 @@ describe('save slots', () => {
     expect(list).toHaveLength(1);
     expect(list[0].name).toBe('A2');
     expect(list[0].turn).toBe(1);
-    expect(describeSave('campaign', st).rulesName).toBe('Prime/Apex — Successful Refuse');
+    expect(describeSave('campaign', st).rulesName).toBe('Prime/Apex — Apex core');
   });
 
   it('round-trips slots through export and import', async () => {

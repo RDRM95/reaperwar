@@ -134,70 +134,115 @@ export const REAPER_ESCALATION: RuleSet = {
 };
 
 /**
- * PRESET 6 — Prime/Apex: Successful Refuse. Optional, player-selected AU.
- * Nothing in here touches canon mode.
+ * PRESET 6 — Prime/Apex: Apex core (ADOPTION_PLAN.md §1.3). Optional,
+ * player-selected AU. Nothing in here touches canon mode. The id stays
+ * `prime_apex` so saves, preferences and campaign snapshots keep working.
+ *
+ * The organic multipliers are TUNE values (AP §1.3: each ≥ 1.0 and ≤ the
+ * v0.11 shipped value; tuned in the order kineticBarrierStrength,
+ * massAcceleratorDamage, fleetStrength, then the HADES levers) and are
+ * re-measured by the calibration passes (T7, T19).
  */
 export const PRIME_APEX: RuleSet = {
   id: 'prime_apex',
-  name: 'Prime/Apex — Successful Refuse',
-  tagline: 'No Crucible shortcut. A galaxy prepared to win the war by force.',
+  name: 'Prime/Apex — Apex core',
+  tagline: 'The Refuse: the Crucible plans were rejected and never built. A galaxy prepared to win the war by force.',
   category: 'au',
   description:
-    'An exceptionally successful Shepard and an extraordinarily well prepared humanity and allied galaxy. HADES ammunition, hyper-mass accelerators and hardened defences let Alliance and Turian fleets genuinely threaten Reaper capital ships. The Homeworld Defence Rule applies: Earth and Palaven can each resist invasion without rescue. Victory is still earned in combat — selecting this preset declares nothing won.',
+    'ALTERNATE UNIVERSE. Shepard never died; the galaxy mobilised for three years; Cerberus committed the Black Fleet; there is no Crucible. Project Titan fires finite HADES penetrators, the Normandy Valkyrie leads the line, and Reaper losses are earned in combat. Nothing here is presented as canon.',
   historyChanges: [
-    'Shepard combines Paragon and Renegade strengths; diplomacy and strategy succeed beyond normal limits.',
-    'Alliance industrial base and R&D expanded massively after Sovereign; Turian Hierarchy follows.',
-    'HADES rounds enter service: kinetic penetrators with a nuclear warhead that detonates after penetration; they bypass half of Reaper armour and pierce barriers more efficiently.',
-    'Hyper-mass accelerators refit all Alliance and Turian dreadnoughts (AU weapon, ~3× canon slug energy).',
-    'Barriers, armour, sensors and fleet coordination substantially improved.',
-    'Cerberus Black Fleet optionally cooperates with Shepard and the Alliance; Cerberus remains Cerberus.',
-    'Homeworld Defence Rule: Earth and Palaven can hold without allied rescue.',
-    'The Catalyst’s options are refused; the Reapers must be defeated conventionally.',
+    'Shepard combines Paragon coalition-building with Renegade decisiveness and never dies; the two Lazarus years become preparation.',
+    'Javik is recovered in 2183; Jenkins, Nihlus and Saren survive; Mordin completes an earlier cure; quarians and geth settle early.',
+    'The Illusive Man is never indoctrinated; Cerberus abandons Reaper control and commits the Black Fleet (420 warships, AU value).',
+    'The Treaty of Farixen is suspended by emergency accord; yards run at war tempo (38,420 coalition warships at Sol, AU value).',
+    'Project Titan: heavy accelerators on Alliance and Black Fleet dreadnoughts fire HADES penetrators with a nuclear warhead fused to detonate after penetration (finite magazine).',
+    'The Normandy Valkyrie, a 2,000 m Normandy-lineage command dreadnought, is available (AU LOCK).',
+    'Black Fleet drive attacks are a rare specialist event; 612 fixed defence platforms guard Sol (captions; a few are simulated).',
+    'Homeworld Defence Rule: Earth and Palaven can each hold without allied rescue.',
+    'The Refuse: the Crucible plans recovered on Mars are judged a Reaper trap and refused by the Council; the galaxy commits to a conventional war.',
+    'There is no Crucible and no Catalyst encounter; the Reapers must be defeated conventionally.',
   ],
   organic: tech({
-    massAcceleratorDamage: 1.25,
-    massAcceleratorPenetration: 1.3,
+    massAcceleratorDamage: 1.1,
+    massAcceleratorPenetration: 1.15,
     massAcceleratorRange: 1.0,
-    fireRate: 1.1,
-    heatCapacity: 1.3,
-    kineticBarrierStrength: 1.35,
-    barrierRegen: 1.4,
-    armourStrength: 1.3,
-    hullIntegrity: 1.15,
-    speed: 1.08,
-    sensors: 1.4,
-    electronicWarfare: 1.3,
-    accuracy: 1.1,
-    fighterStrength: 1.3,
-    torpedoDamage: 1.4,
-    gardianEffectiveness: 1.4,
-    beamDamage: 1.35,
-    crewQuality: 1.15,
+    fireRate: 1.0,
+    heatCapacity: 1.2,
+    kineticBarrierStrength: 1.2,
+    barrierRegen: 1.25,
+    armourStrength: 1.15,
+    hullIntegrity: 1.1,
+    speed: 1.05,
+    sensors: 1.3,
+    electronicWarfare: 1.2,
+    accuracy: 1.08,
+    fighterStrength: 1.2,
+    torpedoDamage: 1.25,
+    gardianEffectiveness: 1.3,
+    beamDamage: 1.2,
+    crewQuality: 1.1,
   }),
   reaper: tech(),
   factionOverrides: {
-    cerberus: { electronicWarfare: 1.6, sensors: 1.6 },
+    cerberus: { sensors: 1.3, electronicWarfare: 1.4, accuracy: 1.1 },
+    asari: { accuracy: 1.13 },
+    salarian: { sensors: 1.5, gardianEffectiveness: 1.55 },
+    geth: { crewQuality: 1.2, barrierRegen: 1.4 },
+    quarian: { barrierRegen: 1.35 },
   },
   special: {
-    ...CANON_SPECIAL,
     hyperMassAccelerators: true,
     hadesRounds: true,
     thanixAvailability: 'fleetwide',
     reaperCommandVulnerability: true,
     indoctrinationDisabled: false,
+    valkyrieAvailable: true,
+    legacyNova: false,
+    driveAttacks: 'rare',
+    heavyPlatforms: true,
+    superDreadnoughts: true,
+    reaperDoctrine: 'apex',
+    readinessScale: 1,
   },
-  fleetStrength: { ...CANON_FLEETS, alliance: 2.0, turian: 1.6, asari: 1.3, salarian: 1.3, cerberus: 1.5 },
+  fleetStrength: { alliance: 1.8, turian: 1.5, asari: 1.3, salarian: 1.3, quarian: 1.2, geth: 1.2, cerberus: 1.5, reaper: 1.0 },
   strategic: {
-    ...CANON_STRATEGIC,
-    alliedCoordination: 0.9,
+    alliedCoordination: 0.85,
+    reaperCompetence: 1,
+    indoctrinationEffectiveness: 0.5,
+    reaperReinforcements: 1,
     conventionalVictoryPossible: true,
-    crucibleAvailable: true,
+    crucibleAvailable: false,
+    shepardAlive: true,
     shepardEffectiveness: 1.8,
     illusiveManIndoctrinated: false,
     cerberusStance: 'cooperative',
+    harbingerOperational: true,
+    catalystOperational: true,
     homeworldIndependence: true,
-    indoctrinationEffectiveness: 0.5,
   },
+};
+
+/**
+ * PRESET 6b — Prime/Apex: Apex legacy, high power (ADOPTION_PLAN.md §1.4).
+ * Apex core plus the earlier Apex material's 0.1c Legacy Nova and upper-tier
+ * drive attacks. Deliberately easier; labelled HIGH POWER — EASIER BY DESIGN
+ * wherever `special.legacyNova` is true.
+ */
+export const APEX_LEGACY: RuleSet = {
+  ...cloneRules(PRIME_APEX),
+  id: 'apex_legacy',
+  name: 'Prime/Apex — Apex legacy (high power)',
+  tagline: 'Easier by design: the 0.1c Legacy Nova and upper-tier drive attacks. Separately labelled.',
+  category: 'au',
+  description:
+    'ALTERNATE UNIVERSE, HIGH POWER. Apex core plus the earlier Apex material’s single-shot capital-killing Nova and more frequent Black Fleet drive attacks. Same inventories, same Reapers. Deliberately easier; not a balance reference.',
+  historyChanges: [
+    ...PRIME_APEX.historyChanges,
+    'Legacy Nova: a 20 kg round at a tenth of light speed (≈ 2.2 Mt), 60 s cycle, twelve rounds, visible six-second charge — AU HIGH POWER.',
+    'Upper-tier drive attacks: five attempts, shorter commitment, nearby destroyers caught in the impact.',
+    'This preset is easier by design and is labelled as such on every screen.',
+  ],
+  special: { ...PRIME_APEX.special, legacyNova: true, driveAttacks: 'upper' },
 };
 
 /**
@@ -257,6 +302,7 @@ export const PRESETS: RuleSet[] = [
   CERBERUS_REFORMED,
   REAPER_ESCALATION,
   PRIME_APEX,
+  APEX_LEGACY,
   CERBERUS_ASCENDANT,
 ];
 
