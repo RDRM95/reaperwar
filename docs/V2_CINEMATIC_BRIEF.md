@@ -242,3 +242,43 @@ Owner's words (verbatim intent): "a major graphics and cinematic gameplay overha
 ### 16.5 How it is run
 - A planning workflow audits and profiles the renderer, captures the baseline screenshots and writes `docs/apex/GRAPHICS_OVERHAUL_PLAN.md` (staged tasks with owners, tests and visual checks), vetted by adversarial critics.
 - Stage A (rendering) executes phases 1 and 2's render side and the likeness/animation passes of §10 and §15; stage B executes the camera, command, preset and recording/replay work of phases 2 and 3; CORE adds the order log the replay needs. Integration runs the before/after comparison and the perf ladder.
+
+## 17. Extreme-scale engine upgrade — "Harbinger's Total Offensive" (owner's requirement, 3 Nov; scheduled as the first programme after the 1.0.0 release)
+
+Owner's words (verbatim intent): "Upgrade my existing TypeScript/Vite/Three.js Mass Effect Reaper War Simulator for extreme-scale fleet warfare. Do not rebuild the game from scratch. Preserve its existing combat rules, Apex presets, physics behaviour, deterministic results, campaign systems and graphics."
+
+### 17.1 The scenario
+- **Harbinger's Total Offensive.** Immediately after the Alpha Relay explosion at Bahak, Harbinger runs a strategic simulation predicting a possible Reaper defeat and answers by concentrating the entire remaining invasion armada into a rapid conventional offensive. Reaper objective: destroy galactic military forces, shipyards, orbital defences and command infrastructure; planetary harvesting is postponed until organised resistance is disabled.
+- **Reaper force:** 7,500 Sovereign-class capitals including Harbinger; 30,000 Reaper destroyers; 15,000 harvesting/support vessels (a new class family with its own simulation data: transports, harvesters, processing hulks, escort behaviour — never silently substituted by destroyers or capitals); 52,500 vessels in all.
+- **Opposition:** up to 22,600 coalition warships, 18,000 HADES batteries (fixed and mobile Titan-armed platforms firing penetrators with nuclear warheads) and 300,000 automated combat craft (drones and fighters as squadrons).
+- Every number above is an **AU scenario value** (labelled AU_MODIFIED / SIMULATION_ESTIMATE); the canon war never fielded these counts. The Reapers must be capable of winning; no ending is hard-coded.
+
+### 17.2 Primary engineering objective
+Full-scale battles (75,100 vessels on the field) without freezing the browser, running out of memory or corrupting battle results. First benchmark and profile the existing engine (`scripts/perf-sim.ts`, `scripts/perf.mjs`, the fixed-step simulation and the deterministic tests), then implement in stages, validating each before the next:
+1. **Hybrid multi-scale combat simulation** — individual vessel identities and losses are always tracked; distant formations resolve at squadron or sector level; active combat sectors run the detailed ship-level simulation. One continuous battle.
+2. **Web Worker simulation** with efficient transferable snapshots (typed arrays, SharedArrayBuffer where available, versioned schema) and a main-thread view that never blocks.
+3. **Spatial partitioning** for targeting, range checks, projectile collision and local separation (grid or hashed cells, typed arrays, deterministic iteration order).
+4. **Persistent squadrons and theatre-level command** so tens of thousands of vessels act as coordinated fleets: squadrons → task forces → fleets → theatre, with orders flowing down and losses flowing up.
+5. **Adaptive combat update frequency** by sector activity, without altering physical simulation time or weapon damage (sub-stepping and batching, never time dilation of the physics).
+6. **GPU instanced rendering**, multi-level LOD and distant-fleet visualisation (one draw per class per tier; point clouds and aggregate sprites for far sectors).
+7. **Scalable effects** for beams, projectiles, missiles, shields and explosions (budgets by distance and sector activity; pooled, instanced).
+8. **Sector-based engagement management** — multiple active combat regions in one continuous battle with shared outcomes, never independent battles.
+9. **Persistent event logging**, detailed results and reliable saved/replayable simulations (compact binary event stream, chunked; replay from the order log of §16.3).
+10. A dedicated **Extreme Scale** graphics/performance preset.
+
+### 17.3 Accuracy requirements
+- Ships are never destroyed artificially to hold frame rate.
+- The multi-scale model is **calibrated** against existing full-detail battles with identical configurations and seeds (loss curves, time to decision, winner) and the calibration report is committed.
+- Faction advantages, HADES ammunition (penetrators with nuclear warheads), hyper-mass accelerators, Reaper weapon performance, shield mechanics and strategic doctrines are preserved at every scale.
+- The Reapers can win; no scripted Apex ending.
+
+### 17.4 Testing and benchmarks
+- Staged benchmarks at 1,000; 5,000; 10,000; 25,000 and 75,100 vessels: simulation time per tick, rendering fps, memory, targeting cost, collision cost, event-log growth — on headless Node and on Chromium (Playwright), extending `scripts/perf.mjs`, `scripts/perf-sim.ts` and the deterministic tests rather than replacing them. A benchmark table is committed with every stage.
+- Regression tests: determinism at every scale, calibration within tolerance, no artificial losses, squadron and sector bookkeeping (counts conserved), worker snapshot round trips.
+
+### 17.5 Deliverables and placement
+A working Extreme Scale battle mode, the Harbinger's Total Offensive scenario, the benchmarks, the regression tests and an accessible interface for viewing and commanding the battle (theatre map, sector list, fleet and squadron orders, the detailed view of any sector). Correctness, stability and scalability come before cinematic graphics. **Placement:** V2 1.0.0 ships first (the cinematic release already in progress); the extreme-scale programme is V2.1, planned by `docs/apex/workflows/extreme-scale-plan.js` (benchmark → design panel → critique → `docs/apex/EXTREME_SCALE_PLAN.md`) and implemented in staged workflows after it. CORE's V2 tasks build the seams now: the spatial grid (T8) as a reusable typed-array module with a cell-size parameter and deterministic iteration, flights (T11) as persistent squadron objects, the distant layer (T15) as a sector-resolver seam, the governor (T18) with an `extreme` tier placeholder, every event as plain JSON that can cross a worker boundary.
+
+## 18. Local-hardware build (owner's note, 3 Nov; pinned, not scheduled)
+
+"For later: a version that can take advantage of local hardware, for quality render and performance fps." Direction: a desktop packaging of the same code (Electron or Tauri with Chromium's GPU flags, or a native WebGPU renderer path behind the same `BattleView` interface) that uses the owner's GPU fully — uncapped pixel ratio, 4K 60 fps recording with hardware video encoding, offline rendering at full quality, larger effect and instancing budgets. Scheduled after the extreme-scale and graphics programmes.

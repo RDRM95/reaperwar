@@ -32,6 +32,14 @@ Written 2 Nov 2026 by the lead session while its context was nearly full. Everyt
 
 Owner requirements added today and binding everywhere: brief §15 (stealth classes, animation layer) and §16 (graphics and cinematic overhaul in three phases; CORE adds a tick-stamped order log for deterministic replay). Stage A may start before CORE finishes because `src/rendering/**` and `src/audio/**` are not CORE-owned and the T2 integration stubs are already on the branch; stage A merges the integration branch into `stage/A` before it finishes. Stages B, C, D start after CORE acceptance. Then `integration-release.js` with `args: { branches: [...] }`, the before/after comparison, the perf ladder, 1.0.0, the `main` fast-forward and the deployment check.
 
+## State on 3 Nov, 21:15 UTC — budget policy and the order of programmes
+
+- **The binding constraint is the account's 5-hour usage window, roughly 1.5 M subagent tokens per window.** Three workflows in parallel exhausted two windows and lost most in-flight work twice (agents killed mid-task restart from scratch; only committed work survives). Policy from now on: **one workflow at a time**, CORE first; every agent commits as soon as a deliverable is complete; resume with `resumeFromRunId` when a window ends (the `Workflow` failure notice names the reset time).
+- CORE chunk 1 (T1–T4) is complete and pushed (`65ff043`, 107 unit tests). The CORE run `wf_2f3d7476-5c1` continues with chunk 2 (T5–T7).
+- Paused, to resume **after CORE acceptance**, in this order: (1) D-prep `wf_2f8b94ec-2bf` (bible draft and eight sheets sit uncommitted in `/home/user/reaperwar-Dprep` and `-Dprep2`; the prompts tell the agents to complete them); (2) the graphics plan `wf_c90f6423-5b9` (nothing written yet; worktree `/home/user/reaperwar-Gplan` exists); (3) stages B, C, D and a V2-scoped stage A (WORK_BREAKDOWN §2 + brief §10/§15; the full §16 overhaul comes later); (4) integration, 1.0.0, deploy.
+- **Programmes after 1.0.0, in the owner's priority order:** V2.1 Extreme Scale (brief §17; plan it with `Workflow({script: <docs/apex/workflows/extreme-scale-plan.js>})`, then staged implementation workflows from the plan's last section), then V2.2 Graphics and cinematic overhaul (brief §16; `docs/apex/GRAPHICS_OVERHAUL_PLAN.md` from the graphics plan run), then V2.3 System theatre (§13), V2.4 Alternate Timelines (§14); pinned: local-hardware build (§18), Collectors, First Contact War, non-eezo, Multiverse.
+- Owner requirements recorded today: brief §17 (extreme scale; CORE builds the seams now, see INTEGRATION_NOTES) and §18 (local hardware, pinned).
+
 ## Operating rules learned the hard way
 
 - Usage windows: five-hour limits and a separate Fable limit interrupt long workflows; every agent must commit green checkpoints so resumes lose nothing. Never let an agent push `main`; never force-push or rebase; stage branches are merged by INTEGRATION only.

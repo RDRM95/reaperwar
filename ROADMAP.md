@@ -31,12 +31,21 @@ Priority order agreed on 1 Nov 2026: finish and ship the V2 build first, then ad
 1. **Collector ships** (ME2 Collector cruiser as an optional earlier-campaign opponent; original model).
 2. **First Contact War scenarios** (2157 Relay 314 incident: Alliance patrol vs Hierarchy, Shanxi; canon-anchored, pre-Reaper technology).
 3. **Non-eezo timelines**: alternate-universe presets where element zero is scarce or absent (different drive, weapon and barrier assumptions; clearly labelled AU).
-4. **Multiverse ship battles**: real franchises by name (Halo's UNSC and Covenant, Skynet and others), lore- and scale-accurate from their own canon (CROSSOVER_CANON provenance), original models and text, trademarks acknowledged; a separate labelled section. Design only after V2 ships.
+4. **Local-hardware build** (desktop packaging or a native WebGPU path using the owner's GPU fully: uncapped pixel ratio, 4K 60 fps recording with hardware encoding, offline rendering; brief §18).
+5. **Multiverse ship battles**: real franchises by name (Halo's UNSC and Covenant, Skynet and others), lore- and scale-accurate from their own canon (CROSSOVER_CANON provenance), original models and text, trademarks acknowledged; a separate labelled section. Design only after V2 ships.
 
-## V2.1 — System theatre (first phase after 1.0.0)
+## V2.1 — Extreme Scale (first programme after 1.0.0; owner's requirement of 3 Nov)
+
+Harbinger's Total Offensive: 52,500 Reaper vessels (capitals, destroyers and a new harvesting/support family) against 22,600 coalition warships, 18,000 HADES batteries and 300,000 automated craft, in one continuous battle. Hybrid multi-scale simulation (ship level in active sectors, squadron/sector level elsewhere, identities and losses always tracked), Web Worker simulation with transferable snapshots, spatial partitioning, persistent squadrons and theatre command, adaptive update frequency without time dilation, instanced rendering and LOD, scalable effects, sector engagement management, persistent logging and replay, an Extreme Scale preset; calibrated against full-detail battles; benchmarks at 1,000 / 5,000 / 10,000 / 25,000 / 75,100 vessels on Node and Chromium. Design in `docs/V2_CINEMATIC_BRIEF.md` §17; plan produced by `docs/apex/workflows/extreme-scale-plan.js`.
+
+## V2.2 — Graphics and cinematic overhaul (owner's requirement of 2 Nov)
+
+Models, materials (procedural plating and normal maps), lighting, bloom, colour grading, anti-aliasing, convincing weapon effects, shield impacts, penetration, staged explosions, persistent wreckage; player commands, fleet visibility, camera selection, a Cinematic Graphics preset; a recording and replay system (HUD-free, 4K target, 30/60 fps, camera tracking and cuts, slow motion, deterministic replay with recorded orders, offline frame-by-frame rendering). What the V2 stage A/B scope already delivers (likeness pass, effects to a Mass Effect look, animation layer, Record mode) ships in 1.0.0; the rest follows the extreme-scale programme per the owner's priority order. Design in `docs/V2_CINEMATIC_BRIEF.md` §16; plan produced by the graphics planning workflow (`docs/apex/GRAPHICS_OVERHAUL_PLAN.md`).
+
+## V2.3 — System theatre
 
 In-system travel and combat at Sol scale: system map with bodies and objectives, FTL hops with drive heat and discharge tempo, the mass relay as the attackers' entry and exit point with a transit mechanic matching the games (alignment, corridor, ordered departure, arrival scatter, blockade), engagements resolved by the battle simulation at the body where fleets meet, campaign tie-in. Design in `docs/V2_CINEMATIC_BRIEF.md` §13.
 
-## V2.2 — Alternate Timelines hub (after V2.1)
+## V2.4 — Alternate Timelines hub
 
 A separate section for timeline families inside or next to the Mass Effect tech tree: Early Beacon (1800), First Contact Ascendant, One Humanity (Cerberus-Alliance aligned), Prothean Victory, Dark Lane (non-eezo FTL), HFY Terran Hegemony, a Stellaris-style player civilisation as a real faction with politics and fleet power, and a Multiverse section with real franchises by name, lore- and scale-accurate (UNSC, Covenant, Skynet and others). Needs tech families in the rules engine, a faction builder and politics model. Design in `docs/V2_CINEMATIC_BRIEF.md` §14.
