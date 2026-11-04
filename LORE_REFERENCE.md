@@ -32,7 +32,7 @@ Each of the ten timelines of `src/timelines/alternates.ts` follows the trilogy u
 - **The beacon in the Temple of Athame**: hidden by the asari for millennia, revealed in 2186. (The Asari Disclosure.)
 - **The Morning War and the Council’s AI laws**: the quarians lost Rannoch to the geth about three centuries before 2183 and lost their Citadel embassy for creating them; by 2183 heretic geth served Sovereign. (The Geth–Quarian Concord.)
 - **Turian society**: service from the age of fifteen, the largest navy in Citadel space, the volus as a client race. (Turian Total War.)
-- **The Leviathans (2186)**: Dr. Ann Bryson’s research, Despoina, the thralls who kept their secret, the Leviathans’ creation of the intelligence that created the Reapers, and the first Reaper made in their image. (Leviathan’s Bargain, Leviathan’s Covenant.)
+- **The Leviathans (2186)**: the research of Dr. Garret Bryson, the Alliance scientist whose search for what had killed a Reaper led Shepard to them (his daughter Ann, also a researcher, worked on it too, and his own enthralled assistant killed him in his lab); Despoina, the thralls who kept their secret, the Leviathans’ creation of the intelligence that created the Reapers, and the first Reaper made in their image. (Leviathan’s Bargain, Leviathan’s Covenant.)
 
 ## Inferred
 

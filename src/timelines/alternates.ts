@@ -137,9 +137,9 @@ export const LEVIATHANS_BARGAIN: RuleSet = preset({
   tagline: 'The Reapers found Despoina first. To outlive the cycle, the Leviathans lent the harvest their hold on organic minds.',
   category: 'au',
   description:
-    'ALTERNATE UNIVERSE. In 2186 an indoctrinated member of Dr. Ann Bryson’s research circle passes her findings to the Reapers, and the Reapers reach Despoina before Shepard does. The last Leviathans, who made the intelligence that built the Reapers, buy their survival with service and turn the thralls they keep in every port and fleet against the war. Sensor officers and fire-control crews see only what the Leviathans let them see, and Reaper hulls slip out of firing solutions computed by people who are no longer entirely their own.',
+    'ALTERNATE UNIVERSE. In 2186 an indoctrinated member of Dr. Garret Bryson’s team passes his findings to the Reapers, and the Reapers reach Despoina before Shepard does. The last Leviathans, who made the intelligence that built the Reapers, buy their survival with service and turn the thralls they keep in every port and fleet against the war. Sensor officers and fire-control crews see only what the Leviathans let them see, and Reaper hulls slip out of firing solutions computed by people who are no longer entirely their own.',
   historyChanges: [
-    '2186: an indoctrinated member of Dr. Ann Bryson’s research circle passes her findings to the Reapers, who reach Despoina before Shepard.',
+    '2186: an indoctrinated member of Dr. Garret Bryson’s team passes his findings to the Reapers, who reach Despoina before Shepard.',
     'Spared in exchange for service, the surviving Leviathans turn their thralls in allied ports and fleets against the war effort.',
     'Thralled sensor officers and fire-control crews see what the Leviathans let them see: Reaper hulls slip out of the firing solutions they compute.',
     'Indoctrination and thrall control reinforce each other, and trust between allied commands collapses.',
@@ -345,8 +345,8 @@ export const ALTERNATE_META: Record<string, AlternateMeta> = {
     lever: { key: 'factionOverrides.turian.accuracy', min: 0.55, max: 0.85, step: 0.05 },
   },
   leviathans_bargain: {
-    divergence: { year: 2186, event: 'An indoctrinated member of Dr. Ann Bryson’s research circle passes her findings to the Reapers, who reach Despoina before Shepard; the surviving Leviathans bargain for their survival.' },
-    canonBasis: 'In 2186 Dr. Ann Bryson’s research put Shepard on the trail of the Leviathans, the race that created the intelligence that created the Reapers, hidden for aeons on Despoina behind thralls who kept their secret. In canon Shepard found them first and persuaded them to join the war.',
+    divergence: { year: 2186, event: 'An indoctrinated member of Dr. Garret Bryson’s team passes his findings to the Reapers, who reach Despoina before Shepard; the surviving Leviathans bargain for their survival.' },
+    canonBasis: 'In 2186 Dr. Garret Bryson’s research (and his daughter Ann’s) put Shepard on the trail of the Leviathans, the race that created the intelligence that created the Reapers, hidden for aeons on Despoina behind thralls who kept their secret. In canon Shepard found them first and persuaded them to join the war.',
     provenance: 'AU_MODIFIED',
     declaredTier: 2,
     lever: { key: 'reaper.electronicWarfare', min: 1.5, max: 2, step: 0.05 },
@@ -386,7 +386,7 @@ export const ALTERNATE_META: Record<string, AlternateMeta> = {
   },
   leviathans_covenant: {
     divergence: { year: 2186, event: 'At Despoina the Leviathans join the war openly instead of as a hidden asset.' },
-    canonBasis: 'In 2186 Shepard followed Dr. Ann Bryson’s research to Despoina, where the Leviathans, who created the intelligence that created the Reapers, had hidden for aeons behind their thralls; the first Reaper had been made in their image. Shepard persuaded them to join the war.',
+    canonBasis: 'In 2186 Shepard followed Dr. Garret Bryson’s research (and his daughter Ann’s) to Despoina, where the Leviathans, who created the intelligence that created the Reapers, had hidden for aeons behind their thralls; the first Reaper had been made in their image. Shepard persuaded them to join the war.',
     provenance: 'AU_MODIFIED',
     declaredTier: 5,
     lever: { key: 'reaper.accuracy', min: 0.7, max: 0.8, step: 0.05 },
