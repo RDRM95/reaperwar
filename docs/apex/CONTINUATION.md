@@ -50,6 +50,10 @@ The owner: "you have full workflow auth, playable build is only priority, I leav
 4. **Deferred past 1.0.0** (in this order): the remaining cinematic scenes and the full character bible (D-prep run `wf_2f8b94ec-2bf` stays paused; its drafts are in the worktrees), the design-sheet lock-down and likeness loop, the graphics overhaul plan (`wf_c90f6423-5b9`, paused; brief §16), the extreme-scale programme (brief §17), System theatre, Alternate Timelines, the local-hardware build.
 5. The stage prompts in `docs/apex/workflows/stages-abcd.js` are the full-scope prompts; for the 1.0.0 run pass `args: { only: [...] }` and prepend the "lite" scope paragraph from item 3 (write it into the script's COMMON before launching).
 
+## Model policy, 4 Nov — Fable weekly budget at 96 %
+
+The owner's Fable weekly maximum is nearly spent. Every workflow agent after CORE chunk 1 now runs on **Opus 5.5** (`model: 'claude-opus-5-5'` in the CORE script; add the same override to the stage, integration and planning scripts before launching them). The lead session itself still runs on Fable: keep its turns short (no polling, no narration), and if the owner wants the lead off Fable too, switching the session model is their call — every plan document is written so that any model can continue.
+
 ## Operating rules learned the hard way
 
 - Usage windows: five-hour limits and a separate Fable limit interrupt long workflows; every agent must commit green checkpoints so resumes lose nothing. Never let an agent push `main`; never force-push or rebase; stage branches are merged by INTEGRATION only.
