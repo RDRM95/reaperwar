@@ -6,6 +6,7 @@ import { compareBattles } from '@/scenarios/comparison';
 import { CANON_ME3, PRIME_APEX, getPreset } from '@/timelines/presets';
 import { assignSlots, slotToWorld } from '@/simulation/formations';
 import { v3 } from '@/core/vec3';
+import { runSimAsync, yieldToLoop } from './support/async';
 
 const fixed = { [FLEET_SCALING_KEY]: 'fixed' };
 
@@ -48,37 +49,48 @@ describe('battle simulation', () => {
     expect(sim.events.some((e) => e.type === 'comms')).toBe(true);
   });
 
-  it('canon rules: the Reapers win the reference engagement; the Alliance cannot destroy the Reaper force', () => {
-    for (const seed of [7, 8]) {
+  // ADOPTION_PLAN.md §16: the canon fleet pays for, and gets, one or two capital kills (calibration pass 1, CORE T7).
+  it('canon rules: the Reapers win the reference engagement; the Alliance cannot destroy the Reaper force but kills one or two capitals', async () => {
+    for (const seed of [7, 8, 9]) {
       const sim = new BattleSimulation(buildScenario('alliance_fleet_engagement', 'canon_me3', seed, fixed));
-      const r = sim.run();
-      expect(r.winner).toBe('B');
-      expect(r.sides.B.reaperCapitalLost).toBeLessThan(3);
-      expect(r.sides.A.survivalPercent).toBeLessThan(30);
+      await runSimAsync(sim);
+      const r = sim.result!;
+      expect(r.winner, `seed ${seed}`).toBe('B');
+      expect(r.sides.B.reaperCapitalLost, `seed ${seed}`).toBeGreaterThanOrEqual(1);
+      expect(r.sides.B.reaperCapitalLost, `seed ${seed}`).toBeLessThanOrEqual(2);
+      expect(r.sides.A.survivalPercent, `seed ${seed}`).toBeLessThan(30);
+      expect(r.sides.B.destroyed, `seed ${seed}`).toBeLessThan(r.sides.B.deployed);
+      await yieldToLoop();
     }
-  });
+  }, 120_000);
 
-  it('Prime/Apex rules: the same fleets defeat the Reapers, at a cost', () => {
-    for (const seed of [7, 8]) {
+  // ADOPTION_PLAN.md §1.3 / §16: the Apex target — victory, every Reaper destroyed, 7–19 ships lost including a dreadnought, survival under 85 %.
+  it('Prime/Apex rules: the same fleets defeat the Reapers, at a cost', async () => {
+    for (const seed of [7, 8, 9]) {
       const sim = new BattleSimulation(buildScenario('alliance_fleet_engagement', 'prime_apex', seed, fixed));
-      const r = sim.run();
-      expect(r.winner).toBe('A');
-      expect(r.sides.B.destroyed).toBe(r.sides.B.deployed);
-      expect(r.sides.A.destroyed).toBeGreaterThan(0);
+      await runSimAsync(sim);
+      const r = sim.result!;
+      expect(r.winner, `seed ${seed}`).toBe('A');
+      expect(r.sides.B.destroyed, `seed ${seed}`).toBe(r.sides.B.deployed);
+      expect(r.sides.A.destroyed, `seed ${seed}`).toBeGreaterThanOrEqual(7);
+      expect(r.sides.A.destroyed, `seed ${seed}`).toBeLessThanOrEqual(19);
+      expect(r.sides.A.capitalLost, `seed ${seed}`).toBeGreaterThanOrEqual(1);
+      expect(r.sides.A.survivalPercent, `seed ${seed}`).toBeLessThan(85);
+      await yieldToLoop();
     }
-  });
+  }, 120_000);
 
-  it('Reaper intelligence assessment reflects simulation data', () => {
+  it('Reaper intelligence assessment reflects simulation data', async () => {
     const canon = new BattleSimulation(buildScenario('alliance_fleet_engagement', 'canon_me3', 7, fixed));
-    canon.run();
+    await runSimAsync(canon);
     const apex = new BattleSimulation(buildScenario('alliance_fleet_engagement', 'prime_apex', 7, fixed));
-    apex.run();
+    await runSimAsync(apex);
     const a = assessReapers(canon);
     const b = assessReapers(apex);
     expect(['MODERATE', 'ELEVATED', 'SEVERE']).toContain(a.threatLevel);
     expect(['SEVERE', 'CRITICAL']).toContain(b.threatLevel);
     expect(b.reaperCapitalLosses).toBeGreaterThan(a.reaperCapitalLosses);
-  });
+  }, 120_000);
 
   it('player orders change behaviour: retreat ends the battle by withdrawal', () => {
     const sim = new BattleSimulation(buildScenario('alliance_fleet_engagement', 'canon_me3', 5, fixed));
