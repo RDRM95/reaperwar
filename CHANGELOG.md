@@ -7,7 +7,7 @@
 - Threat badges on the timelines screen (with a detail block: band, measured losses and survival, breaking point, the five Reaper groups as the timeline deploys them), in the briefing and in campaign setup; custom timelines show "unrated".
 - World-state locks: campaign setup and the briefing preselect and lock the world state a timeline’s story implies (Ascension, Rannoch, Normandy, genophage) with an AU note; what the campaign cannot express is stated in an AU campaign note.
 - Codex: a Timelines category with one entry per new timeline and an entry explaining the scale.
-- The timelines screen stacks to one column on phones, and long timeline names no longer widen the briefing or campaign setup past the screen.
+- The timelines screen stacks to one column on phones, its Reaper-group table fits a phone without scrolling, and long timeline names no longer widen the briefing or campaign setup past the screen.
 
 ## 0.11.3 — Camera and recording (hotfix)
 

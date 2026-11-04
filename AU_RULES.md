@@ -72,7 +72,7 @@ Where a timeline’s story fixes a world state, campaign setup and the Quick Bat
 
 Known limitations:
 
-- A faction at fleet strength 0 is absent only in the threat reference. Quick Battle scenarios and the campaign keep one hull per class (`scaleCount` never scales a class below one hull).
+- A faction at fleet strength 0 is absent only in the threat reference. Quick Battle scenarios and the campaign keep one hull per class (`scaleCount` never scales a class below one hull). The visible case: the Final Battle of Earth’s default combined fleet always includes a Migrant Fleet detachment and a geth fleet, whatever the Rannoch world state, so it fields a token geth fleet (one dreadnought, one cruiser, one frigate) under Sovereign’s Triumph and token quarian and geth fleets under The Collectors’ Harvest. The campaign is not affected: with Rannoch locked at war it fields neither fleet.
 - Comparison mode and custom battle ignore the world-state locks.
 - Cerberus Ascendant, an existing preset with Shepard dead, still fields the Normandy by default in Quick Battle: the locks belong to the new timelines.
 
