@@ -22,7 +22,20 @@ export interface AiContext {
   enemiesOf(side: 'A' | 'B'): ShipState[];
   alliesOf(side: 'A' | 'B'): ShipState[];
   getShip(id: string): ShipState | undefined;
+  /** The per-ship targeting set: the other side plus every rogue hull (AP §4.1). */
+  enemiesOfShip(ship: ShipState): ShipState[];
+  /** Living, present, non-fighter enemies of a side (cached per tick). */
+  enemyCombatants(side: 'A' | 'B'): ShipState[];
+  /** Point-weighted centroid of the enemy combatants (cached per tick). */
+  enemyCentroid(side: 'A' | 'B'): Vec3 | undefined;
+  /** Living, present members of a fleet (cached per tick). */
+  membersOf(fleetId: string): ShipState[];
+  /** Target candidates within `radius` of the ship through the spatial grid, capped (AP §21.5), in ship-index order. */
+  candidates(ship: ShipState, radius: number): ShipState[];
 }
+
+/** The expensive part of a fleet decision (member lists, centroids, ranges) is refreshed on this timer (AP §21.5 stagger). */
+export const FLEET_SLOW_INTERVAL = 0.25;
 
 export interface MovementGoal {
   position: Vec3;
@@ -33,8 +46,6 @@ export interface MovementGoal {
 }
 
 export const doctrineOf = (ship: ShipState): FactionDoctrine => FACTIONS[ship.faction].doctrine;
-
-const isCombatant = (s: ShipState): boolean => s.alive && !s.escaped && s.role !== 'fighter';
 
 export function centroid(ships: ShipState[]): Vec3 | undefined {
   if (ships.length === 0) return undefined;
@@ -82,7 +93,10 @@ export function priorityMultiplier(priority: TargetPriority, target: ShipState):
  */
 export function scoreTarget(ctx: AiContext, shooter: ShipState, fleet: FleetState, target: ShipState, mainRange: number): number {
   const d = doctrineOf(shooter);
-  const dist = distance(shooter.pos, target.pos);
+  const ddx = target.pos.x - shooter.pos.x;
+  const ddy = target.pos.y - shooter.pos.y;
+  const ddz = target.pos.z - shooter.pos.z;
+  const dist = Math.sqrt(ddx * ddx + ddy * ddy + ddz * ddz);
   // Threat: how dangerous the target is to us (point value is a good proxy).
   const threat = Math.log2(1 + target.pointValue) / 12;
   const wounded = 1 - target.hull / target.maxHull;
@@ -113,17 +127,18 @@ export function chooseTarget(ctx: AiContext, ship: ShipState, fleet: FleetState)
     if (t && t.alive && !t.escaped) return t.id;
     ship.forcedTargetId = undefined;
   }
-  const enemies = ctx.enemiesOf(ship.side);
+  // Candidates within 1.5 × the (damaged) sensor range through the spatial grid, capped (AP §21.5).
+  const sensor = ship.sensorRange * (0.4 + 0.6 * ship.subsystems.sensors);
+  const enemies = ctx.candidates(ship, sensor * 1.5);
   if (enemies.length === 0) return undefined;
-  const mainRange = Math.max(...ship.weapons.filter((w) => !w.def.antiSmall).map((w) => w.def.range), 8);
+  let mainRange = 8;
+  for (const w of ship.weapons) if (!w.def.antiSmall && w.def.range > mainRange) mainRange = w.def.range;
   let best: ShipState | undefined;
   let bestScore = -Infinity;
-  const sensor = ship.sensorRange * (0.4 + 0.6 * ship.subsystems.sensors);
+  const fighterWithoutGuns = ship.role === 'fighter' && !ship.weapons.some((w) => w.def.antiSmall);
   for (const e of enemies) {
     if (!e.alive || e.escaped) continue;
-    if (ship.role === 'fighter' && e.role === 'fighter' && !ship.weapons.some((w) => w.def.antiSmall)) continue;
-    const dist = distance(ship.pos, e.pos);
-    if (dist > sensor * 1.5) continue;
+    if (fighterWithoutGuns && e.role === 'fighter') continue;
     const s = scoreTarget(ctx, ship, fleet, e, mainRange);
     if (s > bestScore) {
       bestScore = s;
@@ -133,17 +148,30 @@ export function chooseTarget(ctx: AiContext, ship: ShipState, fleet: FleetState)
   return best?.id;
 }
 
-/** Fleet-level decision: choose focus target and move the anchor. */
-export function fleetDecision(ctx: AiContext, fleet: FleetState, dt: number): void {
-  const mine = ctx.ships.filter((s) => s.fleetId === fleet.spec.id && isCombatant(s) && !s.withdrawing);
-  if (mine.length === 0) return;
+/** The slowly refreshed part of a fleet decision (AP §21.5: the expensive part of `fleetDecision` on a 0.25 s timer). */
+interface FleetSlowState {
+  /** Fighting members: alive, present, non-fighter, not withdrawing. */
+  mine: ShipState[];
+  enemyCentre?: Vec3;
+  myCentre: Vec3;
+  anchorSpeed: number;
+  /** Where the anchor is heading until the next refresh. */
+  desired?: Vec3;
+}
+
+/** Per-fleet slow state; keyed by the fleet object so it dies with it and the contract types stay untouched. */
+const FLEET_SLOW = new WeakMap<FleetState, FleetSlowState>();
+
+/** Recomputes the member lists, centroids, range and anchor goal; re-evaluates the focus target when its timer has run out. */
+function refreshFleetSlow(ctx: AiContext, fleet: FleetState): FleetSlowState {
   const doctrine = FACTIONS[fleet.spec.faction].doctrine;
-  const enemies = ctx.enemiesOf(fleet.spec.side).filter(isCombatant);
-  const enemyCentre = centroid(enemies);
+  const mine = ctx.membersOf(fleet.spec.id).filter((s) => s.role !== 'fighter' && !s.withdrawing);
+  const enemyCentre = ctx.enemyCentroid(fleet.spec.side);
   const myCentre = centroid(mine) ?? fleet.anchor;
+  const slow: FleetSlowState = { mine, enemyCentre, myCentre, anchorSpeed: 0 };
+  if (mine.length === 0) return slow;
 
   // Focus target: periodically re-evaluated.
-  fleet.decisionTimer -= dt;
   if (fleet.decisionTimer <= 0) {
     fleet.decisionTimer = doctrine.decisionInterval * (0.8 + 0.4 * ctx.rng.next());
     const current = fleet.focusTargetId ? ctx.getShip(fleet.focusTargetId) : undefined;
@@ -152,8 +180,8 @@ export function fleetDecision(ctx: AiContext, fleet: FleetState, dt: number): vo
       let best: ShipState | undefined;
       let bestScore = -Infinity;
       const range = fleetEngagementRange(mine);
-      for (const e of enemies) {
-        const s = scoreTarget(ctx, representative, fleet, e, range) * (e.role === 'fighter' ? 0.01 : 1);
+      for (const e of ctx.enemyCombatants(fleet.spec.side)) {
+        const s = scoreTarget(ctx, representative, fleet, e, range);
         if (s > bestScore) {
           bestScore = s;
           best = e;
@@ -163,11 +191,12 @@ export function fleetDecision(ctx: AiContext, fleet: FleetState, dt: number): vo
     }
   }
 
-  // Anchor movement.
+  // Anchor goal.
   const range = fleetEngagementRange(mine);
   const standoff = range * doctrine.preferredRangeFactor;
-  const slowest = Math.min(...mine.map((s) => s.maxSpeed * (0.3 + 0.7 * s.subsystems.engines)));
-  const anchorSpeed = slowest * 0.95;
+  let slowest = Infinity;
+  for (const s of mine) slowest = Math.min(slowest, s.maxSpeed * (0.3 + 0.7 * s.subsystems.engines));
+  slow.anchorSpeed = slowest * 0.95;
   let desired: Vec3 | undefined;
   const o = fleet.orders;
   switch (o.order) {
@@ -211,6 +240,27 @@ export function fleetDecision(ctx: AiContext, fleet: FleetState, dt: number): vo
       break;
     }
   }
+  slow.desired = desired;
+  return slow;
+}
+
+/**
+ * Fleet-level decision: choose the focus target and move the anchor. The member lists, centroids, engagement
+ * range and anchor goal are refreshed every `FLEET_SLOW_INTERVAL`; the anchor integration and the heading turn
+ * run every tick against the cached values (AP §21.5 "fleetDecision expensive part on a 0.25 s timer").
+ */
+export function fleetDecision(ctx: AiContext, fleet: FleetState, dt: number): void {
+  fleet.decisionTimer -= dt;
+  fleet.decisionSlowTimer -= dt;
+  let slow = FLEET_SLOW.get(fleet);
+  if (!slow || fleet.decisionSlowTimer <= 0) {
+    fleet.decisionSlowTimer = FLEET_SLOW_INTERVAL;
+    slow = refreshFleetSlow(ctx, fleet);
+    FLEET_SLOW.set(fleet, slow);
+  }
+  if (slow.mine.length === 0) return;
+  const o = fleet.orders;
+  const { desired, enemyCentre, myCentre, anchorSpeed } = slow;
 
   if (desired) {
     const delta = sub(desired, fleet.anchor);
@@ -263,8 +313,7 @@ export function shipDecision(ctx: AiContext, ship: ShipState, fleet: FleetState)
 /** Compute where the ship wants to be and where it wants to point. */
 export function movementGoal(ctx: AiContext, ship: ShipState, fleet: FleetState): MovementGoal {
   const target = ship.targetId ? ctx.getShip(ship.targetId) : undefined;
-  const enemies = ctx.enemiesOf(ship.side).filter(isCombatant);
-  const enemyCentre = centroid(enemies);
+  const enemyCentre = ctx.enemyCentroid(ship.side);
 
   // Fighters: strike runs.
   if (ship.role === 'fighter') {

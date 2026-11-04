@@ -21,11 +21,12 @@ import { getShipClass } from '@/data/ships';
 import { HADES_GATE, NAMED_FLAGSHIPS, isCapitalRole, type DamageType, type FactionId, type WarheadDef } from '@/data/types';
 import { WEAPONS, getWeapon } from '@/data/weapons';
 import { applyRulesToShip, applyRulesToWeapon, cloneRules, type EffectiveWeapon, type RuleSet } from '@/timelines/rules';
-import { fleetDecision, movementGoal, shipDecision, type AiContext } from './ai';
+import { centroid, fleetDecision, movementGoal, shipDecision, type AiContext } from './ai';
 import { applyDamage, barrierFraction, hitProbability } from './damage';
 import { assignSlots } from './formations';
 import { SimProfile } from './profile';
 import { summarise } from './results';
+import { GRID_CELL_KM, SpatialGrid } from './spatial';
 import { BATTLESPACE_SCALE as S } from './constants';
 
 /** Hangar time for a fighter to reload torpedoes alongside its carrier. */
@@ -54,6 +55,13 @@ export const MOUNT_HEAT_CAPACITY = 100;
 const RECENT_DAMAGE_DECAY = Math.exp(-SIM_DT / 10);
 /** Hits taken in the last 3 s are the "final salvo" of a flagship event (AP §22.2). */
 const RECENT_HIT_WINDOW = 3;
+/**
+ * A mount that finds nothing to shoot at waits this long before it scans again (AP §21.5, TUNE 0.25–0.5 s).
+ * Deterministic: it is a plain cooldown, so an idle point-defence battery no longer rescans every tick.
+ */
+export const IDLE_RETRY_S = 0.25;
+/** Target acquisition scores at most this many nearest candidates plus every capital hull in range (AP §21.5). */
+export const TARGET_CANDIDATE_CAP = 24;
 
 /** Options of a resolved hit (`BattleSimulation.applyHit`). */
 export interface HitOptions {
@@ -71,6 +79,8 @@ export interface HitOptions {
  */
 export const hadesGateOpen = (target: ShipState): boolean =>
   target.role === 'reaper_capital' && (target.barriers <= 0 || barrierFraction(target) < HADES_GATE.barrierFractionBelow);
+
+const EMPTY_SHIPS: ShipState[] = [];
 
 const DEFAULT_ORDERS: FleetOrders = {
   order: 'attack',
@@ -105,6 +115,8 @@ export class BattleSimulation implements AiContext {
   result?: BattleResult;
   /** Per-phase step timings; zero cost and no clock while `profile.enabled` is false (the default). */
   readonly profile = new SimProfile();
+  /** Spatial hash over the live hulls, rebuilt every tick after the reinforcements deploy (AP §21.5). */
+  readonly grid = new SpatialGrid(GRID_CELL_KM);
   private nextId = 1;
   private shipCounter = new Map<string, number>();
   private fleetRules = new Map<string, RuleSet>();
@@ -313,20 +325,55 @@ export class BattleSimulation implements AiContext {
 
   // -------------------------------------------------------------- AiContext
 
-  private sideCache: { tick: number; A: ShipState[]; B: ShipState[] } = { tick: -1, A: [], B: [] };
+  /**
+   * Per-tick caches of the side lists, the rogue hulls, the fleet members, the carriers' craft and the
+   * point-weighted combatant centroids. Everything is rebuilt lazily on first use in a tick, in ship-index
+   * order, so every consumer sees the same deterministic candidate order as a scan of `ships`.
+   */
+  private sideCache: {
+    tick: number;
+    A: ShipState[];
+    B: ShipState[];
+    rogueA: ShipState[];
+    rogueB: ShipState[];
+    combatantsA: ShipState[];
+    combatantsB: ShipState[];
+    centroidA?: Vec3 | null;
+    centroidB?: Vec3 | null;
+    members: Map<string, ShipState[]>;
+    craft: Map<string, ShipState[]>;
+    enemiesRogue: Map<string, ShipState[]>;
+  } = { tick: -1, A: [], B: [], rogueA: [], rogueB: [], combatantsA: [], combatantsB: [], members: new Map(), craft: new Map(), enemiesRogue: new Map() };
 
   private refreshSideCache(): void {
     if (this.sideCache.tick === this.tick) return;
     const A: ShipState[] = [];
     const B: ShipState[] = [];
+    const rogueA: ShipState[] = [];
+    const rogueB: ShipState[] = [];
+    const combatantsA: ShipState[] = [];
+    const combatantsB: ShipState[] = [];
+    const members = new Map<string, ShipState[]>();
+    const craft = new Map<string, ShipState[]>();
     for (const s of this.ships) {
       if (!s.alive || s.escaped) continue;
-      (s.side === 'A' ? A : B).push(s);
+      const a = s.side === 'A';
+      (a ? A : B).push(s);
+      if (s.rogue) (a ? rogueA : rogueB).push(s);
+      if (s.role !== 'fighter') (a ? combatantsA : combatantsB).push(s);
+      let m = members.get(s.fleetId);
+      if (!m) members.set(s.fleetId, (m = []));
+      m.push(s);
+      if (s.carrierId) {
+        let c = craft.get(s.carrierId);
+        if (!c) craft.set(s.carrierId, (c = []));
+        c.push(s);
+      }
     }
-    this.sideCache = { tick: this.tick, A, B };
+    this.sideCache = { tick: this.tick, A, B, rogueA, rogueB, combatantsA, combatantsB, members, craft, enemiesRogue: new Map() };
   }
 
-  /** Living, present ships on the opposing side (cached per tick). */
+  /** Living, present ships on the opposing side (plain two-sided bookkeeping; cached per tick). */
   enemiesOf(side: Side): ShipState[] {
     this.refreshSideCache();
     return side === 'A' ? this.sideCache.B : this.sideCache.A;
@@ -335,8 +382,98 @@ export class BattleSimulation implements AiContext {
     this.refreshSideCache();
     return side === 'A' ? this.sideCache.A : this.sideCache.B;
   }
+  /**
+   * The per-ship targeting set (AP §4.1): the other side plus every rogue hull; a rogue ship sees everyone else.
+   * Identical to `enemiesOf(ship.side)` while no rogue hull is deployed.
+   */
+  enemiesOfShip(ship: ShipState): ShipState[] {
+    this.refreshSideCache();
+    const c = this.sideCache;
+    if (ship.rogue) {
+      const key = `rogue:${ship.id}`;
+      let list = c.enemiesRogue.get(key);
+      if (!list) {
+        list = [];
+        for (const s of this.ships) if (s !== ship && s.alive && !s.escaped) list.push(s);
+        c.enemiesRogue.set(key, list);
+      }
+      return list;
+    }
+    const ownRogues = ship.side === 'A' ? c.rogueA : c.rogueB;
+    if (ownRogues.length === 0) return ship.side === 'A' ? c.B : c.A;
+    let list = c.enemiesRogue.get(ship.side);
+    if (!list) {
+      list = [];
+      for (const s of this.ships) if (s.alive && !s.escaped && (s.side !== ship.side || s.rogue)) list.push(s);
+      c.enemiesRogue.set(ship.side, list);
+    }
+    return list;
+  }
+  /** Living, present, non-fighter enemies of a side (cached per tick). */
+  enemyCombatants(side: Side): ShipState[] {
+    this.refreshSideCache();
+    return side === 'A' ? this.sideCache.combatantsB : this.sideCache.combatantsA;
+  }
+  /** Point-weighted centroid of the enemy combatants, or undefined when none is present (cached per tick). */
+  enemyCentroid(side: Side): Vec3 | undefined {
+    this.refreshSideCache();
+    const c = this.sideCache;
+    if (side === 'A') {
+      if (c.centroidB === undefined) c.centroidB = centroid(c.combatantsB) ?? null;
+      return c.centroidB ?? undefined;
+    }
+    if (c.centroidA === undefined) c.centroidA = centroid(c.combatantsA) ?? null;
+    return c.centroidA ?? undefined;
+  }
+  /** Living, present members of a fleet in ship-index order (cached per tick). */
+  membersOf(fleetId: string): ShipState[] {
+    this.refreshSideCache();
+    return this.sideCache.members.get(fleetId) ?? EMPTY_SHIPS;
+  }
+  /** Living, present craft launched by a carrier (cached per tick). */
+  private craftOf(carrierId: string): ShipState[] {
+    this.refreshSideCache();
+    return this.sideCache.craft.get(carrierId) ?? EMPTY_SHIPS;
+  }
   getShip(id: string): ShipState | undefined {
     return this.shipById.get(id);
+  }
+
+  /**
+   * Target candidates for a ship's acquisition (AP §21.5): the live hulls of its targeting set within `radius`
+   * through the grid, capped at the `TARGET_CANDIDATE_CAP` nearest. Every capital hull in range and the ship's
+   * current, forced and fleet focus targets are kept beyond the cap, so a line of frigates ahead of a dreadnought
+   * never hides the dreadnought (a strict nearest-only cap turned the Reapers onto the screen in the reference
+   * engagement). The result is in ship-index order, the order a brute-force scan yields.
+   */
+  candidates(ship: ShipState, radius: number): ShipState[] {
+    const found = this.grid.queryRadius(ship.pos, radius, ship);
+    if (found.length <= TARGET_CANDIDATE_CAP) return found;
+    const fleet = this.fleets.get(ship.fleetId);
+    const keep = new Set<string>();
+    if (ship.targetId) keep.add(ship.targetId);
+    if (ship.forcedTargetId) keep.add(ship.forcedTargetId);
+    if (fleet?.focusTargetId) keep.add(fleet.focusTargetId);
+    const px = ship.pos.x;
+    const py = ship.pos.y;
+    const pz = ship.pos.z;
+    const scored = found.map((s, i) => {
+      const dx = s.pos.x - px;
+      const dy = s.pos.y - py;
+      const dz = s.pos.z - pz;
+      return { i, d2: dx * dx + dy * dy + dz * dz };
+    });
+    scored.sort((a, b) => a.d2 - b.d2 || a.i - b.i);
+    const chosen = new Set<number>();
+    for (let k = 0; k < TARGET_CANDIDATE_CAP; k++) chosen.add(scored[k].i);
+    found.forEach((s, i) => {
+      if (isCapitalRole(s.role) || keep.has(s.id)) chosen.add(i);
+    });
+    const out: ShipState[] = [];
+    found.forEach((s, i) => {
+      if (chosen.has(i)) out.push(s);
+    });
+    return out;
   }
 
   // ----------------------------------------------------------------- orders
@@ -400,6 +537,11 @@ export class BattleSimulation implements AiContext {
     const dt = SIM_DT;
     this.time += dt;
     this.tick++;
+    // Per-phase profiling: `mark`/`lap` read no clock and cost a predicate while the profiler is disabled (the default).
+    const prof = this.profile;
+    const profiling = prof.enabled;
+    const t0 = prof.mark();
+    let tp = t0;
 
     // Reinforcements.
     while (this.pendingFleets.length > 0 && (this.pendingFleets[0].arrivalTime ?? 0) <= this.time) {
@@ -407,17 +549,26 @@ export class BattleSimulation implements AiContext {
       this.deployFleet(f);
       this.comms(f.side, 'battle_start', undefined, this.fleets.get(f.id));
     }
+    // The spatial hash indexes the hulls at their start-of-tick positions; craft launched later in the tick join it next tick.
+    this.grid.rebuild(this.ships);
+    if (profiling) tp = prof.lap('reinforcements', tp);
 
     for (const fleet of this.fleets.values()) {
       fleet.commsCooldown = Math.max(0, fleet.commsCooldown - dt);
       fleet.coordinationPenalty = Math.max(0, fleet.coordinationPenalty - dt / 30);
       fleetDecision(this, fleet, dt);
     }
+    if (profiling) tp = prof.lap('fleets', tp);
 
     for (const ship of this.ships) {
       if (!ship.alive || ship.escaped) continue;
-      ship.prevPos = clone(ship.pos);
-      ship.prevHeading = clone(ship.heading);
+      // Interpolation snapshots, copied in place (the renderer reads distinct prev/current objects).
+      ship.prevPos.x = ship.pos.x;
+      ship.prevPos.y = ship.pos.y;
+      ship.prevPos.z = ship.pos.z;
+      ship.prevHeading.x = ship.heading.x;
+      ship.prevHeading.y = ship.heading.y;
+      ship.prevHeading.z = ship.heading.z;
       const fleet = this.fleets.get(ship.fleetId)!;
       ship.aiTimer -= dt;
       if (ship.aiTimer <= 0) {
@@ -426,19 +577,30 @@ export class BattleSimulation implements AiContext {
         shipDecision(this, ship, fleet);
         if (ship.withdrawing && !wasWithdrawing) this.emit({ t: this.time, type: 'ship_withdrawing', shipId: ship.id });
       }
+      if (profiling) tp = prof.lap('ai', tp);
       this.updateMovement(ship, fleet, dt);
+      if (profiling) tp = prof.lap('movement', tp);
       this.updateHousekeeping(ship, dt);
+      if (profiling) tp = prof.lap('housekeeping', tp);
       this.updateCarrier(ship, fleet, dt);
+      if (profiling) tp = prof.lap('carriers', tp);
       this.updateWeapons(ship, fleet, dt);
+      if (profiling) tp = prof.lap('weapons', tp);
     }
 
     this.updateProjectiles(dt);
+    if (profiling) tp = prof.lap('projectiles', tp);
     this.updateMissiles(dt);
+    if (profiling) tp = prof.lap('missiles', tp);
     for (const f of this.flashes) f.ttl -= dt;
     this.flashes = this.flashes.filter((f) => f.ttl > 0);
 
     this.checkEscapes();
     this.checkEnd();
+    if (profiling) {
+      prof.lap('end', tp);
+      prof.endStep(t0);
+    }
   }
 
   /** Run to completion (headless). Returns the result. */
@@ -592,9 +754,10 @@ export class BattleSimulation implements AiContext {
       }
     }
     // Recall: fighters near the carrier return to the hangar.
+    const craft = this.craftOf(ship.id);
     if (!fleet.orders.fightersDeployed) {
-      for (const f of this.ships) {
-        if (f.carrierId === ship.id && f.alive && !f.escaped && distance(f.pos, ship.pos) < ship.lengthKm) {
+      for (const f of craft) {
+        if (f.alive && !f.escaped && distance(f.pos, ship.pos) < ship.lengthKm) {
           f.escaped = true; // Treated as recovered: not a loss, no longer in battle.
           f.alive = true;
           h.remaining++;
@@ -602,8 +765,8 @@ export class BattleSimulation implements AiContext {
       }
     }
     // Rearming: fighters that have spent their torpedoes reload alongside the carrier.
-    for (const f of this.ships) {
-      if (f.carrierId !== ship.id || !f.rearming || !f.alive || f.escaped) continue;
+    for (const f of craft) {
+      if (!f.rearming || !f.alive || f.escaped) continue;
       if (distance(f.pos, ship.pos) > ship.lengthKm * 1.5) continue;
       f.rearmTimer = (f.rearmTimer ?? REARM_SECONDS) - dt;
       if (f.rearmTimer > 0) continue;
@@ -616,25 +779,76 @@ export class BattleSimulation implements AiContext {
 
   // ---------------------------------------------------------------- weapons
 
+  /** Yaw of the hull being processed, memoised per ship and tick (the heading is fixed while its mounts are updated). */
+  private yawMemo = { id: '', tick: -1, yaw: 0, sin: 0, cos: 0 };
+
+  private yawOf(ship: ShipState): { yaw: number; sin: number; cos: number } {
+    const m = this.yawMemo;
+    if (m.id !== ship.id || m.tick !== this.tick) {
+      m.id = ship.id;
+      m.tick = this.tick;
+      m.yaw = Math.atan2(ship.heading.x, ship.heading.z);
+      m.sin = Math.sin(m.yaw);
+      m.cos = Math.cos(m.yaw);
+    }
+    return m;
+  }
+
+  /** World position of a mount written into `out` (allocation-free; the per-tick yaw is memoised). */
+  private mountOrigin(ship: ShipState, w: WeaponState, out: Vec3): Vec3 {
+    const y = this.yawOf(ship);
+    const o = w.offset;
+    out.x = ship.pos.x + o.x * y.cos + o.z * y.sin;
+    out.y = ship.pos.y + o.y;
+    out.z = ship.pos.z - o.x * y.sin + o.z * y.cos;
+    return out;
+  }
+
   private weaponWorldOffset(ship: ShipState, w: WeaponState): Vec3 {
-    const yaw = Math.atan2(ship.heading.x, ship.heading.z);
-    return add(ship.pos, rotateY(w.offset, yaw));
+    return this.mountOrigin(ship, w, v3());
+  }
+
+  /** Scalar arc test from the hull's position: horizontal angle against the mount's facing plus a generous vertical tolerance. */
+  private inArcScalar(ship: ShipState, w: WeaponState, tx: number, ty: number, tz: number, facingSin: number, facingCos: number, cosLimit: number): boolean {
+    if (w.def.arc >= 360) return true;
+    const dx = tx - ship.pos.x;
+    const dy = ty - ship.pos.y;
+    const dz = tz - ship.pos.z;
+    const flat2 = dx * dx + dz * dz;
+    const len = Math.sqrt(flat2 + dy * dy);
+    if (len < 1e-9) return true;
+    if (Math.abs(dy) / len >= 0.6) return false;
+    if (flat2 < 1e-18) return true;
+    const cosA = (facingSin * dx + facingCos * dz) / Math.sqrt(flat2);
+    return cosA >= cosLimit;
+  }
+
+  /** The mount's facing direction and arc limit for this tick (one trig evaluation per mount per acquisition). */
+  private arcParams(ship: ShipState, w: WeaponState): { sin: number; cos: number; cosLimit: number } {
+    const yaw = this.yawOf(ship).yaw + w.facing;
+    const halfArc = ((w.def.arc / 2) * Math.PI) / 180;
+    return { sin: Math.sin(yaw), cos: Math.cos(yaw), cosLimit: Math.cos(halfArc + 0.05) };
   }
 
   private inArc(ship: ShipState, w: WeaponState, target: Vec3): boolean {
     if (w.def.arc >= 360) return true;
-    const yaw = Math.atan2(ship.heading.x, ship.heading.z) + w.facing;
-    const facing = v3(Math.sin(yaw), 0, Math.cos(yaw));
-    const to = normalize(sub(target, ship.pos));
-    // Compare in the horizontal plane plus a generous vertical tolerance.
-    const flatTo = normalize(v3(to.x, 0, to.z));
-    const cosA = dot(facing, flatTo);
-    const halfArc = ((w.def.arc / 2) * Math.PI) / 180;
-    return cosA >= Math.cos(halfArc + 0.05) && Math.abs(to.y) < 0.6;
+    const a = this.arcParams(ship, w);
+    return this.inArcScalar(ship, w, target.x, target.y, target.z, a.sin, a.cos, a.cosLimit);
   }
 
   private updateWeapons(ship: ShipState, fleet: FleetState, dt: number): void {
     const wpnFactor = 0.4 + 0.6 * ship.subsystems.weapons;
+    // One grid query per ship per tick: is any hull of this ship's targeting set within its longest weapon range?
+    // Without one the mounts only do their bookkeeping (cooldowns, beams, heat, bursts, charges) and never scan;
+    // point-defence lasers still get to look for missiles while any are in flight.
+    let longest = 0;
+    let hasPd = false;
+    for (const w of ship.weapons) {
+      if (w.def.range > longest) longest = w.def.range;
+      if (w.def.kind === 'gardian') hasPd = true;
+    }
+    const enemyNear = this.grid.anyWithin(ship.pos, longest + ship.lengthKm, ship);
+    const missilesNear = hasPd && this.missiles.length > 0;
     for (const w of ship.weapons) {
       // Active beams deal damage over time.
       if (w.beamRemaining > 0) {
@@ -685,14 +899,22 @@ export class BattleSimulation implements AiContext {
       // Heat: a per-mount pool fires only while the shot fits under its capacity; everything else waits on the hull.
       if (w.def.perMountHeat ? (w.heat ?? 0) + w.def.heat > MOUNT_HEAT_CAPACITY : ship.overheated && w.def.heat > 0) continue;
       if (fleet.orders.order === 'retreat' && ship.role !== 'fighter' && w.def.arc < 180) continue;
+      // Nothing to shoot at within reach: the mount waits the idle retry instead of scanning (AP §21.5).
+      if (!enemyNear && !(missilesNear && w.def.kind === 'gardian')) {
+        w.cooldown = IDLE_RETRY_S;
+        continue;
+      }
       if (w.def.chargeTime) {
         // The visible charge begins only with something to shoot at; the shot itself is resolved at release.
-        if (!this.acquireTarget(ship, fleet, w)) continue;
+        if (!this.acquireTarget(ship, fleet, w)) {
+          w.cooldown = IDLE_RETRY_S;
+          continue;
+        }
         w.charging = w.def.chargeTime;
         this.emit({ t: this.time, type: 'weapon_charging', shipId: ship.id, weaponIndex: w.index, seconds: w.def.chargeTime });
         continue;
       }
-      this.tryFire(ship, fleet, w);
+      if (!this.tryFire(ship, fleet, w)) w.cooldown = IDLE_RETRY_S;
     }
   }
 
@@ -707,10 +929,18 @@ export class BattleSimulation implements AiContext {
     return hadesGateOpen(target);
   }
 
-  /** What the mount would shoot at right now, or undefined. */
+  /** Scratch origin for target acquisition (the result's `origin` aliases it: clone before storing). */
+  private originScratch = v3();
+
+  /**
+   * What the mount would shoot at right now, or undefined. Candidates come from the spatial grid within the
+   * mount's range (ship-index order, the order the old brute-force scan yielded); every distance is a squared
+   * scalar and nothing is allocated on the idle path (AP §21.5).
+   */
   private acquireTarget(ship: ShipState, fleet: FleetState, w: WeaponState): { target?: ShipState; missile?: Missile; origin: Vec3 } | undefined {
     const def = w.def;
-    const origin = this.weaponWorldOffset(ship, w);
+    const origin = this.mountOrigin(ship, w, this.originScratch);
+    const range2 = def.range * def.range;
     let target: ShipState | undefined;
     let missile: Missile | undefined;
 
@@ -720,48 +950,71 @@ export class BattleSimulation implements AiContext {
       if (def.kind === 'gardian') {
         for (const m of this.missiles) {
           if (!m.alive || m.side === ship.side) continue;
-          const d = distance(origin, m.pos);
+          const dx = m.pos.x - origin.x;
+          const dy = m.pos.y - origin.y;
+          const dz = m.pos.z - origin.z;
+          const d2 = dx * dx + dy * dy + dz * dz;
+          if (d2 > range2) continue;
+          const d = Math.sqrt(d2);
           const tgt = this.shipById.get(m.targetId);
           const threatBonus = tgt && tgt.id === ship.id ? 0.5 : fleet.orders.pointDefenceMissiles ? 0.6 : 1;
-          if (d <= def.range && d * threatBonus < best) {
+          if (d * threatBonus < best) {
             best = d * threatBonus;
             missile = m;
           }
         }
       }
       if (!missile) {
-        for (const e of this.enemiesOf(ship.side)) {
+        const near = this.grid.queryRadius(origin, def.range, ship);
+        const arc = def.arc >= 360 ? undefined : this.arcParams(ship, w);
+        for (const e of near) {
           if (e.role !== 'fighter') continue;
-          const d = distance(origin, e.pos);
-          if (d <= def.range && d < best && this.inArc(ship, w, e.pos)) {
+          const dx = e.pos.x - origin.x;
+          const dy = e.pos.y - origin.y;
+          const dz = e.pos.z - origin.z;
+          const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
+          if (d < best && (arc === undefined || this.inArcScalar(ship, w, e.pos.x, e.pos.y, e.pos.z, arc.sin, arc.cos, arc.cosLimit))) {
             best = d;
             target = e;
           }
         }
-      }
-      if (!missile && !target && def.kind === 'gardian') {
-        // GARDIAN lasers can scorch nearby hulls (bypassing barriers) — low priority.
-        for (const e of this.enemiesOf(ship.side)) {
-          const d = distance(origin, e.pos);
-          if (d <= def.range && d < best) {
-            best = d;
-            target = e;
+        if (!target && def.kind === 'gardian') {
+          // GARDIAN lasers can scorch nearby hulls (bypassing barriers) — low priority.
+          for (const e of near) {
+            const dx = e.pos.x - origin.x;
+            const dy = e.pos.y - origin.y;
+            const dz = e.pos.z - origin.z;
+            const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
+            if (d < best) {
+              best = d;
+              target = e;
+            }
           }
         }
       }
-      if (!missile && !target) return;
+      if (!missile && !target) return undefined;
     } else {
       const primary = ship.targetId ? this.shipById.get(ship.targetId) : undefined;
+      const arc = def.arc >= 360 ? undefined : this.arcParams(ship, w);
+      const inArc = (e: ShipState): boolean => arc === undefined || this.inArcScalar(ship, w, e.pos.x, e.pos.y, e.pos.z, arc.sin, arc.cos, arc.cosLimit);
+      const within = (e: ShipState): boolean => {
+        const dx = e.pos.x - origin.x;
+        const dy = e.pos.y - origin.y;
+        const dz = e.pos.z - origin.z;
+        return dx * dx + dy * dy + dz * dz <= range2;
+      };
       // Anti-ship mounts never engage small craft (a torpedo or a spinal round is not spent on a fighter or a drone).
-      if (primary && primary.alive && !primary.escaped && primary.role !== 'fighter' && distance(origin, primary.pos) <= def.range && this.inArc(ship, w, primary.pos)) {
+      if (primary && primary.alive && !primary.escaped && primary.role !== 'fighter' && within(primary) && inArc(primary)) {
         target = primary;
       } else {
         // Secondary target of opportunity in arc.
         let best = -Infinity;
-        for (const e of this.enemiesOf(ship.side)) {
-          if (e.role === 'fighter') continue;
-          const d = distance(origin, e.pos);
-          if (d > def.range || !this.inArc(ship, w, e.pos)) continue;
+        for (const e of this.grid.queryRadius(origin, def.range, ship)) {
+          if (e.role === 'fighter' || !inArc(e)) continue;
+          const dx = e.pos.x - origin.x;
+          const dy = e.pos.y - origin.y;
+          const dz = e.pos.z - origin.z;
+          const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
           const s = (def.antiCapital ? Math.log2(1 + e.pointValue) : 1) * (1 - d / def.range) + (1 - e.hull / e.maxHull) * 0.5;
           if (s > best) {
             best = s;
@@ -776,10 +1029,12 @@ export class BattleSimulation implements AiContext {
     return { target, missile, origin };
   }
 
-  private tryFire(ship: ShipState, fleet: FleetState, w: WeaponState): void {
+  /** Fires the mount at what it can acquire; false when it found nothing (the caller sets the idle retry). */
+  private tryFire(ship: ShipState, fleet: FleetState, w: WeaponState): boolean {
     const acquired = this.acquireTarget(ship, fleet, w);
-    if (!acquired) return;
-    const { target, missile, origin } = acquired;
+    if (!acquired) return false;
+    const { target, missile } = acquired;
+    const origin = clone(acquired.origin);
     const def = w.def;
 
     // Fire.
@@ -826,9 +1081,9 @@ export class BattleSimulation implements AiContext {
           this.emit({ t: this.time, type: 'missile_intercepted', missileId: missile.id, interceptorId: ship.id, pos: clone(missile.pos) });
         }
       }
-      return;
+      return true;
     }
-    if (!target) return;
+    if (!target) return true;
 
     const dist = distance(origin, target.pos);
     const closing = length(sub(target.vel, ship.vel));
@@ -922,6 +1177,7 @@ export class BattleSimulation implements AiContext {
         break;
       }
     }
+    return true;
   }
 
   /**
@@ -996,25 +1252,29 @@ export class BattleSimulation implements AiContext {
 
   private updateProjectiles(dt: number): void {
     const survivors: Projectile[] = [];
+    // The swept segment is padded with the largest hit sphere in play (fighters count at 2.5 × their radius).
+    const pad = this.grid.maxRadiusKm * 2.5 + 0.1;
     for (const p of this.projectiles) {
-      p.prevPos = clone(p.pos);
-      p.pos = addScaled(p.pos, p.vel, dt);
+      p.prevPos.x = p.pos.x;
+      p.prevPos.y = p.pos.y;
+      p.prevPos.z = p.pos.z;
+      p.pos.x += p.vel.x * dt;
+      p.pos.y += p.vel.y * dt;
+      p.pos.z += p.vel.z * dt;
       p.ttl -= dt;
       let hitShip: ShipState | undefined;
-      let hitPoint: Vec3 | undefined;
       let bestT = Infinity;
-      for (const s of this.ships) {
-        if (!s.alive || s.escaped || s.side === p.side) continue;
+      for (const s of this.grid.querySegment(p.prevPos, p.pos, pad, p.side)) {
         if (s.role === 'fighter' && !p.weapon.antiSmall) continue;
         const r = s.radiusKm * (s.role === 'fighter' ? 2.5 : 1);
         const t = segmentSphere(p.prevPos, p.pos, s.pos, r);
         if (t !== undefined && t < bestT) {
           bestT = t;
           hitShip = s;
-          hitPoint = addScaled(p.prevPos, sub(p.pos, p.prevPos), t);
         }
       }
-      if (hitShip && hitPoint) {
+      if (hitShip) {
+        const hitPoint = addScaled(p.prevPos, sub(p.pos, p.prevPos), bestT);
         const shooter = this.shipById.get(p.shooterId);
         if (shooter) this.applyHit(shooter, hitShip, p.weapon, p.weapon.damage, hitPoint, p.special ? { special: true } : undefined);
         continue;

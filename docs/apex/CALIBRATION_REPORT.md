@@ -2,9 +2,69 @@
 
 The measured balance of the V2 catalogue (`docs/apex/ADOPTION_PLAN.md` §3; `docs/apex/WORK_BREAKDOWN.md` §1.5). Every number below comes from `node --import tsx/esm scripts/calibration.ts` on the stated commit; the harness is `tests/support/calibration.ts` and the pinned assertions are `tests/calibration.test.ts` and the AP §16 changes in `tests/battle.test.ts`. Everything is deterministic (seeded `Rng`, `SIM_DT 0.05`). Stage D copies the final numbers (§2, after the movement rewrite) into `AU_RULES.md`.
 
-- **§0 Performance baseline** — written by T8 (before and after the spatial grid), with the suite wall-clock time of §1.7 (7).
-- **§1 Calibration pass 1, before movement** — this document, 3 November 2026, commit `c865f46` (T6) plus the T7 pins.
+- **§0 Performance baseline and the T8 levers** — 4 November 2026, commit `76657f4` (before) and the T8 commit (after), with the suite wall-clock time of §1.7 (7).
+- **§1 Calibration pass 1, before movement** — 3 November 2026, commit `c865f46` (T6) plus the T7 pins.
 - **§2 Calibration pass 2, after movement** — written by T19 after T10–T14 (movement, withdrawal, solutions, Reaper AI, Oculus, flights).
+
+## 0. Performance baseline and the T8 levers (4 November 2026)
+
+### 0.1 Machine and method
+
+Dev container: linux x64, node v22.22.0, 4 CPUs (Intel Xeon @ 2.80 GHz), 16 GB. `node --import tsx/esm scripts/perf-sim.ts --rows 100,300v100,300,600,1000 --windows 400 --split`: the AP §21.5 composition (per side: dreadnoughts 6 %, carriers 2 %, cruisers 32 %, frigates 60 % for the coalition; capitals 25 % / destroyers 75 % for the Reaper side), seed 11, canon, deep space 80 km, a 200-step warm-up and 1,200 measured steps, wall time through `performance.now()` with the profiler **off**; the phase split comes from a second, profiled pass of the same row. "Live hulls" excludes small craft, but the small craft are simulated: the T5 catalogue gives every Reaper capital 8 Oculi and every destroyer 2, so the 100 vs 100 row carries ≈ 400 small craft (350 Oculi, 48 Tridents) through its first minute. The reviewer's v0.11 baseline in AP §21.5 (4.35 / 12.35–18.1 / 37 ms per step) had no Oculi and ran on another machine; it is not comparable with the rows below, which is why the baseline was re-measured here before any lever was touched.
+
+### 0.2 Before (head `76657f4` plus the zero-cost profiler wiring in `step()`)
+
+| row | live hulls | ms/step | steps/s | steps per 16.7 ms frame | ms/step per 400-step window | profiled split |
+| --- | ---: | ---: | ---: | ---: | --- | --- |
+| 100 vs 100 | 110 | 18.16 | 55 | 0.9 | 27.75 / 17.00 / 9.73 | weapons 60 %, movement 23 %, carriers 6 %, projectiles 5 %, ai 4 % |
+| 300 vs 100 | 280 | 64.65 | 15 | 0.3 | 90.01 / 65.69 / 38.25 | weapons 64 %, movement 22 %, projectiles 7 %, carriers 3 %, ai 3 % |
+| 300 vs 300 | 409 | 208.27 | 5 | 0.1 | 305.14 / 203.75 / 115.93 | weapons 62 %, movement 21 %, carriers 7 %, projectiles 6 %, ai 3 % |
+
+The first window (steps 200–600, the small-craft swarm alive) is the heaviest; the "firing phase" the plan expected to be the worst is cheaper because the drones die. CPU profile (`node --cpu-prof`, 300 vs 100, 600 warm-up + 600 measured steps, 75.7 s sampled): `acquireTarget` **46.7 %** self time (every anti-small mount scanning `enemiesOf()` every tick, as AP §21.5 predicted), `tryFire` 9.7 %, `movementGoal` 9.1 % (an enemy centroid per ship per tick), `updateMovement` 8.6 %, garbage collector 8.2 %, `step` 4.8 %, `updateProjectiles` 4.4 %, `updateCarrier` 1.1 %, `chooseTarget` 1.0 %.
+
+### 0.3 Levers, in the AP §21.5 order
+
+1. **Idle retry** `IDLE_RETRY_S = 0.25` (`battle.ts`): a mount that finds nothing (including a spinal gun that declines a secondary while its primary lives) takes a 0.25 s cooldown instead of rescanning next tick. Deterministic.
+2. **Engagement gate**: one `grid.anyWithin(ship.pos, longest weapon range + length, ship)` per ship per tick; without an enemy in reach the mounts only do their bookkeeping (cooldowns, beam ticks, per-mount heat, burst recovery, charges) and take the idle retry; GARDIAN mounts still look for missiles while any are in flight. The plan's "skips `updateWeapons` entirely" was read as "skips the acquisition": the cheap bookkeeping keeps running so cooldowns, beams and heat behave exactly as before.
+3. **Allocation-free distances**: squared scalars throughout `acquireTarget`/`tryFire`, a scalar arc test with one trig evaluation per mount per acquisition, mount origins from a per-ship-per-tick yaw memo into a scratch vector (cloned only when a shot leaves), `scoreTarget` scalar, projectile and interpolation snapshots advanced in place.
+4. **`src/simulation/spatial.ts` `SpatialGrid`** (cell 4 km, typed arrays, open-addressed key table, CSR cell lists, per-cell side masks, extent-bounded box walks, deterministic ship-index order in every result): `updateProjectiles` → `querySegment` padded with 2.5 × the largest hit radius; point defence and anti-ship acquisition → `queryRadius` within the mount's range; `chooseTarget` → `candidates()` = `queryRadius(sensor × 1.5)` capped at the 24 nearest **plus every capital hull in range and the ship's current, forced and fleet-focus targets** (a strict nearest-only cap turned the reference engagement's Reaper capitals onto the frigate screen ahead of the dreadnoughts; AP §21.5 names the cap, not what it keeps).
+5. **Per-tick caches** (`refreshSideCache`): side lists, combatants, point-weighted enemy centroids (`movementGoal`, `fleetDecision`), fleet members, carrier craft (the recall and rearm loops of `updateCarrier` no longer scan every ship), rogue-aware `enemiesOfShip`.
+6. **Staggered fleet decisions**: the expensive part of `fleetDecision` (member list, centroids, engagement range, anchor goal, the focus re-evaluation) refreshes on `decisionSlowTimer` every `FLEET_SLOW_INTERVAL = 0.25` s; the anchor integration and the heading turn run every tick against the cached values.
+
+Not touched here: `updateMovement`/`movementGoal` (T10 rewrites them), the small craft as individuals (T11 flights), the AP §21.5 tuning levers (cell size, stagger, `ttl` cap, beam batching, flight threshold — T19's).
+
+### 0.4 After (the T8 commit)
+
+| row | live hulls | ms/step | steps/s | steps per frame | ms/step per 400-step window | grid cells | speed-up |
+| --- | ---: | ---: | ---: | ---: | --- | ---: | ---: |
+| 100 vs 100 | 106 | 4.26 | 235 | 3.9 | 6.91 / 3.93 / 1.94 | 56 | 4.3× |
+| 300 vs 100 | 274 | 9.33 | 107 | 1.8 | 10.21 / 12.18 / 5.60 | 177 | 6.9× |
+| 300 vs 300 | 419 | 22.20 | 45 | 0.8 | 22.42 / 27.84 / 16.36 | 229 | 9.4× |
+| 600 vs 600 | 903 | 49.36 | 20 | 0.3 | 37.49 / 69.33 / 41.26 | 476 | (no baseline row) |
+| 1,000 vs 1,000 | 1,695 | 88.04 | 11 | 0.2 | 76.28 / 90.96 / 96.87 | 913 | (no baseline row) |
+
+Profiled split after the levers (300 vs 100): weapons 40 %, projectiles 24 %, ai 16 %, movement 13 %; 1,000 vs 1,000: weapons 67 %, ai 20 %, movement 8 %. CPU profile (300 vs 100, same method, 12.1 s sampled — the whole run is six times shorter): `querySegment` 11.4 %, `updateProjectiles` 10.2 %, `step` 7.2 %, `acquireTarget` 7.0 %, `queryRadius` 6.5 %, `movementGoal` 6.4 %, `updateWeapons` 6.1 %, `collectCells` 5.5 %, `collect` 5.1 %, `updateMovement` 4.2 %, `candidates` 4.1 %, garbage collector 2.4 %, `anyWithin` 2.4 %. The profile is flat: the sweep and the acquisition now cost in proportion to the hulls within range (400-odd rounds are in flight at the firing peak of 300 vs 100), movement is next, and the individually simulated small craft stay the largest entity count.
+
+**Gate (AP §21.5, `HEADLESS_GATE` 20 steps per 16.7 ms frame on 300 vs 100 = 0.835 ms/step): missed** after the mandatory levers — measured 9.33 ms/step, **1.8 steps per frame**, on this 4-CPU container; no ladder row meets 20 (100 vs 100 reaches 3.9). Nothing here claims otherwise; T19 re-measures after T10 (movement rewrite), T11 (flights) and the §21.5 tuning levers and, if the gate is still missed, reports the measured figure and the largest row that meets 20 for the owner's approval of the fallback.
+
+### 0.5 Results drift and the Apex pin (AP §3.5, first lever)
+
+The levers change the order of the rng draws (an idle mount rolls its "wait for the primary" chance every 0.25 s instead of every tick, the fleet focus re-evaluates on the slow timer, the centroids are cached), so every seeded battle follows a new trajectory under the same mechanics. Re-measured with `tests/support/calibration.ts`: canon reference seeds 7 / 8 / 9 → B / B / B, 1 / 2 / 2 capitals, 0.0 / 1.7 / 0.4 % survival, 9–10 of 12 Reapers destroyed — every pin holds. Apex reference seeds 7 / 8 / 9 → A wins, 19 / 15 / 16 lost, 2 / 2 / 1 dreadnoughts, 73.2 / 79.9 / **85.8 %** survival: seed 9 crossed the `< 85 %` pin. The outcome is quantised by dreadnought losses (one lost dreadnought lands at 85–86 %, two at 76–80 %), so the pin is a coin flip per seed under any multiplier. First lever of the AP §1.3/§3.5 order, `kineticBarrierStrength` 1.35 → **1.3** (inside the bounds, one notch below the shipped value):
+
+| Apex core organic change | seeds 7 / 8 / 9 / 10 / 11 (A survival, or the result) |
+| --- | --- |
+| none (T7 values under T8) | 73.2 / 79.9 / **85.8** / 71.5 / draw at 360 s |
+| `kineticBarrierStrength` 1.3 (**adopted**) | 76.5 / 69.4 / 68.6 / 75.3 (20 lost) / draw at 360 s |
+| `hullIntegrity` 1.1 | 77.4 / draw / 75.7 / 78.2 / 86.2 |
+| `armourStrength` 1.0 | 65.2 (23 lost) / 69.4 / B at 360 s / 73.2 (22 lost) / 86.6 |
+| `kineticBarrierStrength` 1.3 + `armourStrength` 1.1 | 82.8 / 75.7 / 64.8 / draw / 85.8 |
+| `barrierRegen` 1.3 | 74.9 / 79.9 / 85.8 / 71.5 / draw |
+
+Adopted: seeds 7–9 hold every AP §16 pin (A wins at 127 / 130 / 138 s, 17 / 19 / 18 lost, 2 / 3 / 3 dreadnoughts, 4 capitals, 12 of 12 Reapers destroyed, 23 / 23 / 29 HADES rounds fired, 12 / 11 / 11 detonations); seed 10 loses 20 (one over the 7–19 band) and seed 11 stays the 360 s draw it already was at T7's step 6 — neither is pinned. T19 re-measures after T10–T14 inside the same lever order.
+
+### 0.6 Suite wall clock (§1.7 (7))
+
+`npx vitest run`: 17 files / 163 tests in 84.1 s before T8; 18 files / 172 tests in 33–44 s after (`battle.test.ts` 83 → 36 s). `tests/perf.test.ts` adds 9 tests: the grid against brute force (1,000 random segments, 1,000 radii including radii larger than the battlespace, 500 nearest queries, the filter semantics, the empty grid), the scaling bound (300 vs 100 ≤ 4 × the 100 vs 100 per-step cost in one process: measured ≈ 2.2×), the smoke ceiling (400 steps of 300 vs 100 in ≈ 4 s against the 20 s bound) and the profiler's structure (all zeros while disabled, every phase present, phase sum ≤ total, the same battle with it on and off).
 
 ## 1. Calibration pass 1 — before the movement rewrite (3 November 2026)
 

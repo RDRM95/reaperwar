@@ -167,14 +167,16 @@ export const PRIME_APEX: RuleSet = {
   // §1.3 literals lose the engagement on seeds 7–9; the lever order kineticBarrierStrength → massAcceleratorDamage
   // (fleetStrength does not act on fixed fleets; the HADES levers only weaken) was exhausted at the bounds, so every
   // remaining key sits at its bound except armourStrength, which stays at the §1.3 literal 1.15 because 1.3 lifts
-  // seed 7's survival past the < 85 % target. See docs/apex/CALIBRATION_REPORT.md §1.
+  // seed 7's survival past the < 85 % target. See docs/apex/CALIBRATION_REPORT.md §1. CORE T8 (spatial grid, idle
+  // retry, staggered decisions) shifted the seed trajectories and seed 9 crossed 85 %; the first lever of the order,
+  // kineticBarrierStrength, came back one notch (1.35 → 1.3) and seeds 7–9 hold again (CALIBRATION_REPORT.md §0.4).
   organic: tech({
     massAcceleratorDamage: 1.25,
     massAcceleratorPenetration: 1.3,
     massAcceleratorRange: 1.0,
     fireRate: 1.1,
     heatCapacity: 1.3,
-    kineticBarrierStrength: 1.35,
+    kineticBarrierStrength: 1.3,
     barrierRegen: 1.4,
     armourStrength: 1.15,
     hullIntegrity: 1.15,
