@@ -1,4 +1,7 @@
+import { ALTERNATE_META, ALTERNATE_PRESETS, auPrefix } from '@/timelines/alternates';
+import { PRESETS } from '@/timelines/presets';
 import type { RuleSet } from '@/timelines/rules';
+import { REAPER_THREAT, THREAT_REFERENCE_META, THREAT_THRESHOLDS, THREAT_TIERS, threatHoldsText, threatRating } from '@/timelines/threat';
 
 /**
  * Codex content. Each entry separates established canon from simulation
@@ -7,7 +10,7 @@ import type { RuleSet } from '@/timelines/rules';
  */
 export interface CodexEntry {
   id: string;
-  category: 'Factions' | 'Ships' | 'Weapons' | 'Technology' | 'Locations' | 'Reaper War' | 'Doctrine' | 'Simulation';
+  category: 'Factions' | 'Ships' | 'Weapons' | 'Technology' | 'Locations' | 'Reaper War' | 'Timelines' | 'Doctrine' | 'Simulation';
   title: string;
   canon: string[];
   estimate?: string[];
@@ -15,6 +18,8 @@ export interface CodexEntry {
   au?: Record<string, string[]>;
   /** Shown for any AU where predicate(rules) is true. */
   auDynamic?: (rules: RuleSet) => string[] | undefined;
+  /** Always shown, in an alternate-universe block, whatever timeline is active; every line starts with `auPrefix(name)`. */
+  alternate?: string[];
 }
 
 export const CODEX: CodexEntry[] = [
@@ -313,4 +318,70 @@ export const CODEX: CodexEntry[] = [
   },
 ];
 
-export const CODEX_CATEGORIES = ['Factions', 'Ships', 'Weapons', 'Technology', 'Locations', 'Reaper War', 'Doctrine', 'Simulation'] as const;
+// ------------------------------------------------------------- Timelines
+
+const pct = (x: number): string => `${Math.round(100 * x)} %`;
+
+/** Readable names of the world-state options the new timelines lock. */
+const WORLD_STATE_NAMES: Record<string, string> = {
+  ascension: 'Destiny Ascension and the Council',
+  rannoch: 'geth–quarian conflict (campaign)',
+  outcome: 'Rannoch outcome (Quick Battle)',
+  normandy: 'Normandy SR-2',
+  genophage: 'genophage cure',
+};
+
+/** One entry per new alternate timeline, generated from the presets, their metadata and the measured rating (TIMELINES_V2.md §4.9). */
+export const TIMELINE_ENTRIES: CodexEntry[] = ALTERNATE_PRESETS.map((p) => {
+  const meta = ALTERNATE_META[p.id];
+  const pre = auPrefix(p.name);
+  const r = threatRating(p);
+  // Locks that share a reason (the campaign and Quick Battle forms of one story fact) are one line.
+  const reasons = new Map<string, string[]>();
+  for (const [k, l] of Object.entries(meta.worldState ?? {})) reasons.set(l.why, [...(reasons.get(l.why) ?? []), WORLD_STATE_NAMES[k] ?? k]);
+  return {
+    id: `timeline_${p.id}`,
+    category: 'Timelines',
+    title: p.name,
+    canon: [meta.canonBasis],
+    estimate: ['How the threat is measured: see “Threat to the Reapers (measured scale)” in this category.'],
+    alternate: [
+      `${pre}diverges in ${meta.divergence.approximate ? 'about ' : ''}${meta.divergence.year}: ${meta.divergence.event}`,
+      `${pre}${p.description.replace(/^ALTERNATE UNIVERSE\.\s*/, '')}`,
+      ...p.historyChanges.map((h) => `${pre}${h}`),
+      ...[...reasons].map(([why, names]) => `${pre}world state set by this timeline (${names.join(', ')}): ${why}`),
+      ...(meta.campaignNote ? [`${pre}${meta.campaignNote}`] : []),
+      `${pre}threat to the Reapers ${r ? `${r.tier}/6 ${r.label} (index ${r.index.toFixed(1)}; Reaper losses ${pct(r.reaperLoss)}, organic survival ${pct(r.organicSurvival)}). ${threatHoldsText(r)}` : 'unrated.'} Measured in conventional battle.`,
+    ],
+  };
+});
+
+const firstRung = THREAT_REFERENCE_META.rungs[0];
+const lastRung = THREAT_REFERENCE_META.rungs[THREAT_REFERENCE_META.rungs.length - 1];
+
+/** How the scale works, generated from the scale's own constants and the measured table. */
+export const THREAT_SCALE_ENTRY: CodexEntry = {
+  id: 'threat_scale',
+  category: 'Timelines',
+  title: 'Threat to the Reapers (measured scale)',
+  canon: [],
+  estimate: [
+    'Every built-in timeline carries a rating of how dangerous its galaxy is to the Reapers in conventional battle. The rating is measured, not asserted: one fixed engagement is simulated under each timeline’s rules, and the tier follows the numbers.',
+    `The threat reference engagement sets the Council-era navies in one battle line (the Systems Alliance, the Turian Hierarchy, the Asari Republics, the Salarian Union, the quarians and the geth, with Cerberus when it is allied; a navy the timeline removes is absent) against ${THREAT_REFERENCE_META.rungs.length} Reaper groups of growing size, from a ${firstRung.name} of ${firstRung.capitals} capital ships and ${firstRung.destroyers} destroyers to a ${lastRung.name} of ${lastRung.capitals} and ${lastRung.destroyers}, each scaled by the timeline’s own Reaper fleet strength, on ${THREAT_REFERENCE_META.seeds.length} seeds. The lines start ${THREAT_REFERENCE_META.standoffKm} km apart (nominal), just beyond the longest weapon range, and a battle ends by destruction or by the attrition judgement at ${THREAT_REFERENCE_META.maxDuration} s.`,
+    'Index = 50 × (Reaper hull value lost + coalition hull value surviving), averaged over every battle: 0 when the Reapers lose nothing and the coalition dies, 100 when every Reaper dies and nothing is lost. Damage short of a kill counts toward the Reaper losses.',
+    ...THREAT_TIERS.map((t) => `Tier ${t.tier}, ${t.label}: ${t.summary}`),
+    'The breaking point shown with each rating is the largest Reaper group, counted up from the smallest, that the coalition beats in at least 3 of 4 seeds, named as the timeline actually deploys it.',
+    'What the scale cannot see: the Crucible and the Catalyst, a controlled Reaper fleet, Reaper reinforcements and every other campaign-only rule. A timeline can win its war and still rate low here, or the reverse.',
+    `Measured on ${THREAT_REFERENCE_META.measuredOn}. The thresholds (${THREAT_THRESHOLDS.join(', ')}) are fixed and never moved to rescue a label; custom timelines are unrated.`,
+    ...PRESETS.map((p) => {
+      const r = threatRating(p);
+      const m = REAPER_THREAT[p.id];
+      const line = r && m ? `${r.tier}/6 ${r.label}, index ${m.index.toFixed(1)}.` : 'unrated.';
+      return p.category === 'au' ? `${auPrefix(p.name)}${line}` : `${p.name}: ${line}`;
+    }),
+  ],
+};
+
+CODEX.push(...TIMELINE_ENTRIES, THREAT_SCALE_ENTRY);
+
+export const CODEX_CATEGORIES = ['Factions', 'Ships', 'Weapons', 'Technology', 'Locations', 'Reaper War', 'Timelines', 'Doctrine', 'Simulation'] as const;

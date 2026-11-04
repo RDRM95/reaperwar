@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { advanceTick, createCampaign } from '@/campaign/engine';
+import { CODEX, CODEX_CATEGORIES } from '@/codex/entries';
 import { forbiddenWording } from '@/core/lint';
 import { SHIP_CLASSES } from '@/data/ships';
 import { WEAPON_LIST } from '@/data/weapons';
@@ -224,6 +225,39 @@ describe('alternate timelines: data', () => {
     }
     // A divergence changes what the organics know, not what the Reapers are: only the Covenant's active interference sets the command vulnerability.
     expect(ALTERNATE_PRESETS.filter((p) => p.special.reaperCommandVulnerability).map((p) => p.id)).toEqual(['leviathans_covenant']);
+  });
+});
+
+describe('alternate timelines: codex', () => {
+  it('has one Timelines entry per new timeline, every alternate line AU-prefixed and every line clean', () => {
+    expect(CODEX_CATEGORIES.indexOf('Timelines')).toBe(CODEX_CATEGORIES.indexOf('Reaper War') + 1);
+    for (const p of ALTERNATE_PRESETS) {
+      const entries = CODEX.filter((e) => e.id === `timeline_${p.id}`);
+      expect(entries, p.id).toHaveLength(1);
+      const e = entries[0];
+      expect(e.category).toBe('Timelines');
+      expect(e.title).toBe(p.name);
+      expect(e.canon).toEqual([ALTERNATE_META[p.id].canonBasis]);
+      expect(e.alternate!.length).toBeGreaterThanOrEqual(p.historyChanges.length + 3);
+      for (const line of e.alternate!) expect(line.startsWith(auPrefix(p.name)), line).toBe(true);
+      for (const line of [...e.canon, ...(e.estimate ?? []), ...e.alternate!]) wordingOk(line);
+      expect(e.alternate!.some((l) => l.includes(`${REAPER_THREAT[p.id].index.toFixed(1)}`)), p.id).toBe(true);
+    }
+  });
+
+  it('explains the scale, with every alternate-universe preset line AU-prefixed', () => {
+    const scale = CODEX.find((e) => e.id === 'threat_scale')!;
+    expect(scale.category).toBe('Timelines');
+    expect(scale.canon).toEqual([]);
+    const lines = scale.estimate ?? [];
+    for (const line of lines) wordingOk(line);
+    for (const p of PRESETS) {
+      const mine = lines.filter((l) => l.startsWith(auPrefix(p.name)) || l.startsWith(`${p.name}: `));
+      expect(mine, p.id).toHaveLength(1);
+      expect(mine[0].startsWith(p.category === 'au' ? auPrefix(p.name) : `${p.name}: `), p.id).toBe(true);
+    }
+    for (const t of THREAT_TIERS) expect(lines.some((l) => l.includes(t.summary))).toBe(true);
+    expect(lines.join(' ')).toContain('measured, not asserted');
   });
 });
 
