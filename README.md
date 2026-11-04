@@ -42,7 +42,7 @@ cd reaperwar
 
 On macOS the browser stays open after its window closes: quit it (⌘Q) or press Ctrl+C in the terminal.
 
-**Updating:** `git pull`, then start it again. The launcher rebuilds whenever the sources are newer than the last build.
+**Updating:** `git pull`, then start it again. The launcher reinstalls the dependencies when `package-lock.json` changed and rebuilds whenever the sources are newer than the last build.
 
 **Options** (after `run-local.cmd`, `./run-local.sh` or `npm run local --`):
 
@@ -58,7 +58,7 @@ On macOS the browser stays open after its window closes: quit it (⌘Q) or press
 
 **What the launcher does**
 
-`scripts/local/launch.mjs` runs `npm run build` when `dist/` is missing or older than the sources, serves `dist/` with `scripts/local/serve.mjs` on `http://127.0.0.1:4180/` (loopback only: nothing on your network can reach it, and it needs no extra packages), and starts the browser with these flags:
+`scripts/local/launch.mjs` runs `npm ci` when the dependencies are missing or out of date and `npm run build` when `dist/` is missing or older than the sources, serves `dist/` with `scripts/local/serve.mjs` on `http://127.0.0.1:4180/` (loopback only: nothing on your network can reach it, and it needs no extra packages), and starts the browser with these flags:
 
 | Browser flag | Why |
 | --- | --- |

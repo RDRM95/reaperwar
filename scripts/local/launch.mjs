@@ -5,8 +5,9 @@
  *   node scripts/local/launch.mjs [--port 4180] [--rebuild] [--browser <path>]
  *                                 [--vsync] [--fullscreen] [--no-browser]
  *
- * 1. Builds the game (npm run build) when dist/ is missing or older than the
- *    sources; --rebuild forces it.
+ * 1. Runs "npm ci" when node_modules is missing or older than
+ *    package-lock.json, and builds the game (npm run build) when dist/ is
+ *    missing or older than the sources; --rebuild forces the build.
  * 2. Serves dist/ on http://127.0.0.1:<port>/ with serve.mjs (this machine
  *    only, cross-origin isolated).
  * 3. Opens Chrome or Edge as an app window on a dedicated profile
@@ -252,18 +253,36 @@ export function planLaunch(options, { platform, env, exists, repoRoot }) {
 }
 
 /**
- * How to run "npm run build" on this platform. Under "npm run local" npm's
- * own CLI script is reused; on Windows npm is a .cmd file, which Node can only
- * start through the shell (the arguments are fixed, nothing user-supplied).
+ * How to run npm (`npmArgs`, e.g. ['run', 'build'] or ['ci']) on this
+ * platform. Under "npm run local" npm's own CLI script is reused. On Windows
+ * npm is a .cmd file, which Node can only start through the shell: the
+ * arguments are fixed words (nothing user-supplied), passed as one command
+ * line because Node deprecates an argument list combined with shell: true.
  * @param {string} platform
  * @param {Record<string, string | undefined>} env
  * @param {string} nodePath
+ * @param {string[]} npmArgs
  */
-export function npmBuildCommand(platform, env, nodePath) {
+export function npmCommand(platform, env, nodePath, npmArgs) {
   const execPath = envGet(env, 'npm_execpath');
-  if (execPath && /\.[cm]?js$/i.test(execPath)) return { command: nodePath, args: [execPath, 'run', 'build'], shell: false };
-  if (platform === 'win32') return { command: 'npm.cmd', args: ['run', 'build'], shell: true };
-  return { command: 'npm', args: ['run', 'build'], shell: false };
+  if (execPath && /\.[cm]?js$/i.test(execPath)) return { command: nodePath, args: [execPath, ...npmArgs], shell: false };
+  if (platform === 'win32') return { command: ['npm.cmd', ...npmArgs].join(' '), args: [], shell: true };
+  return { command: 'npm', args: [...npmArgs], shell: false };
+}
+
+/**
+ * Whether the installed dependencies are missing or older than
+ * package-lock.json (a "git pull" that changed them): then "npm ci" runs
+ * before the build. npm writes node_modules/.package-lock.json last.
+ * @param {string} repoRoot
+ * @returns {{ install: boolean, reason: string }}
+ */
+export function needsInstall(repoRoot) {
+  const installed = path.join(repoRoot, 'node_modules', '.package-lock.json');
+  if (!existsSync(installed)) return { install: true, reason: 'node_modules is missing' };
+  const lock = path.join(repoRoot, 'package-lock.json');
+  if (existsSync(lock) && statSync(lock).mtimeMs > statSync(installed).mtimeMs) return { install: true, reason: 'package-lock.json changed since the last install' };
+  return { install: false, reason: 'dependencies are up to date' };
 }
 
 /**
@@ -340,10 +359,15 @@ async function isOurServer(port) {
   }
 }
 
-function runBuild() {
-  const cmd = npmBuildCommand(process.platform, process.env, process.execPath);
+/**
+ * Run npm in the repository with inherited output; resolves true on success.
+ * @param {string[]} npmArgs
+ * @returns {Promise<boolean>}
+ */
+function runNpm(npmArgs) {
+  const cmd = npmCommand(process.platform, process.env, process.execPath, npmArgs);
   return new Promise((resolve) => {
-    // The local server serves dist/ at the root, so the build always uses base "/".
+    // The local server serves dist/ at the root, so a build always uses base "/".
     const child = spawn(cmd.command, cmd.args, { cwd: REPO_ROOT, stdio: 'inherit', shell: cmd.shell, env: { ...process.env, VITE_BASE: '/' } });
     child.on('error', (e) => {
       console.error(`Could not run npm: ${e.message}`);
@@ -378,10 +402,18 @@ async function main() {
   }
 
   console.log('Reaper War Simulator - Local Edition');
+  const deps = needsInstall(REPO_ROOT);
+  if (deps.install) {
+    console.log(`Installing dependencies (${deps.reason})...`);
+    if (!(await runNpm(['ci']))) {
+      console.error('npm ci failed; see the messages above.');
+      process.exit(1);
+    }
+  }
   const check = needsBuild(REPO_ROOT, { rebuild: opts.rebuild });
   if (check.build) {
     console.log(`Building the game (${check.reason}). This takes a minute the first time...`);
-    if (!(await runBuild()) || !existsSync(path.join(REPO_ROOT, 'dist', 'index.html'))) {
+    if (!(await runNpm(['run', 'build'])) || !existsSync(path.join(REPO_ROOT, 'dist', 'index.html'))) {
       console.error('The build failed; see the messages above.');
       process.exit(1);
     }

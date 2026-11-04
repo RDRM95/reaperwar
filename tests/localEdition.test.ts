@@ -15,7 +15,8 @@ import {
   GPU_FLAGS,
   needsBuild,
   nodeVersionOk,
-  npmBuildCommand,
+  needsInstall,
+  npmCommand,
   parseLaunchArgs,
   planLaunch,
   UNCAPPED_FLAGS,
@@ -417,10 +418,13 @@ describe('Local Edition launcher: arguments and plan', () => {
     expect(() => parseLaunchArgs(['--vsync=yes'])).toThrow(/takes no value/);
   });
 
-  it('runs npm run build the way each platform needs', () => {
-    expect(npmBuildCommand('linux', {}, '/usr/bin/node')).toEqual({ command: 'npm', args: ['run', 'build'], shell: false });
-    expect(npmBuildCommand('win32', {}, 'C:\\node\\node.exe')).toEqual({ command: 'npm.cmd', args: ['run', 'build'], shell: true });
-    expect(npmBuildCommand('win32', { npm_execpath: 'C:\\node\\node_modules\\npm\\bin\\npm-cli.js' }, 'C:\\node\\node.exe')).toEqual({ command: 'C:\\node\\node.exe', args: ['C:\\node\\node_modules\\npm\\bin\\npm-cli.js', 'run', 'build'], shell: false });
+  it('runs npm the way each platform needs', () => {
+    expect(npmCommand('linux', {}, '/usr/bin/node', ['run', 'build'])).toEqual({ command: 'npm', args: ['run', 'build'], shell: false });
+    expect(npmCommand('darwin', {}, '/usr/local/bin/node', ['ci'])).toEqual({ command: 'npm', args: ['ci'], shell: false });
+    // Windows: npm.cmd needs the shell; one fixed command line, no argument list.
+    expect(npmCommand('win32', {}, 'C:\\node\\node.exe', ['run', 'build'])).toEqual({ command: 'npm.cmd run build', args: [], shell: true });
+    // Under "npm run local", npm's own CLI script runs without a shell.
+    expect(npmCommand('win32', { npm_execpath: 'C:\\node\\node_modules\\npm\\bin\\npm-cli.js' }, 'C:\\node\\node.exe', ['ci'])).toEqual({ command: 'C:\\node\\node.exe', args: ['C:\\node\\node_modules\\npm\\bin\\npm-cli.js', 'ci'], shell: false });
   });
 
   it('accepts the Node versions Vite 7 supports', () => {
@@ -461,6 +465,18 @@ describe('Local Edition launcher: when to build', () => {
     at(join(repo, 'index.html'), 1_000_000);
     expect(needsBuild(repo).build).toBe(false);
   });
+  it('reinstalls dependencies when node_modules is missing or older than package-lock.json', () => {
+    writeFileSync(join(repo, 'package-lock.json'), '{}');
+    at(join(repo, 'package-lock.json'), 1_000_000);
+    expect(needsInstall(repo)).toEqual({ install: true, reason: 'node_modules is missing' });
+    mkdirSync(join(repo, 'node_modules'), { recursive: true });
+    writeFileSync(join(repo, 'node_modules', '.package-lock.json'), '{}');
+    at(join(repo, 'node_modules', '.package-lock.json'), 2_000_000);
+    expect(needsInstall(repo).install).toBe(false);
+    at(join(repo, 'package-lock.json'), 3_000_000); // a git pull changed the dependencies
+    expect(needsInstall(repo)).toEqual({ install: true, reason: 'package-lock.json changed since the last install' });
+  });
+
   it('rebuilds a dist/ made for the GitHub Pages base path', () => {
     writeFileSync(join(repo, 'dist', 'index.html'), '<script type="module" crossorigin src="/reaperwar/assets/index-AbCdEf12.js"></script>');
     at(join(repo, 'dist', 'index.html'), 2_000_000);
