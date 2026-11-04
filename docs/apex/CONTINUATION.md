@@ -50,6 +50,25 @@ The owner: "you have full workflow auth, playable build is only priority, I leav
 4. **Deferred past 1.0.0** (in this order): the remaining cinematic scenes and the full character bible (D-prep run `wf_2f8b94ec-2bf` stays paused; its drafts are in the worktrees), the design-sheet lock-down and likeness loop, the graphics overhaul plan (`wf_c90f6423-5b9`, paused; brief §16), the extreme-scale programme (brief §17), System theatre, Alternate Timelines, the local-hardware build.
 5. The stage prompts in `docs/apex/workflows/stages-abcd.js` are the full-scope prompts; for the 1.0.0 run pass `args: { only: [...] }` and prepend the "lite" scope paragraph from item 3 (write it into the script's COMMON before launching).
 
+## "Finish everything" — the owner's standing order of 4 Nov 22:55 UTC, and the master sequence
+
+The owner gave full workflow authority ("playable build is only priority, I leave the rest to you", then "finish everything"). The lead drives every item below to completion without asking, releasing playable builds as they land. Only two things need the owner: the force-push for the email rewrite (blocked by the safety rule; ask once more at the end) and anything destructive.
+
+Running at 22:55 UTC: CORE `wf_2f3d7476-5c1` (chunk 4, T11), timelines `wf_07ef8a55-815` (worktree `-T`), Local Edition `wf_b4c676c1-431` (worktree `-L`, branch `stage/L-local`), pacing plan `wf_99d15abc-5f9` (worktree `-S`, branch `stage/S-pacing`).
+
+On each completion, in this order of dependency:
+1. Timelines and Local Edition done → merge `stage/T-timelines` and `stage/L-local` into the integration branch at a clean point (CORE between tasks), regenerate the threat table on the merged head (`npm run timeline:threat`; the tests never pin its numbers) → release **0.12.1** by the recorded procedure.
+2. Pacing plan done → merge `stage/S-pacing` (docs only) so `docs/apex/PACING_PLAN.md` is on the branch before CORE starts chunk 6 (the INTEGRATION_NOTES bullet and the chunk-6 notes make CORE apply it before calibration pass 2).
+3. Launch `docs/apex/workflows/playback-fastforward.js` → merge → **0.12.2**.
+4. Resume D-prep `wf_2f8b94ec-2bf` (bible and sheets; drafts in `-Dprep`/`-Dprep2`) → merge `stage/D-prep` (docs).
+5. Resume the graphics plan `wf_c90f6423-5b9` → merge `stage/G-plan` (`docs/apex/GRAPHICS_OVERHAUL_PLAN.md`, baseline shots, `scripts/compare-shots.mjs`). Stage A then executes WORK_BREAKDOWN §2 **and** the overhaul plan's render phases (brief §16 is folded into 1.0.0 because the owner asked for everything); stage B executes §3 plus the recording/replay system of §16.3.
+6. CORE acceptance → release **0.13.0** (CORE complete) by the procedure.
+7. Stages A–D at full scope (`docs/apex/workflows/stages-abcd.js`; prompts amended at launch with brief §15, §16, §19 render/camera parts from PACING_PLAN.md, the Local Edition and the timelines' threat badges as things to preserve) → `integration-release.js` → **1.0.0** → deploy and verify.
+8. V2.1 Extreme Scale (`extreme-scale-plan.js`, then the staged implementation from its plan), V2.3 System theatre (§13), V2.4 Alternate Timelines hub (§14), then the pinned items (Collectors, First Contact War, non-eezo timelines, Multiverse): each planned by a design workflow with critics, implemented in staged workflows, released through the gate.
+9. When the owner allows the force-push: the email rewrite (Model, identity and history policy section).
+
+**Usage windows.** When a workflow fails with "You've hit your 5-hour limit · resets HH:MM (UTC)", the lead schedules `send_later` for three minutes after the reset with the list of `Workflow({scriptPath, resumeFromRunId})` calls to make, so the work resumes without the owner. Every agent commits finished deliverables at once and completes an earlier attempt's uncommitted work on resume.
+
 ## Released (lead log)
 
 - **0.12.0 — 4 Nov 20:31 UTC**, commit `917cae2` on `main`, Pages deployment success (https://rdrm95.github.io/reaperwar/), CI green. Contents: CORE T1–T10 (movement rewrite, tactical withdrawal, firing solutions, IES stealth and hunter doctrine, HADES penetrators, canon calibration, Apex core/legacy presets, new catalogue classes on placeholder models, spatial grid). Gate on `46b7006`: typecheck, 217 unit tests, build, 8/8 e2e, screenshots inspected. Release procedure that worked: detached worktree at the candidate, `npm ci`, the suites (Playwright through a temporary config on port 4178 so it never collides with another worktree's server on 4173), screenshots via `scripts/screenshots.mjs <dir> http://localhost:4178`, `npm version X --no-git-tag-version` + CHANGELOG on a `release/X` branch, `git push origin release/X:main` (fast-forward), merge `release/X` into the integration branch, poll `gh api repos/RDRM95/reaperwar/actions/runs?branch=main` until "Deploy to GitHub Pages" and "CI" complete, read the deployment status.
