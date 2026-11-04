@@ -26,10 +26,11 @@ import { applyDamage, barrierFraction, hitProbability } from './damage';
 import { assignSlots } from './formations';
 import { WITHDRAWAL, WITHDRAWN_QUIET_SECONDS, fleetMotion, steerShip } from './movement';
 import { SHARED_SOLUTION_Q, barrierFlare, missOffset, shotQuality, solutionFactor, updateSolutions, usesSolution } from './solutions';
-import { STEALTH_SAFE_RANGE, STEALTH_VENT_FRACTION, detectable, hunterHoldsFire, silentHull } from './stealth';
+import { CRAFT_DETECT_RANGE, STEALTH_SAFE_RANGE, STEALTH_VENT_FRACTION, detectable, hunterHoldsFire, silentHull } from './stealth';
 import { SimProfile } from './profile';
 import { summarise } from './results';
 import { GRID_CELL_KM, SpatialGrid } from './spatial';
+import { FLIGHT_SIZE, formFlight, launchAsFlights, launchUnits, liveCraft, membersLeft } from './flights';
 import { ARC_VERTICAL_REACH, BATTLESPACE_SCALE as S } from './constants';
 
 /** Hangar time for a fighter to reload torpedoes alongside its carrier. */
@@ -237,7 +238,7 @@ export class BattleSimulation implements AiContext {
     return r;
   }
 
-  private createShip(classId: string, spec: FleetSpec, name?: string, carrierId?: string): ShipState {
+  private createShip(classId: string, spec: FleetSpec, name?: string, carrierId?: string, craft = 1): ShipState {
     const cls = getShipClass(classId);
     const rules = this.rulesFor(spec);
     const stats = applyRulesToShip(cls, rules);
@@ -275,7 +276,8 @@ export class BattleSimulation implements AiContext {
       }
     });
     const lengthKm = cls.lengthM.value / 1000;
-    const shipName = name ?? `${cls.shortName ?? cls.name} ${String(n).padStart(2, '0')}`;
+    // A flight is one squadron object named for its craft ("Trident flight 07"; AP §21.3).
+    const shipName = name ?? `${cls.shortName ?? cls.name}${craft > 1 ? ' flight' : ''} ${String(n).padStart(2, '0')}`;
     const ship: ShipState = {
       id,
       name: shipName,
@@ -344,6 +346,7 @@ export class BattleSimulation implements AiContext {
     if (cls.fighterComplement) {
       ship.hangar = { classId: cls.fighterComplement.classId, remaining: cls.fighterComplement.count, launchTimer: 2 };
     }
+    formFlight(ship, craft);
     return ship;
   }
 
@@ -742,8 +745,8 @@ export class BattleSimulation implements AiContext {
     const st = ship.stealth;
     if (st && st.state !== 'venting') {
       st.sinkHeat += dt;
-      // Any enemy — hull, fighter or Oculus — inside the detection range reveals the hull (and keeps it revealed).
-      if (this.grid.anyWithin(ship.pos, st.detectRange, ship)) this.revealStealth(ship, 'detected');
+      // An enemy hull inside the detection range, or a fighter or Oculus within 1.5 km, reveals the hull (and keeps it revealed).
+      if (this.stealthDetected(ship, st.detectRange)) this.revealStealth(ship, 'detected');
       if (st.state === 'revealed' && this.time >= st.revealedUntil) {
         st.state = 'silent';
         this.emit({ t: this.time, type: 'stealth_engaged', shipId: ship.id });
@@ -776,6 +779,21 @@ export class BattleSimulation implements AiContext {
     if (!ship.overheated && ship.heat > ship.heatCapacity) ship.overheated = true;
   }
 
+  /**
+   * Whether an enemy sees a silent hull at close range (brief §15.2): any enemy hull inside its detection range, or a
+   * fighter or Oculus drone within `CRAFT_DETECT_RANGE`. Deterministic (grid order); no allocation beyond the query.
+   */
+  private stealthDetected(ship: ShipState, detectRange: number): boolean {
+    const r = Math.max(detectRange, CRAFT_DETECT_RANGE);
+    if (!this.grid.anyWithin(ship.pos, r, ship)) return false;
+    for (const e of this.grid.queryRadius(ship.pos, r, ship)) {
+      const d2 = (e.pos.x - ship.pos.x) ** 2 + (e.pos.y - ship.pos.y) ** 2 + (e.pos.z - ship.pos.z) ** 2;
+      const reach = e.role === 'fighter' ? CRAFT_DETECT_RANGE : detectRange;
+      if (d2 <= reach * reach) return true;
+    }
+    return false;
+  }
+
   /** A stealth hull is revealed by firing, by taking a hit or (T10) by an enemy inside its detection range. */
   private revealStealth(ship: ShipState, reason: 'fired' | 'hit' | 'detected'): void {
     const st = ship.stealth;
@@ -787,6 +805,17 @@ export class BattleSimulation implements AiContext {
     }
   }
 
+  /** A flight sheds one member per craft hull lost; each loss is one `flight_member_lost` (AP §21.3). */
+  private noteFlightLosses(target: ShipState): void {
+    const f = target.flight;
+    if (!f) return;
+    const left = membersLeft(target);
+    while (f.craft > left) {
+      f.craft--;
+      this.emit({ t: this.time, type: 'flight_member_lost', shipId: target.id, remaining: f.craft });
+    }
+  }
+
   /** Bookkeeping for a hit taken: the final-salvo window of the flagship events and the stealth reveal. */
   private noteHit(target: ShipState): void {
     const times = target.recentHitTimes;
@@ -795,17 +824,41 @@ export class BattleSimulation implements AiContext {
     this.revealStealth(target, 'hit');
   }
 
+  /** Craft launched this tick per side (the start-of-tick side lists do not hold them yet). */
+  private craftLaunchedTick = { tick: -1, A: 0, B: 0 };
+
+  /** Live small craft of a side at this moment of the tick: the start-of-tick lists plus this tick's launches (AP §21.3). */
+  private liveCraftOf(side: Side): number {
+    const c = this.craftLaunchedTick;
+    if (c.tick !== this.tick) {
+      c.tick = this.tick;
+      c.A = 0;
+      c.B = 0;
+    }
+    return liveCraft(this.alliesOf(side), side) + c[side];
+  }
+
   private updateCarrier(ship: ShipState, fleet: FleetState, dt: number): void {
     if (!ship.hangar) return;
     const h = ship.hangar;
     if (fleet.orders.fightersDeployed && h.remaining > 0) {
+      // A burst (`launch_drones`) empties up to `burst` craft from the hangar at once; otherwise two every 0.4 s.
+      const burst = h.burst !== undefined && h.burst > 0 ? Math.min(h.burst, h.remaining) : 0;
       h.launchTimer -= dt;
-      if (h.launchTimer <= 0) {
-        h.launchTimer = 0.4;
-        const n = Math.min(2, h.remaining);
-        for (let i = 0; i < n; i++) {
-          const f = this.createShip(h.classId, fleet.spec, undefined, ship.id);
-          const off = rotateY(v3((i === 0 ? 1 : -1) * 0.12, -0.05, 0.1), Math.atan2(ship.heading.x, ship.heading.z));
+      if (burst > 0 || h.launchTimer <= 0) {
+        h.burst = undefined;
+        const live = this.liveCraftOf(ship.side);
+        let n = burst > 0 ? burst : Math.min(2, h.remaining);
+        // Above the side's flight threshold every further launch is a flight of up to four (AP §21.3): the deck
+        // then sends a whole flight every 0.8 s instead of a pair every 0.4 s (the same craft rate).
+        if (burst === 0 && launchAsFlights(live, n)) n = Math.min(FLIGHT_SIZE, h.remaining);
+        h.launchTimer = burst > 0 ? 0.4 : 0.4 * Math.max(1, n / 2);
+        const units = launchUnits(live, n);
+        const yaw = Math.atan2(ship.heading.x, ship.heading.z);
+        units.forEach((craft, i) => {
+          const f = this.createShip(h.classId, fleet.spec, undefined, ship.id, craft);
+          const row = Math.floor(i / 2);
+          const off = rotateY(v3((i % 2 === 0 ? 1 : -1) * 0.12 * (1 + row), -0.05, 0.1 - 0.06 * row), yaw);
           f.pos = add(ship.pos, off);
           f.prevPos = clone(f.pos);
           f.heading = clone(ship.heading);
@@ -815,9 +868,11 @@ export class BattleSimulation implements AiContext {
           this.ships.push(f);
           this.shipById.set(f.id, f);
           this.emit({ t: this.time, type: 'ship_deployed', shipId: f.id, classId: f.classId, faction: f.faction, side: f.side, name: f.name });
-        }
+        });
+        this.craftLaunchedTick[ship.side] += n;
         h.remaining -= n;
-        if (h.remaining === 0 || h.remaining % 8 === 0) this.emit({ t: this.time, type: 'fighters_launched', carrierId: ship.id, count: n });
+        // `count` is craft, never flights.
+        if (burst > 0 || h.remaining === 0 || h.remaining % 8 === 0) this.emit({ t: this.time, type: 'fighters_launched', carrierId: ship.id, count: n });
       }
     }
     // Recall: fighters near the carrier return to the hangar.
@@ -827,7 +882,8 @@ export class BattleSimulation implements AiContext {
         if (f.alive && !f.escaped && distance(f.pos, ship.pos) < ship.lengthKm) {
           f.escaped = true; // Treated as recovered: not a loss, no longer in battle.
           f.alive = true;
-          h.remaining++;
+          // A recovered flight returns its surviving members to the hangar.
+          h.remaining += f.flight ? f.flight.craft : 1;
         }
       }
     }
@@ -924,9 +980,11 @@ export class BattleSimulation implements AiContext {
         w.beamStart = this.weaponWorldOffset(ship, w);
         if (target && target.alive && w.beamHit) {
           w.beamEnd = clone(target.pos);
-          const dmg = w.def.damage * dt;
+          // A flight's burst carries one beam per member that hit (`beamMembers`).
+          const dmg = w.def.damage * dt * (w.beamMembers ?? 1);
           // Beams are judged by their whole burst for the M2 load threshold, not by the per-tick chunk.
           const out = applyDamage(target, dmg, w.def, this.rng, this.time, { hitSize: w.def.damage * (w.def.beamDuration ?? 1.5) });
+          this.noteFlightLosses(target);
           ship.stats.damageDealt += out.hullDamage + out.barrierDamage;
           ship.stats.recentDamage += out.hullDamage + out.barrierDamage;
           if (out.barriersCollapsed) this.emit({ t: this.time, type: 'barriers_down', shipId: target.id });
@@ -941,6 +999,7 @@ export class BattleSimulation implements AiContext {
           w.beamTargetId = undefined;
           w.beamEnd = undefined;
           w.beamStart = undefined;
+          w.beamMembers = undefined;
         }
         continue;
       }
@@ -1136,7 +1195,9 @@ export class BattleSimulation implements AiContext {
     w.cooldown = def.cooldown * (0.95 + 0.1 * this.rng.next());
     if (def.perMountHeat) w.heat = (w.heat ?? 0) + def.heat;
     else ship.heat += def.heat;
-    const shots = def.salvo ?? 1;
+    // A flight fires one shot per live member per volley (AP §21.3).
+    const members = ship.flight ? Math.max(1, ship.flight.craft) : 1;
+    const shots = (def.salvo ?? 1) * members;
     ship.stats.shotsFired += shots;
     if (w.burstLeft !== undefined && def.burst) {
       w.burstLeft--;
@@ -1168,7 +1229,8 @@ export class BattleSimulation implements AiContext {
     if (missile) {
       const p = Math.min(0.95, def.accuracy * (0.5 + 0.5 * ship.subsystems.sensors) * coordination);
       this.flashes.push({ from: origin, to: clone(missile.pos), kind: ship.faction === 'reaper' ? 'reaper_pd' : 'gardian', ttl: 0.12 });
-      if (this.rng.chance(p)) {
+      for (let m = 0; m < members && missile.alive; m++) {
+        if (!this.rng.chance(p)) continue;
         missile.hp -= def.damage;
         ship.stats.hits++;
         if (missile.hp <= 0) {
@@ -1191,47 +1253,54 @@ export class BattleSimulation implements AiContext {
 
     switch (def.kind) {
       case 'mass_accelerator': {
-        const aim = interceptPoint(origin, target.pos, target.vel, def.projectileSpeed);
-        let aimPoint = aim;
-        const hit = this.rng.chance(p);
-        let missDistance: number | undefined;
-        if (!hit) {
-          // Deliberate miss offset larger than the target's bounding sphere: wide for a green solution, close for a mature one.
-          const dir = normalize(sub(aim, origin));
-          let perp = cross(dir, v3(0, 1, 0));
-          if (lengthSq(perp) < 1e-6) perp = v3(1, 0, 0);
-          perp = normalize(perp);
-          const up = cross(perp, dir);
-          const ang = this.rng.next() * Math.PI * 2;
-          const mag = solved ? missOffset(target.radiusKm, q, this.rng.next()) : target.radiusKm * (1.6 + this.rng.next() * 3) + 0.05;
-          missDistance = mag;
-          aimPoint = add(aim, add(scale(perp, Math.cos(ang) * mag), scale(up, Math.sin(ang) * mag)));
+        // One round per member of a flight, each with its own hit roll (a single hull fires one).
+        for (let m = 0; m < members; m++) {
+          const aim = interceptPoint(origin, target.pos, target.vel, def.projectileSpeed);
+          let aimPoint = aim;
+          const hit = this.rng.chance(p);
+          let missDistance: number | undefined;
+          if (!hit) {
+            // Deliberate miss offset larger than the target's bounding sphere: wide for a green solution, close for a mature one.
+            const dir = normalize(sub(aim, origin));
+            let perp = cross(dir, v3(0, 1, 0));
+            if (lengthSq(perp) < 1e-6) perp = v3(1, 0, 0);
+            perp = normalize(perp);
+            const up = cross(perp, dir);
+            const ang = this.rng.next() * Math.PI * 2;
+            const mag = solved ? missOffset(target.radiusKm, q, this.rng.next()) : target.radiusKm * (1.6 + this.rng.next() * 3) + 0.05;
+            missDistance = mag;
+            aimPoint = add(aim, add(scale(perp, Math.cos(ang) * mag), scale(up, Math.sin(ang) * mag)));
+          }
+          const dir = normalize(sub(aimPoint, origin));
+          this.projectiles.push({
+            id: this.nextId++,
+            shooterId: ship.id,
+            side: ship.side,
+            weapon: def,
+            pos: clone(origin),
+            prevPos: clone(origin),
+            vel: scale(dir, def.projectileSpeed),
+            // Long shots stream past the target and keep flying (2.2 × range, brief §8.7).
+            ttl: (def.range * PROJECTILE_RANGE_FACTOR) / def.projectileSpeed + 0.5,
+            intendedTargetId: target.id,
+            special: special && m === 0,
+            ...(missDistance !== undefined ? { missDistance } : {}),
+          });
         }
-        const dir = normalize(sub(aimPoint, origin));
-        this.projectiles.push({
-          id: this.nextId++,
-          shooterId: ship.id,
-          side: ship.side,
-          weapon: def,
-          pos: clone(origin),
-          prevPos: clone(origin),
-          vel: scale(dir, def.projectileSpeed),
-          // Long shots stream past the target and keep flying (2.2 × range, brief §8.7).
-          ttl: (def.range * PROJECTILE_RANGE_FACTOR) / def.projectileSpeed + 0.5,
-          intendedTargetId: target.id,
-          special,
-          ...(missDistance !== undefined ? { missDistance } : {}),
-        });
         break;
       }
       case 'thanix':
       case 'reaper_beam': {
-        const hit = this.rng.chance(p);
+        // A flight's members each roll; the burst carries one beam per member that hit (`beamMembers`).
+        let hits = 0;
+        for (let m = 0; m < members; m++) if (this.rng.chance(p)) hits++;
+        const hit = hits > 0;
         w.beamRemaining = def.beamDuration ?? 1.5;
         w.beamTargetId = target.id;
         w.beamHit = hit;
+        w.beamMembers = members > 1 ? hits : undefined;
         if (hit) {
-          ship.stats.hits++;
+          ship.stats.hits += hits;
           this.noteHit(target);
           // A burst this size flares the target's own barrier and blinds its fire control for a moment.
           if (target.barriers > 0) barrierFlare(target, def.damage * (def.beamDuration ?? 1.5), this.time);
@@ -1252,8 +1321,8 @@ export class BattleSimulation implements AiContext {
       }
       case 'gardian': {
         this.flashes.push({ from: origin, to: clone(target.pos), kind: ship.faction === 'reaper' ? 'reaper_pd' : 'gardian', ttl: 0.1 });
-        if (this.rng.chance(p)) {
-          this.applyHit(ship, target, def, def.damage, clone(target.pos));
+        for (let m = 0; m < members && target.alive; m++) {
+          if (this.rng.chance(p)) this.applyHit(ship, target, def, def.damage, clone(target.pos));
         }
         break;
       }
@@ -1298,6 +1367,7 @@ export class BattleSimulation implements AiContext {
     // A HADES penetrator meets the barrier like a slug (multiplier 1.0) and ignores half the armour (AP §7).
     const round: EffectiveWeapon = hr ? { ...weapon, armourBypass: hr.armourBypass, barrierEfficiencyMultiplier: hr.barrierEfficiencyMultiplier } : weapon;
     const out = applyDamage(target, raw, round, this.rng, this.time);
+    this.noteFlightLosses(target);
     shooter.stats.hits++;
     shooter.stats.damageDealt += out.hullDamage + out.barrierDamage;
     shooter.stats.recentDamage += out.hullDamage + out.barrierDamage;
@@ -1329,6 +1399,7 @@ export class BattleSimulation implements AiContext {
   private detonateWarhead(shooter: ShipState, target: ShipState, weapon: EffectiveWeapon, warhead: WarheadDef, pos: Vec3, forcedOutage?: 'weapons' | 'engines'): void {
     const burst: EffectiveWeapon = { ...weapon, damageType: warhead.damageType, damage: warhead.damage, barrierEfficiencyMultiplier: warhead.barrierEfficiencyMultiplier, armourBypass: warhead.armourBypass };
     const out = applyDamage(target, warhead.damage, burst, this.rng, this.time, { subsystemRoll: false });
+    this.noteFlightLosses(target);
     shooter.stats.damageDealt += out.hullDamage;
     shooter.stats.recentDamage += out.hullDamage;
     const outage = forcedOutage ?? this.rng.pick(['weapons', 'engines'] as const);
@@ -1457,6 +1528,10 @@ export class BattleSimulation implements AiContext {
     if (killer) killer.stats.kills++;
     ship.alive = false;
     ship.destroyedAt = this.time;
+    if (ship.flight) {
+      ship.hull = 0;
+      this.noteFlightLosses(ship);
+    }
     for (const w of ship.weapons) {
       w.beamRemaining = 0;
       w.beamTargetId = undefined;

@@ -149,23 +149,19 @@ describe('cadence and heat', () => {
 
 describe('Oculus screen', () => {
   /**
-   * Interim pin until CORE T11 pins WORK_BREAKDOWN.md §1.6.1's 60–120 s (calibration pass 1 pinned it, CORE T10 weakened
-   * it to "both sides lose something", CORE chunk 4 restored it). BALANCE_AUDIT.md §9.3's measured screen is a fight in
-   * which both sides bleed: Tridents lost 16–24 and drones lost 13–24 in every seed, resolved at 69–97 s. T10 broke it:
-   * its craft followed the fleet focus (×(1 + 2·focusFire)), the ×1.3 stickiness and the +0.3·q solution bonus onto the
-   * muted capital against the ×4 'fighters' priority, and its stand-off chase pointed the nose at a lead point a second
-   * ahead while the 20° gun arc is judged on the drone itself — 0 / 0 / 8 drones lost. Not the 6-point guns against
-   * Oculus armour 5: the same numbers gave a full fight at T9. Chunk 4 makes the fleet priority decide for craft (no
-   * fleet-focus or stickiness bonus on a hull, anti-small craft weigh enemy craft ×4 automatically, AP §13.1; craft
-   * keep no firing solutions) and points the chase nose at the target. The screen must resolve after 60 s and inside
-   * 240 s with at least 20 of the 24 drones and 8–23 Tridents lost.
+   * WORK_BREAKDOWN.md §1.6.1 (pinned in CORE T11): 24 Tridents against 24 Oculi with the hulls muted, both fleets on
+   * `priority: 'fighters'`, the last small-craft death between 60 and 120 s. BALANCE_AUDIT.md §9.3's measured screen
+   * is a fight in which both sides bleed (Tridents lost 16–24, drones 13–24, 69–97 s); the extra bounds keep it one,
+   * so the T10 regression — craft on the muted capital, 0 / 0 / 8 drones lost — cannot come back unnoticed. The
+   * regression and its fix (craft follow the fleet priority; the chase keeps its nose on the target) are recorded in
+   * CORE_PROGRESS.md (chunk 4, FIX FIRST) and CALIBRATION_REPORT.md §1c.
    */
-  it.each([1, 2, 3])('24 Tridents against 24 Oculi with the hulls muted fight it out between 60 and 240 s (seed %i)', async (seed) => {
+  it.each([1, 2, 3])('24 Tridents against 24 Oculi with the hulls muted fight it out between 60 and 120 s (seed %i)', async (seed) => {
     const sim = oculusScreen(seed);
     const r = await runInstrumentedAsync(sim, { untilTime: 240 });
     expect(r.oculusStats?.lastSmallCraftDeath).toBeDefined();
     expect(r.oculusStats!.lastSmallCraftDeath!).toBeGreaterThanOrEqual(60);
-    expect(r.oculusStats!.lastSmallCraftDeath!).toBeLessThanOrEqual(240);
+    expect(r.oculusStats!.lastSmallCraftDeath!).toBeLessThanOrEqual(120);
     expect(r.oculusStats!.oculiLost).toBeGreaterThanOrEqual(20);
     expect(r.oculusStats!.tridentsLost).toBeGreaterThanOrEqual(8);
     expect(r.oculusStats!.tridentsLost).toBeLessThanOrEqual(23);

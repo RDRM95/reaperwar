@@ -21,14 +21,24 @@ import type { FleetState, ShipState, WeaponState } from './types';
  * explicit attack order forces engagement; `retreat` keeps it silent. No randomness: seeded choices hash the id.
  */
 
-/** Whether `viewer` can see `target`: anything not silent, or a silent stealth hull inside its detection range. */
+/**
+ * Small craft find a silent hull only this close (brief §15.2: "an enemy hull — including Oculus drones and fighters
+ * within 1.5 km — inside detectRange"; nominal km like the class block's 2.5 km, compressed here). SIMULATION_ESTIMATE.
+ */
+export const CRAFT_DETECT_RANGE = 1.5 * S;
+
+/**
+ * Whether `viewer` can see `target`: anything not silent, or a silent stealth hull inside the viewer's detection
+ * reach — the hull's `detectRange` for a hull, `CRAFT_DETECT_RANGE` for a fighter or Oculus.
+ */
 export function detectable(viewer: ShipState, target: ShipState): boolean {
   const st = target.stealth;
   if (!st || st.state !== 'silent') return true;
   const dx = target.pos.x - viewer.pos.x;
   const dy = target.pos.y - viewer.pos.y;
   const dz = target.pos.z - viewer.pos.z;
-  return dx * dx + dy * dy + dz * dz <= st.detectRange * st.detectRange;
+  const r = viewer.role === 'fighter' ? CRAFT_DETECT_RANGE : st.detectRange;
+  return dx * dx + dy * dy + dz * dz <= r * r;
 }
 
 /** A silent hull nobody can see from beyond its detection range (cheap pre-test for the per-tick lists). */

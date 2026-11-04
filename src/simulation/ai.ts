@@ -168,6 +168,8 @@ export function scoreTarget(ctx: AiContext, shooter: ShipState, fleet: FleetStat
     dist <= PLATFORM_WEIGHT_RANGE * mainRange
   )
     score *= PLATFORM_WEIGHT;
+  // A flight is scored as the craft it stands for (AP §21.3).
+  if (target.flight) score *= Math.max(1, target.flight.craft);
   return score;
 }
 

@@ -357,6 +357,8 @@ export interface WeaponState {
   forcedShot?: { targetId: string; hit: boolean; penetrate: boolean; expiresAt: number };
   /** The mount waits for the fleet's arrival volley. */
   arrivalHold?: boolean;
+  /** A flight's beam burst: how many members' beams hit (the burst's damage multiplier; undefined = one beam). */
+  beamMembers?: number;
 }
 
 export interface Subsystems {
