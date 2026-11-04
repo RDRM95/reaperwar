@@ -1,83 +1,89 @@
 # Timelines V2 — ten new alternate timelines and a measured “Threat to the Reapers” scale
 
-Status: **design; nothing below is implemented yet.** Stage T, branch `stage/T-timelines`, written on base `ba4decf` (4 November 2026). The owner asked for more Mass Effect timelines, creative within the Mass Effect framework, with varying levels of threat to the Reapers. This document defines how that threat is measured, proposes ten new alternate timelines that span every level, places the eight existing presets on the same scale, and specifies the implementation for the stage that builds it.
+Status: **revised after review (4 November 2026); implemented on `stage/T-timelines`** (§4.13 lists the commits). Stage T, written on base `ba4decf` and revised the same day after a design review: the eleven findings and what was done with each are listed in the [Review notes](#review-notes-4-november) at the end. The owner asked for more Mass Effect timelines, creative within the Mass Effect framework, with varying levels of threat to the Reapers. This document defines how that threat is measured, proposes ten new alternate timelines that span every level, places the eight existing presets on the same scale, and specifies the implementation.
 
-Sources read: `src/timelines/rules.ts` (`RuleSet`, `TechModifiers`, the canon constants, `applyRulesToShip`, `applyRulesToWeapon`), `src/timelines/presets.ts`, `src/timelines/schema.ts` (`validateRuleSet`, `normaliseRules`, the ranges and consistency rules), `src/data/factions.ts`, `src/data/ships.ts`, `src/data/weapons.ts`, `src/data/types.ts`, `src/scenarios/index.ts` (`fleet()`, `scaleCount`, every scenario), `src/simulation/battle.ts` (`checkEnd`, the command-vulnerability rule), `src/simulation/damage.ts` (`hitProbability`), `src/simulation/results.ts`, `src/simulation/formations.ts`, `src/ui/app.ts`, `src/ui/screens/timelines.ts`, `briefing.ts`, `campaign.ts` (setup), `codex.ts`, `src/codex/entries.ts`, `src/campaign/engine.ts`, `src/core/lint.ts`, `src/core/provenance.ts`, `AU_RULES.md`, `LORE_REFERENCE.md`, `docs/V2_CINEMATIC_BRIEF.md` §14, `docs/apex/CALIBRATION_REPORT.md`, `docs/apex/CONTINUATION.md`, `tests/support/calibration.ts`, `scripts/calibration.ts`, `tests/support/async.ts`, `tests/timelines.test.ts`, `tests/battle.test.ts`, `tests/lint.test.ts`.
+Sources read: `src/timelines/rules.ts` (`RuleSet`, `TechModifiers`, the canon constants, `applyRulesToShip`, `applyRulesToWeapon`), `src/timelines/presets.ts`, `src/timelines/schema.ts` (`validateRuleSet`, `normaliseRules`, the ranges and consistency rules), `src/data/factions.ts`, `src/data/ships.ts`, `src/data/weapons.ts`, `src/data/types.ts`, `src/scenarios/index.ts` (`fleet()`, `scaleCount`, every scenario), `src/simulation/battle.ts` (`checkEnd`, the command-vulnerability rule), `src/simulation/damage.ts` (`hitProbability`), `src/simulation/results.ts`, `src/simulation/formations.ts`, `src/ui/app.ts`, `src/ui/screens/timelines.ts`, `briefing.ts`, `campaign.ts` (setup), `codex.ts`, `src/codex/entries.ts`, `src/campaign/engine.ts`, `src/campaign/depth.ts`, `src/core/lint.ts`, `src/core/provenance.ts`, `AU_RULES.md`, `LORE_REFERENCE.md`, `docs/V2_CINEMATIC_BRIEF.md` §14 and, on the CORE branch (`5f94889`), §19, `docs/apex/CALIBRATION_REPORT.md`, `docs/apex/CONTINUATION.md`, `tests/support/calibration.ts`, `scripts/calibration.ts`, `tests/support/async.ts`, `tests/timelines.test.ts`, `tests/battle.test.ts`, `tests/lint.test.ts`.
 
-Every figure marked *design-time* was measured headless on `ba4decf` with a scratch prototype of the reference engagement of §1.1 (Appendix B gives its exact settings; the ten presets were measured from the literals of Appendix C). The CORE stage keeps changing battle trajectories (T9 landed after `ba4decf` and T10 is in progress), so **no figure here is a pin**: the implementation regenerates the table with `npm run timeline:threat`, and the labels follow that measurement.
+Two kinds of figures appear. *Design-time* figures were measured headless on `ba4decf` with a scratch prototype of the first draft’s reference (Appendix B), before the review; they explain choices and are labelled as such. *Measured* figures come from the implementation’s `npm run timeline:threat` (the generated `src/timelines/threatMeasured.ts` and `docs/apex/TIMELINE_THREAT.md`), which is the authority: the review changed the reference (absent factions field nothing, the standoff and the time limit derive from engine quantities, the breaking point names the group actually deployed) and six of the ten timelines. The CORE stage keeps changing battle trajectories (T9 and T10 landed on the CORE branch after this branch’s base), so **no figure here is a pin**: the release regenerates the table, and the labels follow that measurement (§4.14).
 
 ## 0. Summary
 
-- **The scale.** "Threat to the Reapers" is a 0–100 index measured on one fixed coalition-versus-Reaper engagement, fought against five Reaper groups of growing size (2 to 6 capital ships, the *rungs*) with four seeds each: **index = 50 × (mean Reaper hull lost + mean organic survival)** over the twenty battles. Six tiers with fixed thresholds **17 / 30 / 48 / 62 / 87**: 1 Negligible, 2 Low, 3 Moderate, 4 Serious, 5 Severe, 6 Existential. Canon measures **3 Moderate** (36.1).
-- **Ten new timelines**, all ALTERNATE UNIVERSE, each diverging at a named event of established history: tier 1 **Sovereign’s Triumph**; tier 2 **The Collectors’ Harvest**, **The Indoctrinated Council**, **Leviathan’s Bargain**; tier 3 **Vigil’s Warning**; tier 4 **The Geth–Quarian Concord**, **The Asari Disclosure**; tier 5 **Turian Total War**, **Leviathan’s Covenant**; tier 6 **The Conduit Protocol**. Every one measured inside its intended tier at design time, 4.5 to 10.3 index points from the nearest boundary. The four in tiers 1–2 weaken the galaxy or strengthen the Reapers and change nothing in the organics’ favour.
-- **The eight existing presets** keep their numbers; their measured labels are Reaper Escalation 1, canon 3, Cerberus Reformed 3, Cerberus Ascendant 3 (a surprise, explained in §3), Prepared Galaxy 5, Humanity Ascendant 5, Prime/Apex core 6, Apex legacy 6.
-- **Implementation** (§4): `src/timelines/alternates.ts` (the ten presets and their metadata), an import and a spread in `presets.ts`, `src/timelines/threat.ts` (scale, formula, ratings), the generated `src/timelines/threatMeasured.ts`, `src/scenarios/threatReference.ts` (the engagement and the per-battle metrics), `scripts/timeline-threat.ts` (`npm run timeline:threat`, which also writes `docs/apex/TIMELINE_THREAT.md`), a threat badge on every timeline card and in the briefing and campaign pickers, a Timelines codex category, and `tests/alternateTimelines.test.ts`.
+- **The scale.** "Threat to the Reapers" is a 0–100 index measured on one fixed coalition-versus-Reaper engagement, fought against five Reaper groups of growing size (2 to 6 capital ships before a timeline scales them, the *rungs*) with four seeds each: **index = 50 × (mean Reaper hull lost + mean organic survival)** over the twenty battles. Six tiers with fixed thresholds **17 / 30 / 48 / 62 / 87**: 1 Negligible, 2 Low, 3 Moderate, 4 Serious, 5 Severe, 6 Existential. Canon measures **3 Moderate** (35.4).
+- **Ten new timelines**, all ALTERNATE UNIVERSE, each diverging at a named event of established history: tier 1 **Sovereign’s Triumph**; tier 2 **The Collectors’ Harvest**, **The Indoctrinated Council**, **Leviathan’s Bargain**; tier 3 **Vigil’s Warning**; tier 4 **The Geth–Quarian Concord**, **The Asari Disclosure**; tier 5 **Turian Total War**, **Leviathan’s Covenant**; tier 6 **The Conduit Protocol**. Every one measures inside its intended tier, 5.1 to 10.2 index points from the nearest boundary, and every one’s tuning lever was measured at both ends of its range. The four in tiers 1–2 weaken the galaxy or strengthen the Reapers and change nothing in the organics’ favour.
+- **The eight existing presets** keep their numbers; their measured labels are the design-time ones: Reaper Escalation 1, canon 3, Cerberus Reformed 3, Cerberus Ascendant 3 (a surprise, explained in §3), Prepared Galaxy 5, Humanity Ascendant 5, Prime/Apex core 6, Apex legacy 6.
+- **Review.** All eleven findings of the 4 November review were accepted: four stories corrected against canon (Vigil’s Warning, The Collectors’ Harvest, Leviathan’s Bargain, the Concord), absent factions removed from the reference, world-state locks so the campaign and Quick Battle do not narrate what a timeline rules out, the breaking point measured on the groups actually deployed, levers that move the index, and a reference defined from engine quantities with a re-basing rule.
+- **Implementation** (§4): `src/timelines/alternates.ts` (the ten presets, their metadata, the lever and world-state helpers), an import and a spread in `presets.ts`, `src/timelines/threat.ts` (scale, formula, ratings, sentences), the generated `src/timelines/threatMeasured.ts`, `src/scenarios/threatReference.ts` (the engagement and the per-battle metrics), `scripts/timeline-threat.ts` (`npm run timeline:threat`, which also writes `docs/apex/TIMELINE_THREAT.md`), a threat badge on every timeline card and in the briefing and campaign pickers, the world-state locks, a Timelines codex category, and `tests/alternateTimelines.test.ts`.
 
-Design-time results for all eighteen presets, ordered by index:
+Measured results for all eighteen presets, ordered by index (implementation run; `TIMELINE_THREAT.md` is the authority):
 
-| Tier | Timeline | id | Index | Reaper losses | Organic survival | Holds against (capitals) |
+| Tier | Timeline | id | Index | Reaper losses | Organic survival | Holds (breaking point; capitals/destroyers as deployed) |
 | --- | --- | --- | ---: | ---: | ---: | --- |
-| 1 Negligible | Reaper Escalation | `reaper_escalation` | 11.2 | 22 % | 0 % | none |
-| 1 Negligible | Sovereign’s Triumph (new) | `sovereigns_triumph` | 12.4 | 25 % | 0 % | none |
-| 2 Low | Leviathan’s Bargain (new) | `leviathans_bargain` | 22.1 | 38 % | 6 % | none |
-| 2 Low | The Indoctrinated Council (new) | `indoctrinated_council` | 25.0 | 41 % | 9 % | none |
-| 2 Low | The Collectors’ Harvest (new) | `collectors_harvest` | 25.3 | 36 % | 14 % | up to 2 |
-| 3 Moderate | Canon Mass Effect 3 | `canon_me3` | 36.1 | 55 % | 17 % | up to 2 |
-| 3 Moderate | Vigil’s Warning (new) | `vigils_warning` | 42.4 | 60 % | 25 % | up to 2 |
-| 3 Moderate | Cerberus Reformed | `cerberus_reformed` | 43.1 | 63 % | 23 % | up to 2 |
-| 3 Moderate | Cerberus Ascendant | `cerberus_ascendant` | 44.6 | 65 % | 24 % | up to 2 |
-| 4 Serious | The Geth–Quarian Concord (new) | `geth_quarian_concord` | 57.0 | 76 % | 38 % | up to 3 |
-| 4 Serious | The Asari Disclosure (new) | `asari_disclosure` | 57.5 | 77 % | 38 % | up to 3 |
-| 5 Severe | Leviathan’s Covenant (new) | `leviathans_covenant` | 70.4 | 87 % | 54 % | up to 4 |
-| 5 Severe | Prepared Galaxy | `prepared_galaxy` | 72.2 | 90 % | 54 % | up to 4 |
-| 5 Severe | Turian Total War (new) | `turian_total_war` | 72.3 | 90 % | 54 % | up to 4 |
-| 5 Severe | Humanity Ascendant | `humanity_ascendant` | 77.5 | 93 % | 61 % | up to 4 |
-| 6 Existential | The Conduit Protocol (new) | `conduit_protocol` | 94.5 | 100 % | 89 % | up to 6 |
-| 6 Existential | Prime/Apex — Apex core | `prime_apex` | 97.1 | 100 % | 94 % | up to 6 |
-| 6 Existential | Prime/Apex — Apex legacy (high power) | `apex_legacy` | 97.2 | 100 % | 94 % | up to 6 |
+| 1 Negligible | Sovereign’s Triumph (new) | `sovereigns_triumph` | 8.3 | 17 % | 0 % | none |
+| 1 Negligible | Reaper Escalation | `reaper_escalation` | 11.1 | 22 % | 0 % | none |
+| 2 Low | The Indoctrinated Council (new) | `indoctrinated_council` | 22.3 | 40 % | 5 % | none |
+| 2 Low | Leviathan’s Bargain (new) | `leviathans_bargain` | 22.3 | 36 % | 8 % | none |
+| 2 Low | The Collectors’ Harvest (new) | `collectors_harvest` | 24.9 | 37 % | 13 % | up to the Raid (2/6) |
+| 3 Moderate | Canon Mass Effect 3 | `canon_me3` | 35.4 | 53 % | 18 % | up to the Raid (2/5) |
+| 3 Moderate | Vigil’s Warning (new) | `vigils_warning` | 40.9 | 59 % | 23 % | up to the Raid (2/5) |
+| 3 Moderate | Cerberus Reformed | `cerberus_reformed` | 42.2 | 61 % | 23 % | up to the Raid (2/5) |
+| 3 Moderate | Cerberus Ascendant | `cerberus_ascendant` | 44.1 | 62 % | 26 % | up to the Raid (2/5) |
+| 4 Serious | The Asari Disclosure (new) | `asari_disclosure` | 53.2 | 71 % | 36 % | up to the Strike group (3/7) |
+| 4 Serious | The Geth–Quarian Concord (new) | `geth_quarian_concord` | 55.7 | 74 % | 37 % | up to the Strike group (3/7) |
+| 5 Severe | Turian Total War (new) | `turian_total_war` | 67.5 | 86 % | 49 % | up to the Battlegroup (4/10) |
+| 5 Severe | Leviathan’s Covenant (new) | `leviathans_covenant` | 72.2 | 89 % | 55 % | up to the Battlegroup (4/10) |
+| 5 Severe | Prepared Galaxy | `prepared_galaxy` | 73.0 | 90 % | 56 % | up to the Battlegroup (4/10) |
+| 5 Severe | Humanity Ascendant | `humanity_ascendant` | 81.8 | 97 % | 67 % | all five, to the Harvest fleet (6/14) |
+| 6 Existential | The Conduit Protocol (new) | `conduit_protocol` | 94.4 | 100 % | 89 % | all five, to the Harvest fleet (2/6) |
+| 6 Existential | Prime/Apex — Apex core | `prime_apex` | 97.1 | 100 % | 94 % | all five, to the Harvest fleet (6/14) |
+| 6 Existential | Prime/Apex — Apex legacy (high power) | `apex_legacy` | 97.3 | 100 % | 95 % | all five, to the Harvest fleet (6/14) |
 
 ## 1. The Threat to the Reapers scale
 
 ### 1.1 The reference engagement: `threat_reference`
 
-The **threat reference engagement** (`threat_reference`; `SIMULATION_ESTIMATE` — a compressed stand-in like every scenario fleet, not a canon battle) sets a Council-era coalition in a battle line in deep space against a Reaper group. The same coalition fights five Reaper groups of growing size, the rungs, on four seeds each: twenty battles per timeline.
+The **threat reference engagement** (`threat_reference`; `SIMULATION_ESTIMATE` — a compressed stand-in like every scenario fleet, not a canon battle) sets a Council-era coalition in a battle line in deep space against a Reaper group. The same coalition fights five Reaper groups of growing size, the rungs, on four seeds each: twenty battles per timeline. The geometry and the clock are defined from engine quantities, so they keep their meaning when the catalogue's ranges or speeds change (§1.8):
 
-- Environment `deep_space`; `maxDuration` 240 s (the attrition judgement ends unfinished battles); `perspectiveSide` `'A'`; no world state, beats or distant layer.
-- Positions are nominal km, the scenario convention (`deployFleet` applies `BATTLESPACE_SCALE`). The coalition line stands at z = −30 heading +z; the Reaper group at (0, 0, +30) heading −z, formation `strike_wedge`, side B, not player-controlled: 60 km apart, just outside the longest spinal-gun and capital-beam ranges.
+- **Standoff** `THREAT_STANDOFF` = 1.07 × the longest weapon range in the catalogue before any rule multiplier, in 0.1 km steps: 1.07 × 56 = **59.9 nominal km** today (the 56 km belongs to the Legacy Nova and the heavy Sol platform gun; the longest capital beam reaches 44 km). Nobody can fire before the first move, whatever the catalogue holds.
+- **Time limit** `THREAT_MAX_DURATION` = 3.2 × the time a canon Reaper capital at its catalogue top speed (0.8 nominal km/s) needs to cross the standoff, in whole seconds: **240 s** today. The attrition judgement ends unfinished battles; how many end that way is reported and bounded (§1.8).
+- Environment `deep_space`; `perspectiveSide` `'A'`; no world state, beats or distant layer.
+- Positions are nominal km, the scenario convention (`deployFleet` applies `BATTLESPACE_SCALE`). The coalition line stands at z = −standoff/2 heading +z, Cerberus 12 km behind it; the Reaper group at (0, 0, +standoff/2) heading −z, formation `strike_wedge`, side B, not player-controlled.
 - **Seeds 1, 2, 3, 4.**
 
 **Coalition (side A).** One contingent per Council-era navy, each built with the scenario `fleet()` builder **with fleet scaling on** (no `fleet_scaling: fixed`), so every faction’s `fleetStrength` and `factionOverrides` act. The base counts below are the canon counts (`fleetStrength` 1); `fleet()` scales each class with `scaleCount` (rounded, never below one hull), limits carriers to ×1.5 and never scales unique hulls (`UNIQUE_CLASS_IDS`). The order of the contingents in `fleets` and of the classes inside each contingent is part of the definition, because it fixes the order of the random draws.
 
-| # | Fleet id | Faction | Anchor (x, z) | Formation | Base counts, in this order | Conditional hulls (rule-driven) |
-| --- | --- | --- | --- | --- | --- | --- |
-| 1 | `ref-alliance` | alliance | (−5, −30) | `line_abreast` | `alliance_dreadnought` 2, `alliance_carrier` 1, `alliance_cruiser` 3, `alliance_frigate` 3 | `normandy_sr2` 1 if `strategic.shepardAlive`; `normandy_valkyrie` 1 if `special.valkyrieAvailable`; `alliance_super_dreadnought` 1 if `special.superDreadnoughts` |
-| 2 | `ref-turian` | turian | (−15, −30) | `line_abreast` | `turian_dreadnought` 2, `turian_cruiser` 3, `turian_frigate` 3 | `turian_super_dreadnought` 1 if `special.superDreadnoughts` |
-| 3 | `ref-asari` | asari | (+5, −30) | `defensive_screen` | `asari_dreadnought` 1, `asari_cruiser` 3 | — |
-| 4 | `ref-salarian` | salarian | (+15, −30) | `line_abreast` | `salarian_dreadnought` 1, `salarian_cruiser` 2, `salarian_frigate` 2 | — |
-| 5 | `ref-quarian` | quarian | (+25, −30) | `defensive_screen` | `quarian_heavy` 1, `quarian_cruiser` 3 | — |
-| 6 | `ref-geth` | geth | (−25, −30) | `strike_wedge` | `geth_dreadnought` 1, `geth_cruiser` 2, `geth_frigate` 2 | — |
-| 7 | `ref-cerberus` | cerberus | (0, −42) | `strike_wedge` | `cerberus_cruiser` 2, `cerberus_frigate` 3 — **only when** `strategic.cerberusStance` is `cooperative` or `controls_reapers` (the predicate Cerberus Intervention and the campaign already use) | `cerberus_dreadnought` 1 if `isApexRules(rules)` |
-| 8 | `ref-reapers` | reaper | (0, +30), side B | `strike_wedge` | `reaper_capital` *c*, `reaper_destroyer` *d* of the rung | — |
+**0 = absent.** A contingent is fielded only when its faction’s `fleetStrength` is above 0 (`contingentFields`). Without this rule `scaleCount`’s one-hull minimum would keep a token contingent of a navy the story removes. Two new timelines use it: Sovereign’s Triumph (`geth` 0: the heretics serve the harvest and the rest stay behind the Veil) and The Collectors’ Harvest (`quarian` and `geth` 0: Rannoch stays at war). In Quick Battle scenarios and the campaign, 0 still leaves one hull per class (`scaleCount`), a known limitation listed in `AU_RULES.md`.
 
-Under canon the coalition fields 36 hulls: 8 dreadnought-class ships, a carrier with its Tridents, 16 cruisers, 10 frigates and the Normandy. Harbinger never appears (a 4,000-point unique hull would dominate the losses term) and neither does the Destiny Ascension (a player-dependent survivor).
+| # | Fleet id | Faction | Name | Anchor x | Formation | Base counts, in this order | Conditional hulls and contingents (rule-driven) |
+| --- | --- | --- | --- | ---: | --- | --- | --- |
+| 1 | `ref-alliance` | alliance | Systems Alliance | −5 | `line_abreast` | `alliance_dreadnought` 2, `alliance_carrier` 1, `alliance_cruiser` 3, `alliance_frigate` 3 | `normandy_sr2` 1 if `strategic.shepardAlive`; `normandy_valkyrie` 1 if `special.valkyrieAvailable`; `alliance_super_dreadnought` 1 if `special.superDreadnoughts` |
+| 2 | `ref-turian` | turian | Turian Hierarchy | −15 | `line_abreast` | `turian_dreadnought` 2, `turian_cruiser` 3, `turian_frigate` 3 | `turian_super_dreadnought` 1 if `special.superDreadnoughts` |
+| 3 | `ref-asari` | asari | Asari Republics | +5 | `defensive_screen` | `asari_dreadnought` 1, `asari_cruiser` 3 | — |
+| 4 | `ref-salarian` | salarian | Salarian Union | +15 | `line_abreast` | `salarian_dreadnought` 1, `salarian_cruiser` 2, `salarian_frigate` 2 | — |
+| 5 | `ref-quarian` | quarian | Quarian fleet | +25 | `defensive_screen` | `quarian_heavy` 1, `quarian_cruiser` 3 | — |
+| 6 | `ref-geth` | geth | Geth fleet | −25 | `strike_wedge` | `geth_dreadnought` 1, `geth_cruiser` 2, `geth_frigate` 2 | — |
+| 7 | `ref-cerberus` | cerberus | Cerberus | 0 (12 km behind) | `strike_wedge` | `cerberus_cruiser` 2, `cerberus_frigate` 3 | the whole contingent **only when** `strategic.cerberusStance` is `cooperative` or `controls_reapers` (the predicate Cerberus Intervention and the campaign already use); `cerberus_dreadnought` 1 if `isApexRules(rules)` |
+| 8 | `ref-reapers` | reaper | Reaper *rung* | 0 (+standoff/2), side B | `strike_wedge` | `reaper_capital` *c*, `reaper_destroyer` *d* of the rung | — |
 
-**Rungs (side B)**, before the timeline’s own `fleetStrength.reaper` scales them. Each capital carries its catalogue Oculi (8) and each destroyer 2.
+Every contingent also requires its faction’s `fleetStrength` > 0. The contingent names are neutral ("Quarian fleet", not "Migrant Fleet") because the quarians of The Geth–Quarian Concord have a homeworld navy; names never reach the random draws. Under canon the coalition fields 36 hulls: 8 dreadnought-class ships, a carrier with its Tridents, 16 cruisers, 10 frigates and the Normandy. Harbinger never appears (a 4,000-point unique hull would dominate the losses term) and neither does the Destiny Ascension (a player-dependent survivor).
 
-| Rung | Name | Capitals | Destroyers | Canon at design time |
-| --- | --- | ---: | ---: | --- |
-| 1 | Raid | 2 | 5 | the coalition wins 4 of 4; index 92 |
-| 2 | Strike group | 3 | 7 | the Reapers win 4 of 4; index 37 |
-| 3 | Battlegroup | 4 | 10 | the Reapers win 4 of 4; index 25 |
-| 4 | Assault fleet | 5 | 12 | the Reapers win 4 of 4; index 14 |
-| 5 | Harvest fleet | 6 | 14 | the Reapers win 4 of 4; index 12 |
+**Rungs (side B)**, before the timeline’s own `fleetStrength.reaper` scales them. Each capital carries its catalogue Oculi (8) and each destroyer 2. `threatRungGroups(rules)` gives the groups a timeline actually deploys, and every rating names those (§1.4).
+
+| Rung | Name | Capitals | Destroyers |
+| --- | --- | ---: | ---: |
+| 1 | Raid | 2 | 5 |
+| 2 | Strike group | 3 | 7 |
+| 3 | Battlegroup | 4 | 10 |
+| 4 | Assault fleet | 5 | 12 |
+| 5 | Harvest fleet | 6 | 14 |
 
 ### 1.2 The formula
 
-For one battle *b* (rung *k*, seed *s*), read when the battle has ended (by destruction or by the 240 s attrition judgement):
+For one battle *b* (rung *k*, seed *s*), read when the battle has ended (by destruction or by the attrition judgement at the time limit):
 
 - **Reaper hull lost** L_b = Σ v_r·ℓ_r / Σ v_r over every side-B hull deployed with `role !== 'fighter'`, where v_r is the class `pointValue` (destroyer 260, capital 2,600) and ℓ_r = 1 if the hull was destroyed, otherwise 1 − hull_r / maxHull_r. Partial damage counts, so a capital left with a tenth of its hull is 90 % lost; barriers and armour do not count (barriers regenerate).
 - **Organic survival** S_b = `result.sides.A.survivalPercent` / 100: the point value of the side-A hulls still alive over the point value deployed (non-fighters), the figure the results screen already prints.
 - **Battle index** I_b = 50 × (L_b + S_b): 0 when the Reapers lose nothing and every organic hull dies, 100 when every Reaper dies and nothing is lost.
+- Each battle also records whether it ended on the time limit (`ThreatRun.timeLimit`).
 
 A timeline’s **threat index** is the mean over its twenty battles (five rungs × four seeds, equal weights): **I = 50 × (mean L + mean S)**. The **Reaper losses** and **organic survival** the UI shows are 100 × mean L and 100 × mean S. The table stores the index with one decimal and the tier is computed from the stored value.
 
@@ -85,30 +91,41 @@ Why these terms: while the organics lose, S is 0 and the index is half the Reape
 
 ### 1.3 The six tiers
 
-The thresholds are fixed at **17, 30, 48, 62 and 87**. They sit between the index levels the ladder produces for coalitions that hold none, one, two, three or all five rungs (design-time prototypes: about 11 for a coalition that cannot hurt even a raid, 23 for one that trades but wins nothing, 36 for one that holds the raid, 51–57 for two rungs, 64–78 for three or four, 94–97 for all five). They are never moved to rescue a label.
+The thresholds are fixed at **17, 30, 48, 62 and 87**. They sit between the index levels the ladder produced at design time for coalitions that hold none, one, two, three or all five rungs (about 11 for a coalition that cannot hurt even a raid, 23 for one that trades but wins nothing, 36 for one that holds the raid, 51–57 for two rungs, 64–78 for three or four, 94–97 for all five). They are never moved to rescue a label; the only way they move is the preset-blind re-basing of §1.8.
 
-| Tier | Label | Index | What it means in the reference | Presets at design time |
-| --- | --- | --- | --- | --- |
-| 1 | Negligible | below 17 | Loses every rung, the two-capital raid included; the Reapers lose under a third of their hull value. | Reaper Escalation, Sovereign’s Triumph |
-| 2 | Low | 17 to below 30 | Loses every rung above the raid and wins the raid only sometimes or at a high price; the Reapers lose about 35–45 % of their hull value. | Leviathan’s Bargain, The Indoctrinated Council, The Collectors’ Harvest |
-| 3 | Moderate | 30 to below 48 | Holds the raid and contests the three-capital strike group; the Reapers lose more than half their hull value. | **Canon**, Vigil’s Warning, Cerberus Reformed, Cerberus Ascendant |
-| 4 | Serious | 48 to below 62 | Holds Reaper groups of up to three capitals and contests four. | The Geth–Quarian Concord, The Asari Disclosure |
-| 5 | Severe | 62 to below 87 | Holds up to four capitals and contests five or six. | Leviathan’s Covenant, Prepared Galaxy, Turian Total War, Humanity Ascendant |
-| 6 | Existential | 87 and above | Beats every rung up to the six-capital harvest fleet and keeps most of its ships. | The Conduit Protocol, Prime/Apex core, Apex legacy |
+The "what it means" sentences are statements about the index band itself and are true by construction from I = 50 × (L + S) with L and S between 0 and 1. They never name a rung: what a particular timeline holds depends on the groups it actually meets (a timeline with `fleetStrength.reaper` 1.3 meets a three-capital raid), so that sentence is generated from the timeline’s own measured rung table (§1.4).
+
+| Tier | Label | Index | What the band means (`THREAT_TIERS[].summary`) |
+| --- | --- | --- | --- |
+| 1 | Negligible | below 17 | On average the Reapers lose less than a third of the hull value they commit, and less than a third of the coalition survives. |
+| 2 | Low | 17 to below 30 | On average the Reapers lose less than 60 % of the hull value they commit and less than 60 % of the coalition survives, but the two together reach at least a third. |
+| 3 | Moderate | 30 to below 48 | Reaper losses and organic survival average 0.60 to 0.96 together, so at least one of them reaches 30 % and at most one reaches half. |
+| 4 | Serious | 48 to below 62 | Reaper losses and organic survival average 0.96 to 1.24 together, so at least one of them reaches 48 % and the smaller stays under 62 %. |
+| 5 | Severe | 62 to below 87 | On average the Reapers lose at least a quarter of the hull value they commit and at least a quarter of the coalition survives, and one of the two reaches 62 %. |
+| 6 | Existential | 87 and above | On average the Reapers lose at least three quarters of the hull value they commit and at least three quarters of the coalition survives. |
 
 The scale measures how dangerous a galaxy is to the Reapers in conventional battle, not who wins the war: a Crucible, a Catalyst or a controlled Reaper fleet changes the campaign, not this index (§1.5). The UI says "measured in conventional battle" next to every rating.
 
 ### 1.4 Breaking point
 
-Each rating also carries a **breaking point**: the capital count of the largest rung *k* such that the coalition wins (`winner === 'A'`) in at least 3 of 4 seeds on every rung up to *k*, or 0 when it does not hold the raid. The UI prints it as "holds against Reaper groups of up to *k* capitals" or "holds against no Reaper group in the reference". It explains a tier in one line; it does not decide it.
+Each rating also carries a **breaking point**: `holdsRungs`, the number of consecutive rungs, from the Raid up, that the coalition wins (`winner === 'A'`) in at least 3 of 4 seeds, and `holdsUpTo`, the capital count of the largest held group **as this timeline deploys it** (after `fleetStrength.reaper`; 0 when it holds none). `RungMeasure` stores the deployed capitals and destroyers of every rung (`threatRungGroups`), so the sentence always names the battle that was fought:
+
+- "Holds none of the reference Reaper groups."
+- "Holds the Raid (3 capitals, 7 destroyers in this timeline) and no larger reference group."
+- "Holds every reference Reaper group up to the Battlegroup (4 capitals, 10 destroyers in this timeline) and none above it."
+- "Holds all 5 reference Reaper groups, up to the Harvest fleet (2 capitals, 6 destroyers in this timeline)."
+
+It explains a tier in one line; it does not decide it.
 
 ### 1.5 What the reference sees, and what it does not
 
-Seen, because they change the battles: every organic and Reaper `TechModifiers` key; the `factionOverrides` of all seven organic factions (Cerberus only when allied); `special.thanixAvailability`, `hyperMassAccelerators`, `hadesRounds`, `reaperCommandVulnerability`, `indoctrinationDisabled`, `valkyrieAvailable` (the Valkyrie, and through it `legacyNova`) and `superDreadnoughts`; the `fleetStrength` of every faction including the Reapers (Cerberus only when allied); `strategic.alliedCoordination`, `reaperCompetence` and `indoctrinationEffectiveness` (through crew quality), `cerberusStance` (whether Cerberus fights beside the coalition) and `shepardAlive` (whether the Normandy is there).
+Seen, because they change the battles: every organic and Reaper `TechModifiers` key; the `factionOverrides` of all seven organic factions (Cerberus only when allied); `special.thanixAvailability`, `hyperMassAccelerators`, `hadesRounds`, `reaperCommandVulnerability`, `indoctrinationDisabled`, `valkyrieAvailable` (the Valkyrie, and through it `legacyNova`) and `superDreadnoughts`; the `fleetStrength` of every faction including the Reapers (Cerberus only when allied; 0 removes a contingent); `strategic.alliedCoordination`, `reaperCompetence` and `indoctrinationEffectiveness` (through crew quality), `cerberusStance` (whether Cerberus fights beside the coalition) and `shepardAlive` (whether the Normandy is there).
 
 Not seen today: `driveAttacks` and `reaperDoctrine: 'apex'` until the CORE stage implements them in battle (they will then act by themselves, since the Apex presets field Black Fleet dreadnoughts); `heavyPlatforms` (Sol scenarios only); `readinessScale` (the reference sets no readiness tiers); and the campaign-only variables `reaperReinforcements`, `conventionalVictoryPossible`, `crucibleAvailable`, `shepardEffectiveness`, `illusiveManIndoctrinated`, `harbingerOperational`, `catalystOperational` and `homeworldIndependence`. A hostile Cerberus never appears in the reference. Each new timeline marks its campaign-only knobs as such.
 
 ### 1.6 Why a ladder and a compact line (design-time evidence)
+
+The figures in this section are design-time (first-draft prototype on `ba4decf`); they explain the shape of the reference, not any current label.
 
 A single engagement was tried first and rejected, because its outcome flips like a switch:
 
@@ -122,44 +139,50 @@ Small base counts keep twenty battles per timeline affordable, at a price in gra
 
 ### 1.7 Runtime and noise
 
-On the 4-CPU dev container at `ba4decf`, one reference battle took **1.24 s on average and 2.96 s at most** (Apex legacy against the six-capital harvest fleet), measured sequentially over 80 battles of the four heaviest presets: inside the 3 s budget. Twenty battles per preset and eighteen presets make about 7.5 minutes sequentially; four parallel jobs measured all eighteen in 2 min 24 s.
+On the 4-CPU dev container the implementation’s run measured a reference battle at 1.2–1.5 s on average and 4.2 s at most (a worker’s first battles include compilation); the 360 table battles took 135 s and the 400 lever battles 117 s with four jobs, so a full run takes under five minutes. The design-time prototype measured 1.24 s on average and 2.96 s at most, sequentially, over the four heaviest presets.
 
-Seed noise: the standard deviation of a preset’s per-seed index (the mean over the five rungs of one seed) was 0.2–7.4 points across the presets and probes (0.4–4.9 for the ten chosen timelines), so a four-seed mean carries a standard error of about 0.1–3.7 points (0.2–2.5 for the ten). Every new timeline sits 4.5–10.3 points inside its band, about two standard errors at worst. Two existing presets sit closer: Cerberus Reformed (43.1) and Cerberus Ascendant (44.6) are 4.9 and 3.4 points under the tier-4 floor. Their labels may change when the engine changes; that is reported, not corrected.
+Seed noise: at design time the standard deviation of a preset’s per-seed index (the mean over the five rungs of one seed) was 0.2–7.4 points, so a four-seed mean carries a standard error of about 0.1–3.7 points. The implementation’s variant measurements show what that means for tuning: a knob worth less than about 5 % of hit chance moves a tier-2 index by less than its noise, because a tier-2 index is decided by whether the coalition wins the Raid, which flips from seed to seed. The ten new timelines sit 5.1–10.2 points inside their bands. Two existing presets sit closer: Cerberus Reformed (42.2) and Cerberus Ascendant (44.1) are 5.8 and 3.9 points under the tier-4 floor. Their labels may change when the engine changes; that is reported, not corrected.
 
 ### 1.8 Keeping declared tiers honest as the engine changes
 
-Each new timeline declares its intended tier (`ALTERNATE_META[id].declaredTier`), and the test of §4.11 requires the declared tier to equal the tier the generated table implies. When `npm run timeline:threat` at a release puts a new timeline outside its declared band:
+Each new timeline declares its intended tier (`ALTERNATE_META[id].declaredTier`), and the test of §4.11 requires the declared tier to equal the tier the generated table implies. The existing presets declare nothing: their label is whatever the table says.
 
-1. Move only that timeline’s documented **tuning lever** (named in its section, with a range that keeps its story true), one step at a time toward the band’s centre, re-measuring with `npm run timeline:threat -- --only <id>`.
+**Levers.** Each new timeline names one tuning lever (`ALTERNATE_META[id].lever`): a knob that acts in battle, fits the story and moves the index in both directions over a documented, story-safe range. A lever is a continuous multiplier wherever the story allows. A fleet lever is a count: it changes the reference only where `scaleCount` rounds to a new number, so it is kept only over a range in which the counts change without crossing a tier cliff. A **step** is 0.05 for a multiplier (0.02 where the story-safe range is narrower than 0.1, as for Vigil’s Warning) and, for a fleet lever (`step: 'count'`), the next value at which a reference count changes. A continuous lever’s ends may lie outside the declared band: that is its reach, and the ends are published. A count lever may not cross a tier in a single count step anywhere inside its range. Every run of `npm run timeline:threat` measures each new timeline at both ends of its lever range and writes both indices into `TIMELINE_THREAT.md` (and `THREAT_LEVERS` in the table); each §2 section quotes them. For a tier-1 timeline only the downward direction can ever be needed, and for a tier-6 timeline only the upward one, because those bands are open on one side.
+
+**When a release measurement puts a new timeline outside its declared band:**
+
+1. Move only that timeline’s lever, one step at a time toward the band’s centre, re-measuring with `npm run timeline:threat -- --only <id>`.
 2. Never move a threshold, never change an existing preset’s numbers, and never change the formula or the reference engagement to rescue a label.
 3. If the lever’s range runs out, change the declared tier only together with a story-consistent text change, and report it in the stage log.
 
-The existing presets declare nothing: their label is whatever the table says.
+**Re-basing.** The standoff and the time limit are derived from the catalogue (§1.1), so the reference keeps its geometry and its clock when ranges or speeds change. A CORE change to weapon ranges, speeds or the time scale (brief §19.2: the pacing pass before calibration pass 2, T19) still **re-bases** the scale, because it changes how battles unfold: bump `THREAT_FORMULA_VERSION`, regenerate the table, and re-derive the thresholds by the preset-blind rung-holding procedure before looking at any preset. `npm run timeline:threat -- --probes` measures canon with every organic fleet scaled uniformly (×0.4 to ×3), groups the probes by the number of rungs they hold and prints the midpoint between consecutive groups; a threshold may move only to such a midpoint, and the change is reported with the old and new values. Only then does rule 1 apply to the new timelines.
+
+**Time limit.** The script reports the share of reference battles that end on the time limit (design-time, 4 Nov draft: 41 of 360, 11 %). Above **25 %** (`THREAT_TIME_LIMIT_BOUND`) the index is compressed toward the attrition judgement and no longer measures what §1.2 says: the default run exits with code 1 after writing, `--check` fails, and the reference must be re-based.
 
 ## 2. Ten new alternate timelines
 
-Common to all ten: `category: 'au'`; the `description` begins with `ALTERNATE UNIVERSE.`; every text is original writing in the spirit of Mass Effect and quotes or closely paraphrases nothing from the games or the codex; the history is canon up to the divergence point and changes only what follows from it; no new faction, hull, weapon or engine knob is needed; none uses Project Titan, HADES penetrators or the Valkyrie, which stay the Apex presets’ signature; every value lies inside the schema ranges, passes `validateRuleSet` with no warning and comes back from `normaliseRules` unchanged (verified at design time for the literals of Appendix C). In `ALTERNATE_PRESETS`, and so in every timeline list, they are ordered by declared tier and then by divergence year.
+Common to all ten: `category: 'au'`; the `description` begins with `ALTERNATE UNIVERSE.`; every text is original writing in the spirit of Mass Effect and quotes or closely paraphrases nothing from the games or the codex; the history is canon up to the divergence point and changes only what follows from it, and a divergence may change what the organics know or do but never what the Reapers are (learning of a weakness does not create one); no new faction, hull, weapon or engine knob is needed; none uses Project Titan, HADES penetrators or the Valkyrie, which stay the Apex presets’ signature; every value lies inside the schema ranges, passes `validateRuleSet` with no warning and comes back from `normaliseRules` unchanged (tested, §4.11). In `ALTERNATE_PRESETS`, and so in every timeline list, they are ordered by declared tier and then by divergence year. The literals live in `src/timelines/alternates.ts`; the descriptions and history lines below are copied from it.
 
 ### 2.0 The suggested ideas, judged
 
 | Suggestion | Decision | Why |
 | --- | --- | --- |
-| Sovereign’s Triumph | **Kept**, tier 1 | The strongest Reaper-favouring divergence in canon. Losing the Thanix is a lore consequence the engine expresses exactly (`thanixAvailability: 'none'`). |
-| The Collectors’ Harvest | **Kept**, tier 2 | Uses Mass Effect 2’s own failure condition and adds what follows: no Arrival, so the Reapers’ delay is lost, and Rannoch stays at war. |
+| Sovereign’s Triumph | **Kept**, tier 1 | The strongest Reaper-favouring divergence in canon. Losing the Thanix is a lore consequence the engine expresses exactly (`thanixAvailability: 'none'`). No geth stand beside the organics in 2183 (`geth` 0). |
+| The Collectors’ Harvest | **Kept, re-dated**, tier 2 | Uses Mass Effect 2’s own failure condition and only what fits the weeks it leaves: nobody destroys the Alpha relay, so the Reapers come months early and together and find the fleets at peacetime stations; Rannoch stays at war and both its fleets stay out. |
 | The Indoctrinated Council | **Kept, with a concrete divergence**, tier 2 | "Councillors are indoctrinated" needs a mechanism. The derelict Reaper at Mnemosyne indoctrinated the team studying it in canon; here the Council salvages it in 2185. Mechanically it is sabotage (accuracy, sensors, electronic warfare) plus fleets held back. |
-| Turian Total War | **Kept**, tier 5 | One navy at total war. ×2.2 measured 64.0, two points above the tier-5 floor, so it fields ×2.5. |
-| Geth–Quarian Concord | **Kept**, tier 4 | Divergence at the Morning War. Only two contingents change, which honestly caps it at Serious. |
-| Vigil’s Warning | **Kept, trimmed**, tier 3 | Screening, doctrine and an earlier Crucible search stay. "Reaper weak points" is dropped (the Prothean archive records how the Protheans lost) and moves to Leviathan’s Covenant, whose authors made the Reapers’ makers. The earlier Crucible search is story only: the engine has no head-start knob, and the history line says so. |
+| Turian Total War | **Kept**, tier 5 | One navy at total war. ×2.2 measured 64.0 at design time, two points above the tier-5 floor, so it fields ×2.5. |
+| Geth–Quarian Concord | **Kept, with its price**, tier 4 | Divergence at the Morning War. Recognising machine intelligences breaks Citadel law, so the quarians lose their embassy and fight in 2186 by treaty, at canon coordination. Only two contingents change, which honestly caps it at Serious. |
+| Vigil’s Warning | **Kept, trimmed and made secret**, tier 3 | Screening, guarded Keepers and an earlier secret Crucible search stay. "Reaper weak points" is dropped: the archive records how the Protheans lost, canon records no such weakness, and learning of one could not create it (no `reaperCommandVulnerability`). The Council believes the archive but buries it, which keeps it apart from Prepared Galaxy and gives "no extra warships" its cause. The earlier Crucible search is story only: the engine has no head-start knob, and the history line says so. |
 | The Asari Disclosure | **Kept**, tier 4 | A galaxy-wide defensive uplift, distinct from Prepared Galaxy (more ships) and the Apex presets (Project Titan). |
-| Leviathan’s Covenant | **Kept**, tier 5 | Shielding, revealed movements and disrupted coordination, plus Reaper anatomy (the first Reaper was made in the Leviathans’ image), which is what lifts it out of tier 3: the soft knobs alone are worth only a few points. |
+| Leviathan’s Covenant | **Kept**, tier 5 | Shielding, revealed movements and active interference with Reaper fire control and coordination, plus Reaper anatomy (the first Reaper was made in the Leviathans’ image), which is what lifts it out of tier 3: the soft knobs alone are worth only a few points. |
 | The 2184 Accords | **Replaced** | It duplicates Prepared Galaxy (joint exercises, coordination 0.85) and Prime/Apex (a surviving Shepard unites the galaxy). In canon Shepard is dead from late 2183 to 2185, so a 2184 testimony needs the surviving-Shepard divergence Prime/Apex already owns. |
-| One of my own | **The Conduit Protocol** (tier 6) and **Leviathan’s Bargain** (tier 2) | The Conduit Protocol is a route to Existential that is neither Apex nor a new weapon: the Reapers built the relays, and the Conduit proves a relay can be built, and so keyed, by others. Locking the network divides the harvest (`fleetStrength.reaper` 0.4). Leviathan’s Bargain mirrors the Covenant at the same divergence point, shows how far one moment can swing the threat (tier 2 against tier 5), and is the set’s plainest "Reapers stronger" timeline. |
+| One of my own | **The Conduit Protocol** (tier 6) and **Leviathan’s Bargain** (tier 2) | The Conduit Protocol is a route to Existential that is neither Apex nor a new weapon: the Reapers built the relays, and the Conduit proves a relay can be built, and so keyed, by others. Locking the network divides the harvest (`fleetStrength.reaper` 0.4). Leviathan’s Bargain mirrors the Covenant at the same divergence point, shows how far one moment can swing the threat (tier 2 against tier 5), and is the set’s plainest "Reapers stronger" timeline; the Leviathans lend no technology, only their hold on organic minds. |
 
 None of the ten duplicates a family of brief §14 (Early Beacon, First Contact Ascendant, One Humanity, Prothean Victory, Dark Lane, HFY: Terran Hegemony, player civilisation, Multiverse): none needs a new faction, hull or technology family.
 
 Tiers 1–2 (enforced by a structural test, §4.11): Sovereign’s Triumph, The Collectors’ Harvest, The Indoctrinated Council and Leviathan’s Bargain change only knobs in the Reapers’ favour — organic fleets or technology down, Reaper fleets, technology or competence up, coordination down, indoctrination up — and none in the organics’ favour.
 
-The ten timelines follow. In each "Reference order of battle" row, DN is a dreadnought, CV a carrier, CA a cruiser, FF a frigate, HV a quarian heavy ship and SR2 the Normandy; the Reaper groups are the five rungs after the timeline’s `fleetStrength.reaper`.
+The ten timelines follow. In each "Reference order of battle" row, DN is a dreadnought, CV a carrier, CA a cruiser, FF a frigate, HV a quarian heavy ship and SR2 the Normandy; the Reaper groups are the five rungs as the timeline deploys them. "Measured" rows come from the implementation’s run of `npm run timeline:threat` (§4.7) on the commit named in `TIMELINE_THREAT.md`.
 
 ### 2.1 Sovereign’s Triumph — `sovereigns_triumph` — tier 1 Negligible
 
@@ -168,8 +191,8 @@ The ten timelines follow. In each "Reference order of battle" row, DN is a dread
 | Tagline | The Citadel relay opened in 2183. The Reapers did not have to wait three more years. |
 | Divergence | **2183** — Battle of the Citadel: Saren’s override of the Citadel holds and Sovereign opens the Citadel relay to dark space. |
 | Intended tier | 1 Negligible |
-| Design-time measurement (`ba4decf`, §1.7) | index **12.4** → tier 1 Negligible; Reaper losses 25 %, organic survival 0 %; holds against no Reaper group; per rung (wins of 4) 24 (0/4) · 19 (0/4) · 10 (0/4) · 5 (0/4) · 4 (0/4) |
-| Reference order of battle | coalition 27 hulls — Alliance 2 DN, 1 CV, 2 CA, 2 FF; Hierarchy 1 DN, 2 CA, 2 FF; Republics 1 DN, 2 CA; Union 1 DN, 2 CA, 2 FF; Migrant Fleet 1 HV, 3 CA; Geth 1 DN, 1 CA, 1 FF; Reaper groups (capitals/destroyers) 3/7, 4/9, 5/13, 7/16, 8/18 |
+| Measured (implementation; `TIMELINE_THREAT.md`) | index **8.3** → tier 1 Negligible; Reaper losses 17 %, organic survival 0 %; holds none of the reference Reaper groups; per group (wins of 4) Raid 3/7: 23 (0/4) · Strike group 4/9: 10 (0/4) · Battlegroup 5/13: 7 (0/4) · Assault fleet 7/16: 1 (0/4) · Harvest fleet 8/18: 1 (0/4) |
+| Reference order of battle | coalition 24 hulls — Alliance 2 DN, 1 CV, 2 CA, 2 FF; Hierarchy 1 DN, 2 CA, 2 FF; Republics 1 DN, 2 CA; Union 1 DN, 2 CA, 2 FF; Quarians 1 HV, 3 CA; Reaper groups (capitals/destroyers) 3/7, 4/9, 5/13, 7/16, 8/18 |
 | Provenance | `AU_MODIFIED`. Canon through Mass Effect up to the assault on the Citadel (2183): Saren, Sovereign, the geth attack and the Council aboard the Destiny Ascension. The divergence is that Shepard never breaks the override. |
 
 Description (the preset’s `description`, shown in the timelines screen and the codex):
@@ -182,71 +205,94 @@ History changes (`historyChanges`):
 2. The Council dies aboard the Destiny Ascension; the Citadel Fleet and the Alliance Fifth Fleet are destroyed in the Serpent Nebula, and Shepard falls in the Presidium.
 3. No Reaper wreck is salvaged, so the Thanix cannon is never developed.
 4. The harvest begins at the Citadel; nobody searches the Prothean archive on Mars, and there is no Crucible.
-5. Without a Council or a shared command, every species defends its own space alone.
+5. No geth fight beside the organics: the heretics serve the harvest and the rest stay behind the Perseus Veil.
+6. Without a Council or a shared command, every species defends its own space alone.
 
 Mechanics — existing engine knobs only; every key not listed keeps its canon value (`CANON_TECH`, `CANON_SPECIAL`, `CANON_FLEETS`, `CANON_STRATEGIC`):
 
 | Knob | Value | Reason |
 | --- | --- | --- |
 | `special.thanixAvailability` | `'none'` | The Thanix was reverse-engineered from Sovereign’s wreck, which does not exist here; every Thanix mount falls back to the conventional cruiser accelerator (the engine’s `none` rule). |
-| `fleetStrength.alliance` | `0.8` | The Fifth Fleet is lost at the Citadel. Reference: 2 DN, 1 CV, 2 CA, 2 FF. |
-| `fleetStrength.turian` | `0.6` | The Citadel Fleet was mostly turian, and Palaven is struck first. Reference: 1 DN, 2 CA, 2 FF. |
-| `fleetStrength.asari` | `0.5` | The Destiny Ascension and the Republic guard die with the Council. Reference: 1 DN, 2 CA. |
-| `fleetStrength.salarian` | `0.85` | The Union is caught before any build-up. No change to the reference’s small contingent (1 DN, 2 CA, 2 FF); acts in the scenarios and the campaign. |
-| `fleetStrength.geth` | `0.5` | No geth–quarian peace and no geth ally; a token contingent stands in (the engine never scales a class below one hull). Reference: 1 DN, 1 CA, 1 FF. |
-| `fleetStrength.reaper` | `1.3` | The fleet arrives together through the Citadel relay at the centre of the galaxy instead of strung out from its edge. Reference Reaper groups: 3/7, 4/9, 5/13, 7/16, 8/18. |
+| `fleetStrength.alliance` | `0.8` | The Fifth Fleet is lost at the Citadel. |
+| `fleetStrength.turian` | `0.6` | The Citadel Fleet was mostly turian, and Palaven is struck first. |
+| `fleetStrength.asari` | `0.5` | The Destiny Ascension and the Republic guard die with the Council. |
+| `fleetStrength.salarian` | `0.85` | The Union is caught before any build-up. No change to the reference’s small contingent; acts in the scenarios and the campaign. |
+| `fleetStrength.geth` | `0` | Absent (§1.1): the heretic geth serve the harvest and the rest stay behind the Perseus Veil. |
+| `fleetStrength.reaper` | `1.3` | The fleet arrives together through the Citadel relay at the centre of the galaxy instead of strung out from its edge. The tuning lever. |
 | `strategic.alliedCoordination` | `0.1` | No Council and no joint command. |
-| `strategic.indoctrinationEffectiveness` | `1.5` | Reapers inside Council space from the first day of the war. |
 | `strategic.reaperCompetence` | `1.1` | The harvest runs to its design for the first time in this cycle. |
+| `strategic.indoctrinationEffectiveness` | `1.5` | Reapers inside Council space from the first day of the war. |
 | `strategic.reaperReinforcements` | `1.5` | Campaign only: the whole fleet comes through the Citadel. |
 | `strategic.crucibleAvailable` | `false` | Campaign only: no Crucible. |
-| `strategic.shepardAlive / shepardEffectiveness` | `false / 0` | Shepard dies in the Presidium and the Normandy SR-2 is never built: no Normandy in the reference (schema rule: a dead Shepard has effectiveness 0). |
+| `strategic.shepardAlive` | `false` | Shepard dies in the Presidium and the Normandy SR-2 is never built: no Normandy in the reference or in Quick Battle (world-state lock). |
+| `strategic.shepardEffectiveness` | `0` | Schema rule: a dead Shepard has effectiveness 0. |
 
-Unchanged on purpose: Organic and Reaper technology (the 2183 navies field what they had), Harbinger and the Catalyst operational, Cerberus hostile under an indoctrinated Illusive Man.
+Unchanged on purpose: Organic and Reaper technology (the 2183 navies field what they had), the quarian contingent, Harbinger and the Catalyst operational, Cerberus hostile under an indoctrinated Illusive Man.
 
 Codex “established canon” line (`canonBasis`): In 2183 Saren reached the Citadel through the Conduit and locked its arms while Sovereign and a geth fleet attacked. Shepard broke the lock with data recovered on Ilos, and the combined fleets destroyed Sovereign after Saren died.
 
-Release tuning lever (§1.8): `fleetStrength.reaper` within `[1.25, 1.5]` — lowering it raises the index; 1.3 and 1.35 give the same counts in the reference.
+World state and campaign (§4.10):
+
+- lock `ascension: 'absent'`: The Council and the Destiny Ascension were lost at the Citadel in 2183.
+- lock `rannoch: 'war'`: No one makes peace between the quarians and the geth.
+- lock `outcome: 'war'`: No one makes peace between the quarians and the geth.
+- lock `normandy: 'no'`: Shepard died at the Citadel in 2183 and the Normandy SR-2 was never built.
+- lock `genophage: 'sabotaged'`: With Shepard dead, no one ever cures the genophage, so the krogan stay on Tuchanka. This is the setting’s “cure sabotaged” state, in which the Salarian First Fleet still joins the war: the simulator has no separate state for a cure never made.
+- campaign note: The campaign opens on the 2186 map: the fall of the Citadel in 2183 and the earlier start of the harvest are not modelled, so the Citadel and its fleets begin in allied hands.
+
+Release tuning lever (§1.8): `fleetStrength.reaper` within `[1.25, 1.5]`, step the next count change, current 1.3. Reference counts change at 1.30, 1.33, 1.35, 1.36, 1.38, 1.40, 1.42, 1.45, 1.46, 1.47, 1.50 inside the range. Measured: index 8.2 (tier 1 Negligible) at 1.25, 6.5 (tier 1 Negligible) at 1.5. Tier 1 is open below, so only the downward direction can be needed. `strategic.reaperCompetence`, tried first, measured 8.1 at both 1.0 and 1.3.
 
 ### 2.2 The Collectors’ Harvest — `collectors_harvest` — tier 2 Low
 
 | Field | Value |
 | --- | --- |
-| Tagline | The Normandy never came back through the Omega 4 relay. The human Reaper woke, and the Reapers came early. |
+| Tagline | The Normandy never came back through the Omega 4 relay. The human Reaper was never stopped, and the Reapers came early. |
 | Divergence | **2185** — The assault on the Collector base fails beyond the Omega 4 relay. |
 | Intended tier | 2 Low |
-| Design-time measurement (`ba4decf`, §1.7) | index **25.3** → tier 2 Low; Reaper losses 36 %, organic survival 14 %; holds against up to 2 capitals; per rung (wins of 4) 85 (4/4) · 19 (0/4) · 11 (0/4) · 8 (0/4) · 4 (0/4) |
-| Reference order of battle | coalition 29 hulls — Alliance 1 DN, 1 CV, 2 CA, 2 FF; Hierarchy 2 DN, 3 CA, 3 FF; Republics 1 DN, 3 CA; Union 1 DN, 2 CA, 2 FF; Migrant Fleet 1 HV, 2 CA; Geth 1 DN, 1 CA, 1 FF; Reaper groups (capitals/destroyers) 2/6, 4/8, 5/12, 6/14, 7/17 |
-| Provenance | `AU_MODIFIED`. Canon through Mass Effect 2 up to the suicide mission (2185): the Collectors, the Omega 4 relay and the human Reaper. The failure of the mission is AU (in canon the base is stopped even when Shepard dies). |
+| Measured (implementation; `TIMELINE_THREAT.md`) | index **24.9** → tier 2 Low; Reaper losses 37 %, organic survival 13 %; holds the Raid (2 capitals, 6 destroyers in this timeline) and no larger reference group; per group (wins of 4) Raid 2/6: 82 (4/4) · Strike group 3/8: 24 (0/4) · Battlegroup 5/12: 8 (0/4) · Assault fleet 6/14: 6 (0/4) · Harvest fleet 7/16: 5 (0/4) |
+| Reference order of battle | coalition 24 hulls — Alliance 2 DN, 1 CV, 2 CA, 2 FF; Hierarchy 2 DN, 3 CA, 3 FF; Republics 1 DN, 3 CA; Union 1 DN, 2 CA, 2 FF; Reaper groups (capitals/destroyers) 2/6, 3/8, 5/12, 6/14, 7/16 |
+| Provenance | `AU_MODIFIED`. Canon through Mass Effect 2 up to the suicide mission (2185): the Collectors, the Omega 4 relay, the human Reaper, and the Alpha relay in the Bahak system that Shepard destroyed later that year. The failure of the mission is AU (in canon the base is stopped even when Shepard dies), and so is everything that follows from it inside the weeks before the Reapers arrive. |
 
 Description (the preset’s `description`, shown in the timelines screen and the codex):
 
-> ALTERNATE UNIVERSE. In 2185 the Normandy is destroyed beyond the Omega 4 relay: Shepard and the crew are lost and the Collectors finish the human Reaper. The abductions from human colonies go on, nobody destroys the Alpha relay in the Bahak system, and the Reapers enter batarian space months early and in one mass. No one brokers peace at Rannoch or unites the Council races, and the Alliance meets the invasion after a year spent hunting Collectors.
+> ALTERNATE UNIVERSE. In 2185 the Normandy is destroyed beyond the Omega 4 relay: Shepard and the crew are lost and the Collector base survives. The Collectors go on taking human colonies, and nothing stops the human Reaper. With no Shepard to reach the Bahak system, the indoctrinated team watching the Alpha relay is never stopped, the relay stands, and the Reapers pour through it into batarian space months ahead of canon and all at once. They find the Alliance at its peacetime stations, the quarians and the geth at war, and no one left to unite the Council races.
 
 History changes (`historyChanges`):
 
-1. 2185: the Normandy SR-2 is destroyed at the Collector base; Shepard and the crew are killed.
-2. The Collectors complete the human Reaper and keep raiding human colonies; the Alliance strips its fleets to hunt them.
-3. The Alpha relay is never destroyed: the Reapers reach batarian space months ahead of canon, and together.
-4. Rannoch stays at war and no one unites the Council races: the quarian and geth fleets never join the coalition.
+1. 2185: the Normandy SR-2 is destroyed at the Collector base; Shepard and the crew are killed, and the base survives.
+2. The Collectors keep taking human colonies, and the human Reaper is completed when the harvest arrives (story only: one more Reaper does not change the battles).
+3. Nobody stops the indoctrinated Project team in the Bahak system: the Alpha relay is never destroyed, and the Reapers come through it months ahead of canon, together.
+4. The Alliance meets the invasion with its fleets at peacetime stations, without the months the loss of the Alpha relay bought in canon.
+5. Rannoch stays at war and no one unites the Council races: neither the quarian nor the geth fleet joins the coalition.
 
 Mechanics — existing engine knobs only; every key not listed keeps its canon value (`CANON_TECH`, `CANON_SPECIAL`, `CANON_FLEETS`, `CANON_STRATEGIC`):
 
 | Knob | Value | Reason |
 | --- | --- | --- |
-| `fleetStrength.alliance` | `0.65` | A year of colony losses and Collector hunts. Reference: 1 DN, 1 CV, 2 CA, 2 FF. |
-| `fleetStrength.quarian / fleetStrength.geth` | `0.5 / 0.5` | Rannoch stays at war; token contingents only. Reference: quarian 1 HV, 2 CA; geth 1 DN, 1 CA, 1 FF. |
-| `fleetStrength.reaper` | `1.2` | The human Reaper joins the harvest and the Reapers arrive concentrated through the Alpha relay. Reference Reaper groups: 2/6, 4/8, 5/12, 6/14, 7/17. |
-| `strategic.shepardAlive / shepardEffectiveness` | `false / 0` | No Normandy in the reference; no Shepard in the campaign. |
+| `fleetStrength.alliance` | `0.8` | Caught at peacetime stations months early, without the delay the destruction of the Alpha relay bought in canon: only part of the Alliance concentrates before the first battles. |
+| `fleetStrength.quarian` | `0` | Absent (§1.1): Rannoch stays at war, and the Migrant Fleet fights the geth, not the Reapers. |
+| `fleetStrength.geth` | `0` | Absent (§1.1): the geth fight the quarians with Reaper upgrades. |
+| `fleetStrength.reaper` | `1.15` | The whole harvest arrives at once through the intact Alpha relay instead of after the delay its destruction bought in canon. The unfinished human Reaper adds nothing here: it is story only. The tuning lever. |
 | `strategic.alliedCoordination` | `0.25` | Nobody brings the species together. |
-| `strategic.indoctrinationEffectiveness` | `1.3` | The Reapers’ agents work unexposed: no one stops the indoctrinated Project Base team or uncovers the others. |
+| `strategic.reaperCompetence` | `1.1` | The surviving Collector base gives the harvest everything the Collectors learned of human worlds and fleets. |
+| `strategic.indoctrinationEffectiveness` | `1.3` | The Reapers’ agents work unexposed: no one stops the indoctrinated Project team at Bahak or uncovers the others. |
 | `strategic.reaperReinforcements` | `1.3` | Campaign only: the earlier, unbroken arrival. |
+| `strategic.shepardAlive` | `false` | No Normandy in the reference or in Quick Battle (world-state lock); no Shepard in the campaign. |
+| `strategic.shepardEffectiveness` | `0` | Schema rule: a dead Shepard has effectiveness 0. |
 
-Unchanged on purpose: Technology on both sides, the Crucible (the Alliance still finds the plans on Mars), Cerberus hostile.
+Unchanged on purpose: Technology on both sides, the turian, asari and salarian fleets, the Crucible (the Alliance still finds the plans on Mars), Cerberus hostile.
 
-Codex “established canon” line (`canonBasis`): In 2185 Shepard, rebuilt by Cerberus, took the Normandy SR-2 through the Omega 4 relay to the Collector base near the galactic core and destroyed the human Reaper the Collectors were building from abducted colonists.
+Codex “established canon” line (`canonBasis`): In 2185 Shepard, rebuilt by Cerberus, took the Normandy SR-2 through the Omega 4 relay to the Collector base near the galactic core and destroyed the human Reaper the Collectors were building from abducted colonists. Later that year Shepard destroyed the Alpha relay in the Bahak system, delaying the Reaper arrival by months.
 
-Release tuning lever (§1.8): `fleetStrength.alliance` within `[0.65, 0.8]` — 0.8 restores the second Alliance dreadnought and raises the index; do not raise fleetStrength.reaper above 1.2: at 1.25 the two-capital raid gains a third capital and the index falls to about 14 (measured).
+World state and campaign (§4.10):
+
+- lock `rannoch: 'war'`: No one brokers peace at Rannoch.
+- lock `outcome: 'war'`: No one brokers peace at Rannoch, and no one cuts the Reaper signal to the geth.
+- lock `normandy: 'no'`: Shepard and the Normandy SR-2 were lost at the Collector base in 2185.
+- lock `genophage: 'sabotaged'`: With Shepard dead, no one ever cures the genophage, so the krogan stay on Tuchanka. This is the setting’s “cure sabotaged” state, in which the Salarian First Fleet still joins the war: the simulator has no separate state for a cure never made.
+- campaign note: The campaign opens at the canon 2186 start: the earlier arrival is expressed only through the smaller Alliance fleet, the larger Reaper groups and the Reaper reinforcement pool.
+
+Release tuning lever (§1.8): `fleetStrength.reaper` within `[1.1, 1.2]`, step the next count change, current 1.15. Reference counts change at 1.11, 1.13, 1.15, 1.17, 1.18 inside the range. Measured: index 26.4 (tier 2 Low) at 1.1, 23.1 (tier 2 Low) at 1.2. The range stops at 1.2: at 1.25 the Raid gains a third capital and the timeline drops a tier. `strategic.reaperCompetence`, suggested in review, measured flat (13.2 at 1.0 and 13.3 at 1.2, before the retune), and the Alliance count has a cliff at 0.75, where the second dreadnought goes.
 
 ### 2.3 The Indoctrinated Council — `indoctrinated_council` — tier 2 Low
 
@@ -255,8 +301,8 @@ Release tuning lever (§1.8): `fleetStrength.alliance` within `[0.65, 0.8]` — 
 | Tagline | A dead Reaper was towed home for study. By 2186 it had friends on the Council. |
 | Divergence | **2185** — A Council salvage task force recovers the derelict Reaper at Mnemosyne instead of letting it fall into the brown dwarf. |
 | Intended tier | 2 Low |
-| Design-time measurement (`ba4decf`, §1.7) | index **25.0** → tier 2 Low; Reaper losses 41 %, organic survival 9 %; holds against no Reaper group; per rung (wins of 4) 68 (2/4) · 23 (0/4) · 18 (0/4) · 12 (0/4) · 4 (0/4) |
-| Reference order of battle | coalition 30 hulls — Alliance 2 DN, 1 CV, 3 CA, 3 FF, 1 SR2; Hierarchy 1 DN, 2 CA, 2 FF; Republics 1 DN, 2 CA; Union 1 DN, 1 CA, 1 FF; Migrant Fleet 1 HV, 3 CA; Geth 1 DN, 2 CA, 2 FF; Reaper groups (capitals/destroyers) 2/5, 3/7, 4/10, 5/12, 6/14 |
+| Measured (implementation; `TIMELINE_THREAT.md`) | index **22.3** → tier 2 Low; Reaper losses 40 %, organic survival 5 %; holds none of the reference Reaper groups; per group (wins of 4) Raid 2/5: 56 (1/4) · Strike group 3/7: 23 (0/4) · Battlegroup 4/10: 18 (0/4) · Assault fleet 5/12: 11 (0/4) · Harvest fleet 6/14: 3 (0/4) |
+| Reference order of battle | coalition 30 hulls — Alliance 2 DN, 1 CV, 3 CA, 3 FF, 1 SR2; Hierarchy 1 DN, 2 CA, 2 FF; Republics 1 DN, 2 CA; Union 1 DN, 1 CA, 1 FF; Quarians 1 HV, 3 CA; Geth 1 DN, 2 CA, 2 FF; Reaper groups (capitals/destroyers) 2/5, 3/7, 4/10, 5/12, 6/14 |
 | Provenance | `AU_MODIFIED`. Canon through Mass Effect 2’s derelict Reaper (2185): a Reaper dead for millions of years orbits Mnemosyne and indoctrinated the Cerberus team studying it; Shepard’s team took the IFF and the wreck fell. The salvage is AU. |
 
 Description (the preset’s `description`, shown in the timelines screen and the codex):
@@ -274,133 +320,143 @@ Mechanics — existing engine knobs only; every key not listed keeps its canon v
 
 | Knob | Value | Reason |
 | --- | --- | --- |
-| `factionOverrides.turian` | `{ accuracy: 0.8, sensors: 0.8, crewQuality: 0.85 }` | Corrupted fire-control and sensor software; compromised officers. |
-| `factionOverrides.asari` | `{ accuracy: 0.85, sensors: 0.8, electronicWarfare: 0.8 }` | Corrupted targeting and electronic-warfare suites. |
-| `factionOverrides.salarian` | `{ accuracy: 0.85, sensors: 0.8, electronicWarfare: 0.7 }` | The STG’s own systems were compromised first. |
-| `fleetStrength.turian / asari / salarian` | `0.7 / 0.7 / 0.6` | Fleets held in reserve. Reference: turian 1 DN, 2 CA, 2 FF; asari 1 DN, 2 CA; salarian 1 DN, 1 CA, 1 FF. |
+| `factionOverrides.turian` | `{ accuracy: 0.7, sensors: 0.8, crewQuality: 0.85 }` | Corrupted fire-control and sensor software; compromised officers. Its `accuracy` is the tuning lever. |
+| `factionOverrides.asari` | `{ accuracy: 0.75, sensors: 0.8, electronicWarfare: 0.8 }` | Corrupted targeting and electronic-warfare suites. |
+| `factionOverrides.salarian` | `{ accuracy: 0.75, sensors: 0.8, electronicWarfare: 0.7 }` | The STG’s own systems were compromised first. |
+| `fleetStrength.turian` | `0.7` | Fleets held in reserve on plausible pretexts. |
+| `fleetStrength.asari` | `0.7` | Fleets held in reserve. |
+| `fleetStrength.salarian` | `0.6` | Fleets held in reserve; the Union, closest to the wreck, holds back most. |
 | `strategic.alliedCoordination` | `0.2` | Orders are contradicted and nobody trusts the Council staffs. |
-| `strategic.indoctrinationEffectiveness` | `2.0` | Schema maximum: the wreck’s influence runs through the command chain. |
 | `strategic.reaperCompetence` | `1.3` | The Reapers know every deployment. |
+| `strategic.indoctrinationEffectiveness` | `2` | Schema maximum: the wreck’s influence runs through the command chain. |
 
 Unchanged on purpose: The Alliance, the quarian and geth contingents, technology on the Reaper side, Shepard, the Crucible.
 
 Codex “established canon” line (`canonBasis`): In 2185 Shepard’s team boarded a Reaper that had been dead for millions of years in orbit of the brown dwarf Mnemosyne and recovered its IFF. The Cerberus scientists studying the wreck had been indoctrinated by it, and the derelict was lost to the brown dwarf after the team escaped.
 
-Release tuning lever (§1.8): `fleetStrength.turian` within `[0.6, 0.8]` — 0.75 restores the second turian dreadnought and raises the index (measured 31.0 with turian/asari 0.75, salarian 0.65 and milder sabotage).
+Release tuning lever (§1.8): `factionOverrides.turian.accuracy` within `[0.55, 0.85]`, step 0.05, current 0.7. Measured: index 22.4 (tier 2 Low) at 0.55, 26.6 (tier 2 Low) at 0.85. Lowering it changes little while the Raid is already mostly lost; the review’s alternatives measured flat as well (`strategic.reaperCompetence` 23.3 at 1.15 and 23.0 at 1.5).
 
 ### 2.4 Leviathan’s Bargain — `leviathans_bargain` — tier 2 Low
 
 | Field | Value |
 | --- | --- |
-| Tagline | The Reapers found Despoina first. The Leviathans chose to outlive the cycle, and lent the harvest their minds. |
-| Divergence | **2186** — The Reapers reach Despoina before Shepard; the surviving Leviathans bargain for their survival. |
+| Tagline | The Reapers found Despoina first. To outlive the cycle, the Leviathans lent the harvest their hold on organic minds. |
+| Divergence | **2186** — An indoctrinated member of Dr. Ann Bryson’s research circle passes her findings to the Reapers, who reach Despoina before Shepard; the surviving Leviathans bargain for their survival. |
 | Intended tier | 2 Low |
-| Design-time measurement (`ba4decf`, §1.7) | index **22.1** → tier 2 Low; Reaper losses 38 %, organic survival 6 %; holds against no Reaper group; per rung (wins of 4) 54 (1/4) · 23 (0/4) · 19 (0/4) · 10 (0/4) · 5 (0/4) |
-| Reference order of battle | coalition 36 hulls — Alliance 2 DN, 1 CV, 3 CA, 3 FF, 1 SR2; Hierarchy 2 DN, 3 CA, 3 FF; Republics 1 DN, 3 CA; Union 1 DN, 2 CA, 2 FF; Migrant Fleet 1 HV, 3 CA; Geth 1 DN, 2 CA, 2 FF; Reaper groups (capitals/destroyers) 2/5, 3/7, 4/10, 5/12, 6/14 |
-| Provenance | `AU_MODIFIED`. Canon through Mass Effect 3 up to the search for the Leviathans (2186): Despoina, the Leviathans’ thralls, their creation of the intelligence behind the Reapers. Their bargain with the Reapers is AU; in canon Shepard reaches them first. |
+| Measured (implementation; `TIMELINE_THREAT.md`) | index **22.3** → tier 2 Low; Reaper losses 36 %, organic survival 8 %; holds none of the reference Reaper groups; per group (wins of 4) Raid 2/5: 62 (2/4) · Strike group 3/7: 22 (0/4) · Battlegroup 4/10: 16 (0/4) · Assault fleet 5/12: 8 (0/4) · Harvest fleet 6/14: 4 (0/4) |
+| Reference order of battle | coalition 36 hulls — Alliance 2 DN, 1 CV, 3 CA, 3 FF, 1 SR2; Hierarchy 2 DN, 3 CA, 3 FF; Republics 1 DN, 3 CA; Union 1 DN, 2 CA, 2 FF; Quarians 1 HV, 3 CA; Geth 1 DN, 2 CA, 2 FF; Reaper groups (capitals/destroyers) 2/5, 3/7, 4/10, 5/12, 6/14 |
+| Provenance | `AU_MODIFIED`. Canon through Mass Effect 3 up to the search for the Leviathans (2186): Dr. Ann Bryson’s research, Despoina, the Leviathans’ thralls and their creation of the intelligence behind the Reapers. The leak of her findings and the Leviathans’ bargain are AU; in canon Shepard reaches them first. The Leviathans give the Reapers no technology: everything they lend acts through organic minds. |
 
 Description (the preset’s `description`, shown in the timelines screen and the codex):
 
-> ALTERNATE UNIVERSE. In 2186 the Reapers find Despoina before anyone else, and the last Leviathans, who created the intelligence that built the Reapers, buy their survival with service. They give the harvest their oldest arts: the hold they keep on thralls in every port and fleet, and the concealment that hid them from the Reapers for aeons. Organic crews fight beside officers who are no longer their own, against Reaper hulls that slide out of every firing solution.
+> ALTERNATE UNIVERSE. In 2186 an indoctrinated member of Dr. Ann Bryson’s research circle passes her findings to the Reapers, and the Reapers reach Despoina before Shepard does. The last Leviathans, who made the intelligence that built the Reapers, buy their survival with service and turn the thralls they keep in every port and fleet against the war. Sensor officers and fire-control crews see only what the Leviathans let them see, and Reaper hulls slip out of firing solutions computed by people who are no longer entirely their own.
 
 History changes (`historyChanges`):
 
-1. 2186: the Reapers locate Despoina before Shepard’s search does; the surviving Leviathans negotiate instead of fighting.
-2. In exchange for being spared, the Leviathans turn their thralls in allied ports and fleets against the war effort.
-3. The Leviathans teach the Reapers the concealment that hid them for aeons; Reaper hulls become far harder to target.
+1. 2186: an indoctrinated member of Dr. Ann Bryson’s research circle passes her findings to the Reapers, who reach Despoina before Shepard.
+2. Spared in exchange for service, the surviving Leviathans turn their thralls in allied ports and fleets against the war effort.
+3. Thralled sensor officers and fire-control crews see what the Leviathans let them see: Reaper hulls slip out of the firing solutions they compute.
 4. Indoctrination and thrall control reinforce each other, and trust between allied commands collapses.
 
 Mechanics — existing engine knobs only; every key not listed keeps its canon value (`CANON_TECH`, `CANON_SPECIAL`, `CANON_FLEETS`, `CANON_STRATEGIC`):
 
 | Knob | Value | Reason |
 | --- | --- | --- |
-| `reaper.electronicWarfare` | `1.8` | Leviathan concealment: the Reaper capital’s ECM 0.35 → 0.63, about −21 % on organic hit chance against capitals. |
+| `organic.accuracy` | `0.9` | Thralled gunners in every navy. |
+| `organic.crewQuality` | `0.8` | Thralled officers in every navy. |
 | `reaper.sensors` | `1.4` | The Reapers see through the thralls’ eyes. |
-| `organic.crewQuality / organic.accuracy` | `0.8 / 0.9` | Thralled officers and gunners in every navy. |
-| `strategic.indoctrinationEffectiveness` | `2.0` | Thrall control amplifies indoctrination (schema maximum). |
-| `strategic.reaperCompetence` | `1.4` | The harvest gains the Leviathans’ knowledge of organic minds. |
+| `reaper.electronicWarfare` | `1.85` | The engine’s stand-in for thralled sensor and fire-control crews: the Reaper capital’s ECM rating 0.35 → 0.65, about −23 % on organic hit chance against capitals. Nothing about the Reaper hulls changes; the people aiming at them do. The tuning lever. |
 | `strategic.alliedCoordination` | `0.3` | No one knows whose orders are their own. |
+| `strategic.reaperCompetence` | `1.4` | The harvest gains the Leviathans’ knowledge of organic minds. |
+| `strategic.indoctrinationEffectiveness` | `2` | Thrall control amplifies indoctrination (schema maximum). |
 
-Unchanged on purpose: Every fleet strength: the bargain changes how the fleets fight, not how many there are. Shepard, the Crucible, Cerberus hostile.
+Unchanged on purpose: Every fleet strength (the bargain changes how the fleets fight, not how many there are); Reaper hulls, weapons and durability; Shepard, the Crucible, Cerberus hostile.
 
-Codex “established canon” line (`canonBasis`): In 2186 Dr. Ann Bryson’s research put Shepard on the trail of the Leviathans, the race that created the intelligence that created the Reapers, hidden for aeons on Despoina behind their thralls. In canon Shepard found them first and persuaded them to join the war.
+Codex “established canon” line (`canonBasis`): In 2186 Dr. Ann Bryson’s research put Shepard on the trail of the Leviathans, the race that created the intelligence that created the Reapers, hidden for aeons on Despoina behind thralls who kept their secret. In canon Shepard found them first and persuaded them to join the war.
 
-Release tuning lever (§1.8): `reaper.electronicWarfare` within `[1.5, 2.0]` — higher lowers the index (1.6 with organic crew 0.85 and no accuracy change measured 30.9, inside tier 3; the values above measured 22.1).
+Release tuning lever (§1.8): `reaper.electronicWarfare` within `[1.5, 2]`, step 0.05, current 1.85. Measured: index 30.3 (tier 3 Moderate) at 1.5, 21.1 (tier 2 Low) at 2.
 
 ### 2.5 Vigil’s Warning — `vigils_warning` — tier 3 Moderate
 
 | Field | Value |
 | --- | --- |
-| Tagline | Ilos told the whole story in 2183. The Council believed it, and learned how the Protheans lost. |
-| Divergence | **2183** — Vigil’s complete archive leaves Ilos with Shepard and is authenticated by Council scientists. |
+| Tagline | The Council read the Protheans’ own account in 2183, believed every word, and told no one. |
+| Divergence | **2183** — After the Battle of the Citadel a Council recovery team brings Vigil’s archive out of Ilos, and the Council believes it in secret. |
 | Intended tier | 3 Moderate |
-| Design-time measurement (`ba4decf`, §1.7) | index **42.4** → tier 3 Moderate; Reaper losses 60 %, organic survival 25 %; holds against up to 2 capitals; per rung (wins of 4) 94 (4/4) · 63 (2/4) · 25 (0/4) · 16 (0/4) · 14 (0/4) |
-| Reference order of battle | coalition 36 hulls — Alliance 2 DN, 1 CV, 3 CA, 3 FF, 1 SR2; Hierarchy 2 DN, 3 CA, 3 FF; Republics 1 DN, 3 CA; Union 1 DN, 2 CA, 2 FF; Migrant Fleet 1 HV, 3 CA; Geth 1 DN, 2 CA, 2 FF; Reaper groups (capitals/destroyers) 2/5, 3/7, 4/10, 5/12, 6/14 |
-| Provenance | `AU_MODIFIED`. Canon through Mass Effect up to Ilos (2183): Vigil, the Conduit and the Prothean account of the Citadel trap. The complete archive and its acceptance by the Council are AU. |
+| Measured (implementation; `TIMELINE_THREAT.md`) | index **40.9** → tier 3 Moderate; Reaper losses 59 %, organic survival 23 %; holds the Raid (2 capitals, 5 destroyers in this timeline) and no larger reference group; per group (wins of 4) Raid 2/5: 93 (4/4) · Strike group 3/7: 55 (2/4) · Battlegroup 4/10: 25 (0/4) · Assault fleet 5/12: 20 (0/4) · Harvest fleet 6/14: 12 (0/4) |
+| Reference order of battle | coalition 36 hulls — Alliance 2 DN, 1 CV, 3 CA, 3 FF, 1 SR2; Hierarchy 2 DN, 3 CA, 3 FF; Republics 1 DN, 3 CA; Union 1 DN, 2 CA, 2 FF; Quarians 1 HV, 3 CA; Geth 1 DN, 2 CA, 2 FF; Reaper groups (capitals/destroyers) 2/5, 3/7, 4/10, 5/12, 6/14 |
+| Provenance | `AU_MODIFIED`. Canon through Mass Effect up to the Battle of the Citadel (2183): Vigil, the Conduit, the Keepers and the Prothean account of how the Reapers took the Citadel and the relays. The recovery of the archive and the Council’s secret acceptance are AU. The Reapers are unchanged: the archive teaches how the Protheans lost, not a weakness. |
 
 Description (the preset’s `description`, shown in the timelines screen and the codex):
 
-> ALTERNATE UNIVERSE. In 2183 the whole of Vigil’s archive leaves Ilos with Shepard, and the Council cannot dismiss fifty thousand years of Prothean records. The galaxy learns how the Protheans fell: the Citadel taken first, commands hollowed out by indoctrinated agents, Reaper fleets that faltered whenever their capital ships died. Screening keeps indoctrinated officers out of the fleets and joint doctrine improves, but the archive holds no weapon that could have saved the Protheans, and no extra warships are built.
+> ALTERNATE UNIVERSE. After the Battle of the Citadel a Council recovery team returns to Ilos and brings out what remains of Vigil’s archive. Council scientists authenticate it and the Council believes it: the Reapers open every war by seizing the Citadel and the relays, after indoctrinated agents have hollowed out the commands that should resist them. Fearing panic, the Council buries the archive. The navies quietly screen their officers for indoctrination, guard the Keepers and the Citadel’s controls, and plan for a war fought with the relays lost, but no budget can pass for warships nobody may be told about, and none are built.
 
 History changes (`historyChanges`):
 
-1. 2183: Vigil’s full archive is recovered from Ilos and authenticated by Council scientists.
-2. The Council accepts the Reaper threat on Prothean evidence, and every navy adopts indoctrination screening.
-3. Fleet doctrine takes from the Prothean record that Reaper groups falter when their capital ships are destroyed.
-4. The Mars archive is searched from 2184 (story only: the campaign’s Crucible clock is unchanged).
-5. No new weapons and no extra warships: the archive is a record of how the Protheans lost.
+1. 2183: after the Battle of the Citadel, a Council recovery team returns to Ilos and recovers what remains of Vigil’s archive.
+2. Council scientists authenticate the archive; the Council believes it and classifies it to prevent panic.
+3. The navies quietly screen their officers for indoctrination, secure the Keepers and the Citadel’s controls, and drill for a war fought with the relays lost.
+4. The Mars archive is searched in secret from 2184 (story only: the campaign’s Crucible clock is unchanged).
+5. No budget can pass for ships nobody may be told about: no extra warships are built, and the archive holds no weapon.
 
 Mechanics — existing engine knobs only; every key not listed keeps its canon value (`CANON_TECH`, `CANON_SPECIAL`, `CANON_FLEETS`, `CANON_STRATEGIC`):
 
 | Knob | Value | Reason |
 | --- | --- | --- |
-| `special.reaperCommandVulnerability` | `true` | The Prothean record of Reaper coordination failing after capital losses becomes doctrine (engine: each capital kill adds 0.6 to every Reaper fleet’s coordination penalty, which decays over 30 s). |
-| `strategic.indoctrinationEffectiveness` | `0.4` | Screening: the crew penalty from Reaper presence falls from 8 % to 3.2 %. |
-| `strategic.alliedCoordination` | `0.55` | A believed warning brings slightly closer cooperation. |
+| `organic.crewQuality` | `1.04` | Fleet staffs, briefed under seal, drill against the Prothean account of how the war opens. The tuning lever. |
+| `strategic.alliedCoordination` | `0.55` | The few who know coordinate quietly across the navies. |
+| `strategic.indoctrinationEffectiveness` | `0.4` | Quiet screening: the crew penalty from Reaper presence falls from 8 % to 3.2 %. |
 
-Unchanged on purpose: Technology and every fleet strength on both sides, Shepard, the Crucible (available; its head start is story only, the engine has no knob for it).
+Unchanged on purpose: Technology other than crew training, every fleet strength on both sides, the Reapers themselves (no command vulnerability: canon records no such weakness), Shepard, the Crucible (available; its earlier, secret search is story only, the engine has no head-start knob).
 
-Codex “established canon” line (`canonBasis`): In 2183 Shepard reached Ilos, where Vigil, a Prothean VI, explained how the Reapers had used the Citadel to cut off the Prothean empire’s leadership, and gave Shepard the data that broke Saren’s hold on the Citadel.
+Codex “established canon” line (`canonBasis`): In 2183 Shepard reached Ilos, where Vigil, a Prothean VI, explained how the Reapers had used the Citadel and the relays to cut off the Prothean empire’s leadership after indoctrinated agents had weakened it, and gave Shepard the data that broke Saren’s hold on the Citadel. With Vigil’s power failing, Shepard went straight on through the Conduit.
 
-Release tuning lever (§1.8): `strategic.alliedCoordination` within `[0.5, 0.65]` — removing the command vulnerability measured 39.4; adding organic accuracy 1.05 measured 46.8–47.3, too close to the tier-4 boundary.
+Release tuning lever (§1.8): `organic.crewQuality` within `[1, 1.08]`, step 0.02, current 1.04. Measured: index 39.2 (tier 3 Moderate) at 1, 42.8 (tier 3 Moderate) at 1.08. `strategic.alliedCoordination`, the first draft’s lever, acts only through crew quality (×(0.9 + 0.2 × coordination)) and measured inside seed noise in review.
 
 ### 2.6 The Geth–Quarian Concord — `geth_quarian_concord` — tier 4 Serious
 
 | Field | Value |
 | --- | --- |
-| Tagline | The quarians recognised the geth instead of shutting them down. Three centuries later, Rannoch builds warships for both. |
+| Tagline | The quarians recognised the geth instead of shutting them down, and paid for it with their embassy. Rannoch builds warships for both. |
 | Divergence | **c. 1895** — The quarian government recognises the geth instead of ordering their shutdown; the Morning War never happens. |
 | Intended tier | 4 Serious |
-| Design-time measurement (`ba4decf`, §1.7) | index **57.0** → tier 4 Serious; Reaper losses 76 %, organic survival 38 %; holds against up to 3 capitals; per rung (wins of 4) 95 (4/4) · 89 (4/4) · 51 (1/4) · 31 (0/4) · 19 (0/4) |
-| Reference order of battle | coalition 47 hulls — Alliance 2 DN, 1 CV, 3 CA, 3 FF, 1 SR2; Hierarchy 2 DN, 3 CA, 3 FF; Republics 1 DN, 3 CA; Union 1 DN, 2 CA, 2 FF; Migrant Fleet 2 HV, 6 CA; Geth 2 DN, 5 CA, 5 FF; Reaper groups (capitals/destroyers) 2/5, 3/7, 4/10, 5/12, 6/14 |
-| Provenance | `AU_MODIFIED`. Canon up to the geth’s first signs of self-awareness, about three hundred years before Mass Effect (c. 1895). Everything after the divergence is AU, including a 2183 in which Saren has no geth army. |
+| Measured (implementation; `TIMELINE_THREAT.md`) | index **55.7** → tier 4 Serious; Reaper losses 74 %, organic survival 37 %; holds every reference Reaper group up to the Strike group (3 capitals, 7 destroyers in this timeline) and none above it; per group (wins of 4) Raid 2/5: 94 (4/4) · Strike group 3/7: 87 (4/4) · Battlegroup 4/10: 48 (1/4) · Assault fleet 5/12: 32 (0/4) · Harvest fleet 6/14: 18 (0/4) |
+| Reference order of battle | coalition 47 hulls — Alliance 2 DN, 1 CV, 3 CA, 3 FF, 1 SR2; Hierarchy 2 DN, 3 CA, 3 FF; Republics 1 DN, 3 CA; Union 1 DN, 2 CA, 2 FF; Rannoch Navy 2 HV, 6 CA; Geth 2 DN, 5 CA, 5 FF; Reaper groups (capitals/destroyers) 2/5, 3/7, 4/10, 5/12, 6/14 |
+| Provenance | `AU_MODIFIED`. Canon up to the geth’s first signs of self-awareness, about three hundred years before Mass Effect (c. 1895), and the Council’s laws against artificial intelligence. Everything after the divergence is AU, including a 2183 in which Saren has no geth army; Shepard, the Normandy and a hostile Cerberus are kept as stand-ins. |
 
 Description (the preset’s `description`, shown in the timelines screen and the codex):
 
-> ALTERNATE UNIVERSE. About three centuries before 2183 the quarians answer their creations’ first questions about themselves with recognition instead of a shutdown order. There is no Morning War and no Migrant Fleet: Rannoch remains a quarian world shared with the geth, the quarians keep their Citadel embassy, and the geth never split into a heretic faction for Sovereign to recruit. By 2186 the Concord fields a homeworld navy crewed by quarians flying with geth intelligences aboard, beside a geth fleet that has had three hundred years of peace to grow.
+> ALTERNATE UNIVERSE. About three centuries before 2183 the quarians answer their creations’ first questions about themselves with recognition instead of a shutdown order. There is no Morning War and no exile. Recognising machine intelligences as people breaks Citadel law, and the quarians choose their children over their embassy: the Council expels them, and Rannoch lives under Citadel sanctions for three hundred years. When the Reapers come in 2186 the Concord joins the war by treaty, not as a Council member, with a homeworld navy whose quarian crews fly beside geth intelligences and a geth fleet that never split and never fought a war at Rannoch.
 
 History changes (`historyChanges`):
 
 1. c. 1895: the quarian government recognises the geth as people; the order to shut them down is never given.
-2. No Morning War and no Migrant Fleet: the quarians keep Rannoch, its industry and their Citadel embassy.
-3. Quarian warships fly with geth intelligences aboard, with better barriers, electronic warfare and crews than any refugee fleet could field.
-4. The geth never divide: there are no heretics for Sovereign, and the geth fleet grows for three hundred years.
+2. No Morning War and no exile, but recognising artificial intelligences breaks Citadel law: the Council takes the quarian embassy and sanctions Rannoch for three centuries.
+3. The geth never divide and never fight their creators: there are no heretics for Sovereign, and no war at Rannoch in 2186 bleeds either fleet.
+4. Yards shared by quarians and geth build warships that fly with geth intelligences aboard, with better barriers, electronic warfare and crews than any refugee fleet could field.
+5. In 2186 the Concord joins the war against the Reapers by treaty, not as a member of the Council.
+6. Everything between 1895 and 2186 is alternate history; Shepard, the Normandy SR-2 and a hostile Cerberus are kept as stand-ins for this galaxy’s own.
 
 Mechanics — existing engine knobs only; every key not listed keeps its canon value (`CANON_TECH`, `CANON_SPECIAL`, `CANON_FLEETS`, `CANON_STRATEGIC`):
 
 | Knob | Value | Reason |
 | --- | --- | --- |
-| `fleetStrength.quarian` | `1.9` | A homeworld navy instead of a flotilla of converted civilian hulls. Reference: 2 HV, 6 CA. |
-| `fleetStrength.geth` | `2.4` | Three centuries of uninterrupted geth growth. Reference: 2 DN, 5 CA, 5 FF. |
 | `factionOverrides.quarian` | `{ crewQuality: 1.2, electronicWarfare: 1.4, accuracy: 1.1, kineticBarrierStrength: 1.2, barrierRegen: 1.3 }` | Geth intelligences as co-pilots and fire controllers; geth-tuned barrier emitters. |
-| `factionOverrides.geth` | `{ crewQuality: 1.2, barrierRegen: 1.3, sensors: 1.2, electronicWarfare: 1.3 }` | Quarian engineering on geth hulls, with no need for Reaper code. |
-| `strategic.alliedCoordination` | `0.6` | The Concord’s networked command links the coalition. |
+| `factionOverrides.geth` | `{ crewQuality: 1.2, barrierRegen: 1.3, sensors: 1.2, electronicWarfare: 1.3 }` | Quarian engineering on geth hulls, with no need for Reaper code. Its `electronicWarfare` is the tuning lever. |
+| `fleetStrength.quarian` | `1.9` | A homeworld navy built in Rannoch’s own yards instead of a flotilla of converted civilian hulls; Migrant Fleet hull classes stand in for Rannoch-built designs. |
+| `fleetStrength.geth` | `2.4` | What differs from canon: no heretic secession, no war at Rannoch in 2186 bleeding both fleets, and yards shared with the quarians. |
 
-Unchanged on purpose: Every other navy, all Reaper values, Shepard, the Crucible, Cerberus hostile.
+Unchanged on purpose: Every other navy, all Reaper values, allied coordination at the canon 0.5 (a treaty ally under Citadel sanctions, not a Council member), Shepard, the Crucible, Cerberus hostile.
 
-Codex “established canon” line (`canonBasis`): About three hundred years before 2183 the quarians’ geth servants began to show signs of self-awareness. The quarians tried to shut them down, lost the Morning War and fled Rannoch in the Migrant Fleet; by 2183 a heretic faction of geth served Sovereign.
+Codex “established canon” line (`canonBasis`): About three hundred years before 2183 the quarians’ geth servants began to show signs of self-awareness. The quarians tried to shut them down, lost the Morning War and fled Rannoch in the Migrant Fleet; the Council closed the quarian embassy for creating the geth, and by 2183 a heretic faction of geth served Sovereign.
 
-Release tuning lever (§1.8): `fleetStrength.geth` within `[2.0, 2.6]` — measured 53.6 at geth 2.2 / quarian 1.8 and 57.0 at 2.4 / 1.9.
+World state and campaign (§4.10):
+
+- lock `rannoch: 'peace'`: There was no Morning War: the quarians and the geth fight the Reapers together as the Concord.
+- lock `outcome: 'peace'`: There was no Morning War: the quarians and the geth fight the Reapers together as the Concord.
+- campaign note: In the campaign the Concord’s two fleets keep the Migrant Fleet and Geth Consensus Fleet names and hull lists, liveships included, as stand-ins for the Rannoch Navy and the geth fleet.
+
+Release tuning lever (§1.8): `factionOverrides.geth.electronicWarfare` within `[1, 1.6]`, step 0.05, current 1.3. Measured: index 53.5 (tier 4 Serious) at 1, 57.7 (tier 4 Serious) at 1.6. `fleetStrength.geth`, the first draft’s lever, measured 55.4 at 2.0 and 67.3 at 2.6: the third geth dreadnought appears at 2.5 and lifts the timeline a tier in one count step.
 
 ### 2.7 The Asari Disclosure — `asari_disclosure` — tier 4 Serious
 
@@ -409,8 +465,8 @@ Release tuning lever (§1.8): `fleetStrength.geth` within `[2.0, 2.6]` — measu
 | Tagline | In 2183 the Republics opened the Temple of Athame. Their head start became everyone’s. |
 | Divergence | **2183** — After Sovereign’s attack the asari councillor and the matriarchs disclose the Prothean beacon in the Temple of Athame. |
 | Intended tier | 4 Serious |
-| Design-time measurement (`ba4decf`, §1.7) | index **57.5** → tier 4 Serious; Reaper losses 77 %, organic survival 38 %; holds against up to 3 capitals; per rung (wins of 4) 94 (4/4) · 88 (4/4) · 57 (1/4) · 29 (0/4) · 20 (0/4) |
-| Reference order of battle | coalition 37 hulls — Alliance 2 DN, 1 CV, 3 CA, 3 FF, 1 SR2; Hierarchy 2 DN, 3 CA, 3 FF; Republics 1 DN, 4 CA; Union 1 DN, 2 CA, 2 FF; Migrant Fleet 1 HV, 3 CA; Geth 1 DN, 2 CA, 2 FF; Reaper groups (capitals/destroyers) 2/5, 3/7, 4/10, 5/12, 6/14 |
+| Measured (implementation; `TIMELINE_THREAT.md`) | index **53.2** → tier 4 Serious; Reaper losses 71 %, organic survival 36 %; holds every reference Reaper group up to the Strike group (3 capitals, 7 destroyers in this timeline) and none above it; per group (wins of 4) Raid 2/5: 94 (4/4) · Strike group 3/7: 88 (4/4) · Battlegroup 4/10: 47 (0/4) · Assault fleet 5/12: 21 (0/4) · Harvest fleet 6/14: 17 (0/4) |
+| Reference order of battle | coalition 37 hulls — Alliance 2 DN, 1 CV, 3 CA, 3 FF, 1 SR2; Hierarchy 2 DN, 3 CA, 3 FF; Republics 1 DN, 4 CA; Union 1 DN, 2 CA, 2 FF; Quarians 1 HV, 3 CA; Geth 1 DN, 2 CA, 2 FF; Reaper groups (capitals/destroyers) 2/5, 3/7, 4/10, 5/12, 6/14 |
 | Provenance | `AU_MODIFIED`. Canon: the beacon in the Temple of Athame and the asari technological lead it fed (revealed in 2186). The 2183 disclosure is AU. |
 
 Description (the preset’s `description`, shown in the timelines screen and the codex):
@@ -428,20 +484,21 @@ Mechanics — existing engine knobs only; every key not listed keeps its canon v
 
 | Knob | Value | Reason |
 | --- | --- | --- |
+| `organic.massAcceleratorDamage` | `1.15` | More efficient element zero cores drive heavier rounds for the same heat. The tuning lever. |
 | `organic.kineticBarrierStrength` | `1.35` | Asari barrier projection for every navy. |
 | `organic.barrierRegen` | `1.3` | Faster barrier cycling from the same research. |
+| `organic.armourStrength` | `1.1` | Prothean-pattern plating. |
+| `organic.hullIntegrity` | `1.05` | Prothean-pattern plating. |
 | `organic.sensors` | `1.25` | Asari sensor suites. |
-| `organic.massAcceleratorDamage` | `1.2` | More efficient element zero cores drive heavier rounds for the same heat. |
-| `organic.armourStrength / organic.hullIntegrity` | `1.1 / 1.05` | Prothean-pattern plating. |
 | `factionOverrides.asari` | `{ kineticBarrierStrength: 1.15, crewQuality: 1.1 }` | The Republics already had most of it, so their barriers gain less; their crews have trained with it for centuries. |
-| `fleetStrength.asari` | `1.25` | The Republics build openly. Reference: 1 DN, 4 CA. |
+| `fleetStrength.asari` | `1.25` | The Republics build openly. |
 | `strategic.alliedCoordination` | `0.65` | The disclosure buys trust. |
 
 Unchanged on purpose: All Reaper values, every other fleet strength, Shepard, the Crucible.
 
 Codex “established canon” line (`canonBasis`): The asari kept a Prothean beacon hidden in the Temple of Athame on Thessia for thousands of years, and it fed their technological lead; the secret came out only in 2186, when the Reapers attacked Thessia.
 
-Release tuning lever (§1.8): `organic.massAcceleratorDamage` within `[1.1, 1.25]` — measured 53.2 at 1.15 and 57.5 at 1.2.
+Release tuning lever (§1.8): `organic.massAcceleratorDamage` within `[1.1, 1.2]`, step 0.05, current 1.15. Measured: index 50.8 (tier 4 Serious) at 1.1, 59.0 (tier 4 Serious) at 1.2.
 
 ### 2.8 Turian Total War — `turian_total_war` — tier 5 Severe
 
@@ -450,8 +507,8 @@ Release tuning lever (§1.8): `organic.massAcceleratorDamage` within `[1.1, 1.25
 | Tagline | After Sovereign, the Hierarchy did what turians do: every citizen served and every yard built warships. |
 | Divergence | **2183** — After the Battle of the Citadel the Primarch places the Hierarchy on a total-war footing. |
 | Intended tier | 5 Severe |
-| Design-time measurement (`ba4decf`, §1.7) | index **72.3** → tier 5 Severe; Reaper losses 90 %, organic survival 54 %; holds against up to 4 capitals; per rung (wins of 4) 96 (4/4) · 90 (4/4) · 86 (4/4) · 56 (2/4) · 33 (0/4) |
-| Reference order of battle | coalition 49 hulls — Alliance 2 DN, 1 CV, 3 CA, 3 FF, 1 SR2; Hierarchy 5 DN, 8 CA, 8 FF; Republics 1 DN, 3 CA; Union 1 DN, 2 CA, 2 FF; Migrant Fleet 1 HV, 3 CA; Geth 1 DN, 2 CA, 2 FF; Reaper groups (capitals/destroyers) 2/5, 3/7, 4/10, 5/12, 6/14 |
+| Measured (implementation; `TIMELINE_THREAT.md`) | index **67.5** → tier 5 Severe; Reaper losses 86 %, organic survival 49 %; holds every reference Reaper group up to the Battlegroup (4 capitals, 10 destroyers in this timeline) and none above it; per group (wins of 4) Raid 2/5: 96 (4/4) · Strike group 3/7: 92 (4/4) · Battlegroup 4/10: 85 (4/4) · Assault fleet 5/12: 35 (0/4) · Harvest fleet 6/14: 31 (0/4) |
+| Reference order of battle | coalition 49 hulls — Alliance 2 DN, 1 CV, 3 CA, 3 FF, 1 SR2; Hierarchy 5 DN, 8 CA, 8 FF; Republics 1 DN, 3 CA; Union 1 DN, 2 CA, 2 FF; Quarians 1 HV, 3 CA; Geth 1 DN, 2 CA, 2 FF; Reaper groups (capitals/destroyers) 2/5, 3/7, 4/10, 5/12, 6/14 |
 | Provenance | `AU_MODIFIED`. Canon: the Battle of the Citadel (2183) and turian society (service from the age of fifteen, the largest navy in Citadel space, the volus as a client race). The 2183 mobilisation is AU. |
 
 Description (the preset’s `description`, shown in the timelines screen and the codex):
@@ -469,14 +526,14 @@ Mechanics — existing engine knobs only; every key not listed keeps its canon v
 
 | Knob | Value | Reason |
 | --- | --- | --- |
-| `fleetStrength.turian` | `2.5` | Total mobilisation. Reference: 5 DN, 8 CA, 8 FF. |
 | `factionOverrides.turian` | `{ crewQuality: 1.1, accuracy: 1.05 }` | Three years of war drill. |
+| `fleetStrength.turian` | `2.5` | Total mobilisation. The tuning lever. |
 
 Unchanged on purpose: Every other value is canon.
 
 Codex “established canon” line (`canonBasis`): Turians serve in the military from the age of fifteen, the Hierarchy fields the largest navy in Citadel space and the volus are its client race. The Citadel Fleet took heavy losses against Sovereign in 2183, but the Hierarchy did not mobilise against the Reapers before they struck Palaven in 2186.
 
-Release tuning lever (§1.8): `fleetStrength.turian` within `[2.2, 2.8]` — measured 64.0 at 2.2 (too close to the tier-5 floor) and 72.3 at 2.5.
+Release tuning lever (§1.8): `fleetStrength.turian` within `[2.2, 2.8]`, step the next count change, current 2.5. Reference counts change at 2.25, 2.50, 2.75 inside the range. Measured: index 64.4 (tier 5 Severe) at 2.2, 76.7 (tier 5 Severe) at 2.8.
 
 ### 2.9 Leviathan’s Covenant — `leviathans_covenant` — tier 5 Severe
 
@@ -485,8 +542,8 @@ Release tuning lever (§1.8): `fleetStrength.turian` within `[2.2, 2.8]` — mea
 | Tagline | At Despoina the Leviathans stopped hiding. The makers of the Reapers’ maker went to war. |
 | Divergence | **2186** — At Despoina the Leviathans join the war openly instead of as a hidden asset. |
 | Intended tier | 5 Severe |
-| Design-time measurement (`ba4decf`, §1.7) | index **70.4** → tier 5 Severe; Reaper losses 87 %, organic survival 54 %; holds against up to 4 capitals; per rung (wins of 4) 98 (4/4) · 90 (4/4) · 80 (4/4) · 53 (2/4) · 30 (0/4) |
-| Reference order of battle | coalition 36 hulls — Alliance 2 DN, 1 CV, 3 CA, 3 FF, 1 SR2; Hierarchy 2 DN, 3 CA, 3 FF; Republics 1 DN, 3 CA; Union 1 DN, 2 CA, 2 FF; Migrant Fleet 1 HV, 3 CA; Geth 1 DN, 2 CA, 2 FF; Reaper groups (capitals/destroyers) 2/5, 3/7, 4/10, 5/12, 6/14 |
+| Measured (implementation; `TIMELINE_THREAT.md`) | index **72.2** → tier 5 Severe; Reaper losses 89 %, organic survival 55 %; holds every reference Reaper group up to the Battlegroup (4 capitals, 10 destroyers in this timeline) and none above it; per group (wins of 4) Raid 2/5: 97 (4/4) · Strike group 3/7: 96 (4/4) · Battlegroup 4/10: 81 (4/4) · Assault fleet 5/12: 58 (1/4) · Harvest fleet 6/14: 30 (0/4) |
+| Reference order of battle | coalition 36 hulls — Alliance 2 DN, 1 CV, 3 CA, 3 FF, 1 SR2; Hierarchy 2 DN, 3 CA, 3 FF; Republics 1 DN, 3 CA; Union 1 DN, 2 CA, 2 FF; Quarians 1 HV, 3 CA; Geth 1 DN, 2 CA, 2 FF; Reaper groups (capitals/destroyers) 2/5, 3/7, 4/10, 5/12, 6/14 |
 | Provenance | `AU_MODIFIED`. Canon through Mass Effect 3’s Leviathan (2186): Despoina, the Leviathans, their thralls, their creation of the intelligence behind the Reapers and the first Reaper made in their image. Their open war is AU. |
 
 Description (the preset’s `description`, shown in the timelines screen and the codex):
@@ -504,19 +561,22 @@ Mechanics — existing engine knobs only; every key not listed keeps its canon v
 
 | Knob | Value | Reason |
 | --- | --- | --- |
-| `special.indoctrinationDisabled / strategic.indoctrinationEffectiveness` | `true / 0` | Leviathan shielding of allied minds. |
+| `special.reaperCommandVulnerability` | `true` | Active Leviathan interference, not knowledge of a weakness: when a Reaper capital dies near them, the Leviathans press on the gap and the other Reapers’ coordination falters for a time (engine: each capital kill adds 0.6 to every Reaper fleet’s coordination penalty, decaying over 30 s). |
+| `special.indoctrinationDisabled` | `true` | Leviathan shielding of allied minds. |
+| `organic.massAcceleratorPenetration` | `1.3` | The Leviathans know Reaper anatomy: the first Reaper was made in their image. |
 | `organic.sensors` | `1.3` | Thrall reports of Reaper movements. |
-| `organic.accuracy / organic.massAcceleratorPenetration` | `1.15 / 1.3` | The Leviathans know Reaper anatomy: the first Reaper was made in their image. |
-| `reaper.accuracy / reaper.electronicWarfare` | `0.75 / 0.6` | Leviathan interference unsettles Reaper fire control and masking. |
-| `strategic.reaperCompetence` | `0.6` | Disrupted Reaper coordination. |
-| `special.reaperCommandVulnerability` | `true` | The Leviathans know the command structure their creation built. |
+| `organic.accuracy` | `1.15` | Leviathan knowledge of Reaper construction guides allied targeting. |
+| `reaper.electronicWarfare` | `0.6` | Leviathan interference unsettles Reaper masking. |
+| `reaper.accuracy` | `0.75` | Leviathan interference unsettles Reaper fire control. The tuning lever. |
 | `strategic.alliedCoordination` | `0.7` | Thralls relay orders between allied fleets. |
+| `strategic.reaperCompetence` | `0.6` | Disrupted Reaper coordination. |
+| `strategic.indoctrinationEffectiveness` | `0` | Leviathan shielding of allied minds (with `indoctrinationDisabled`). |
 
 Unchanged on purpose: Every fleet strength, Reaper durability and firepower, Shepard, the Crucible.
 
 Codex “established canon” line (`canonBasis`): In 2186 Shepard followed Dr. Ann Bryson’s research to Despoina, where the Leviathans, who created the intelligence that created the Reapers, had hidden for aeons behind their thralls; the first Reaper had been made in their image. Shepard persuaded them to join the war.
 
-Release tuning lever (§1.8): `reaper.accuracy` within `[0.7, 0.8]` — measured 80.2 at accuracy 0.7 with electronicWarfare 0.5, and 70.4 at 0.75 / 0.6.
+Release tuning lever (§1.8): `reaper.accuracy` within `[0.7, 0.8]`, step 0.05, current 0.75. Measured: index 73.7 (tier 5 Severe) at 0.7, 68.1 (tier 5 Severe) at 0.8.
 
 ### 2.10 The Conduit Protocol — `conduit_protocol` — tier 6 Existential
 
@@ -525,8 +585,8 @@ Release tuning lever (§1.8): `reaper.accuracy` within `[0.7, 0.8]` — measured
 | Tagline | The Protheans built one relay of their own. By 2186 the galaxy could lock the rest against their builders. |
 | Divergence | **2183** — A joint Alliance–STG team begins studying the Prothean Conduit on Ilos. |
 | Intended tier | 6 Existential |
-| Design-time measurement (`ba4decf`, §1.7) | index **94.5** → tier 6 Existential; Reaper losses 100 %, organic survival 89 %; holds against up to 6 capitals; per rung (wins of 4) 98 (4/4) · 97 (4/4) · 94 (4/4) · 92 (4/4) · 92 (4/4) |
-| Reference order of battle | coalition 36 hulls — Alliance 2 DN, 1 CV, 3 CA, 3 FF, 1 SR2; Hierarchy 2 DN, 3 CA, 3 FF; Republics 1 DN, 3 CA; Union 1 DN, 2 CA, 2 FF; Migrant Fleet 1 HV, 3 CA; Geth 1 DN, 2 CA, 2 FF; Reaper groups (capitals/destroyers) 1/2, 1/3, 2/4, 2/5, 2/6 |
+| Measured (implementation; `TIMELINE_THREAT.md`) | index **94.4** → tier 6 Existential; Reaper losses 100 %, organic survival 89 %; holds all 5 reference Reaper groups, up to the Harvest fleet (2 capitals, 6 destroyers in this timeline); per group (wins of 4) Raid 1/2: 97 (4/4) · Strike group 1/3: 97 (4/4) · Battlegroup 2/4: 93 (4/4) · Assault fleet 2/5: 93 (4/4) · Harvest fleet 2/6: 92 (4/4) |
+| Reference order of battle | coalition 36 hulls — Alliance 2 DN, 1 CV, 3 CA, 3 FF, 1 SR2; Hierarchy 2 DN, 3 CA, 3 FF; Republics 1 DN, 3 CA; Union 1 DN, 2 CA, 2 FF; Quarians 1 HV, 3 CA; Geth 1 DN, 2 CA, 2 FF; Reaper groups (capitals/destroyers) 1/2, 1/3, 2/4, 2/5, 2/6 |
 | Provenance | `AU_MODIFIED`. Canon: Ilos and the Conduit (2183), the Reapers as builders of the mass relay network and the Citadel as its master relay. Relay locks are AU. |
 
 Description (the preset’s `description`, shown in the timelines screen and the codex):
@@ -544,16 +604,20 @@ Mechanics — existing engine knobs only; every key not listed keeps its canon v
 
 | Knob | Value | Reason |
 | --- | --- | --- |
-| `fleetStrength.reaper` | `0.4` | Each battle meets the part of the harvest that has crossed by ordinary FTL. Reference Reaper groups: 1/2, 1/3, 2/4, 2/5, 2/6. |
-| `strategic.reaperReinforcements` | `0.3` | Campaign only: reinforcements trickle in. |
+| `fleetStrength.reaper` | `0.4` | Each battle meets the part of the harvest that has crossed by ordinary FTL. The tuning lever. |
 | `strategic.alliedCoordination` | `0.7` | Fleets and orders still move through the network. |
+| `strategic.reaperReinforcements` | `0.3` | Campaign only: reinforcements trickle in. |
 | `strategic.conventionalVictoryPossible` | `true` | Campaign flag: the harvest can be beaten without the Crucible. |
 
 Unchanged on purpose: All technology on both sides (the protocol changes where the Reapers are, not what they are), every organic fleet strength, Shepard, the Crucible.
 
 Codex “established canon” line (`canonBasis`): The Conduit on Ilos was a small mass relay built by Prothean scientists, and Saren and Shepard used it in 2183 to reach the Citadel. The Reapers built the mass relay network, and the Citadel itself is a relay to dark space.
 
-Release tuning lever (§1.8): `fleetStrength.reaper` within `[0.35, 0.45]` — the probe under the earlier spread layout measured 70.1 at 0.5, inside tier 5.
+World state and campaign (§4.10):
+
+- campaign note: The campaign still moves Reaper fleets along the relay lanes: the locks are expressed only through the smaller Reaper fleets and the reduced reinforcement pool.
+
+Release tuning lever (§1.8): `fleetStrength.reaper` within `[0.35, 0.41]`, step the next count change, current 0.4. Reference counts change at 0.36, 0.38, 0.40 inside the range. Measured: index 95.0 (tier 6 Existential) at 0.35, 94.4 (tier 6 Existential) at 0.41. Tier 6 is open above, so only the upward direction can be needed. The range stops at 0.41: from 0.42 the Harvest fleet rounds to three capitals (6 × 0.4167 = 2.5), and the first draft’s 0.45 measured 83.9, tier 5, in review.
 
 ## 3. The eight existing presets on the scale
 
@@ -561,14 +625,14 @@ Measured exactly like the new ones; **their numbers do not change**, and their l
 
 | Preset | Index | Tier | Reading |
 | --- | ---: | --- | --- |
-| Canon Mass Effect 3 | 36.1 | 3 Moderate | Holds a two-capital raid every time and loses everything larger while taking more than half the Reapers’ hull value with it: the canon war, in which Reapers die but the harvest wins. |
-| Prepared Galaxy | 72.2 | 5 Severe | Thirty to fifty per cent more ships, fleet-wide Thanix and modest crew and rate-of-fire gains hold Reaper groups of up to four capitals. "More of what they already had" is worth a great deal under square-law attrition, and the label says so. |
-| Humanity Ascendant | 77.5 | 5 Severe | Only the Alliance changes, but ×2.2 with heavier guns and barriers; it contests even the six-capital group. |
-| Cerberus Reformed | 43.1 | 3 Moderate | Cerberus beside the coalition (×2, better electronic warfare) adds a contingent but does not change which rungs hold; 4.9 points under the tier-4 floor. |
-| Reaper Escalation | 11.2 | 1 Negligible | Reaper groups 1.6 times larger (the raid becomes three capitals) with better regeneration and crews: the coalition holds nothing, and the Reapers lose a fifth of their hull value. |
-| Prime/Apex — Apex core | 97.1 | 6 Existential | Wins every rung with 94 % survival. |
-| Prime/Apex — Apex legacy (high power) | 97.2 | 6 Existential | Indistinguishable from Apex core here: the Legacy Nova is one gun in a 67-hull coalition. |
-| Cerberus Ascendant | 44.6 | 3 Moderate | **The surprise.** Its premise, the Illusive Man commanding the Reaper fleet, is a strategic outcome the reference cannot express. What the battles see is a coalition with Cerberus beside it, indoctrination switched off and no Normandy (Shepard is dead). The label follows the measurement, and the badge’s "measured in conventional battle" says why. 3.4 points under the tier-4 floor. |
+| Canon Mass Effect 3 | 35.4 | 3 Moderate | Holds the Raid (2/5) every time and loses every larger group while taking about half the Reapers’ hull value with it (Reaper losses 53 %): the canon war, in which Reapers die but the harvest wins. |
+| Prepared Galaxy | 73.0 | 5 Severe | Thirty to fifty per cent more ships, fleet-wide Thanix and modest crew and rate-of-fire gains hold every group up to the Battlegroup (4/10). "More of what they already had" is worth a great deal under square-law attrition, and the label says so. |
+| Humanity Ascendant | 81.8 | 5 Severe | Only the Alliance changes, but ×2.2 with heavier guns and barriers. It holds all five groups, the Assault and Harvest fleets in 3 of 4 seeds each, and stays in tier 5 because those two cost it dearly (organic survival 47 % and 30 % there). |
+| Cerberus Reformed | 42.2 | 3 Moderate | Cerberus beside the coalition (×2, better electronic warfare) adds a contingent and wins the Strike group in 2 of 4 seeds, but holds no more groups than canon; 5.8 points under the tier-4 floor. |
+| Reaper Escalation | 11.1 | 1 Negligible | Reaper groups 1.6 times larger (the Raid is 3 capitals and 8 destroyers) with better regeneration and crews: the coalition holds nothing, and the Reapers lose about a fifth of their hull value. |
+| Prime/Apex — Apex core | 97.1 | 6 Existential | Wins every group with 94 % survival. |
+| Prime/Apex — Apex legacy (high power) | 97.3 | 6 Existential | Indistinguishable from Apex core here: the Legacy Nova is one gun in a 67-hull coalition. |
+| Cerberus Ascendant | 44.1 | 3 Moderate | **The surprise.** Its premise, the Illusive Man commanding the Reaper fleet, is a strategic outcome the reference cannot express. What the battles see is a coalition with Cerberus beside it, indoctrination switched off and no Normandy (Shepard is dead). The label follows the measurement, and the badge’s "measured in conventional battle" says why. 3.9 points under the tier-4 floor. |
 
 ## 4. Implementation design
 
@@ -583,43 +647,42 @@ Existing files, with the exact extent of the change:
 | `src/timelines/presets.ts` | CORE | One import line and `...ALTERNATE_PRESETS` at the end of `PRESETS`. Nothing else, so CORE’s edits elsewhere in the file merge cleanly. |
 | `tests/timelines.test.ts` | CORE | The one assertion `expect(PRESETS.map((p) => p.id)).toEqual([...eight ids])` gains `...ALTERNATE_PRESETS.map((p) => p.id)` at the end (and the import). |
 | `package.json` | shared | `"timeline:threat": "node --import tsx/esm scripts/timeline-threat.ts"`. |
-| `src/ui/screens/timelines.ts`, `briefing.ts`, `campaign.ts` (setup only), `src/style.css` | stages B/C later | Badge calls and CSS. The badge lives in its own module so these diffs stay a few lines each. |
+| `src/ui/screens/timelines.ts`, `briefing.ts`, `campaign.ts` (setup only), `src/style.css` | stages B/C later | Badge calls, the world-state locks with their AU notes, the threat block of the detail panel, CSS, and a layout class so the timelines screen stacks to one column on phones. The badge lives in its own module so these diffs stay small. |
 | `src/codex/entries.ts`, `src/ui/screens/codex.ts` | stage D later | The Timelines category; additive. |
-| `AU_RULES.md`, `README.md`, `CHANGELOG.md`, `LORE_REFERENCE.md` | docs | §4.12. |
+| `AU_RULES.md`, `README.md`, `CHANGELOG.md`, `LORE_REFERENCE.md` | docs | §4.12, including the known limitations of §4.10. |
 
-Not touched: `src/scenarios/index.ts` (the reference engagement is not registered as a Quick Battle scenario, so CORE’s scenario work and the hard-coded lists in `tests/battle.test.ts` stay as they are), `src/simulation/**`, `src/data/**`, `src/timelines/rules.ts`, `src/timelines/schema.ts`, `e2e/**`.
+Not touched: `src/scenarios/index.ts` (the reference engagement is not registered as a Quick Battle scenario, so CORE’s scenario work and the hard-coded lists in `tests/battle.test.ts` stay as they are), `src/campaign/**`, `src/simulation/**`, `src/data/**`, `src/timelines/rules.ts`, `src/timelines/schema.ts`, `e2e/**`.
 
 ### 4.2 `src/timelines/alternates.ts`
 
-Holds the ten presets and their metadata; imports only `./rules` and a type from `./threat`. It must not import `./presets` (that would be a cycle, since `presets.ts` imports it).
+Holds the ten presets, their metadata and three small helpers; imports only `./rules` and a type from `./threat`. It must not import `./presets` (that would be a cycle, since `presets.ts` imports it).
 
 ```ts
-import { CANON_FLEETS, CANON_SPECIAL, CANON_STRATEGIC, CANON_TECH, type RuleSet, type TechModifiers } from './rules';
-import type { ThreatTier } from './threat';
-
-const tech = (p: Partial<TechModifiers> = {}): TechModifiers => ({ ...CANON_TECH, ...p });
-
-/** Prefix for every alternate-universe line shown outside the preset itself (codex, tooltips). */
+/** Prefix for every alternate-universe line shown outside the preset itself (codex, tooltips, world-state notes). */
 export const auPrefix = (name: string): string => `ALTERNATE UNIVERSE (${name}): `;
 
+export interface WorldStateLock { value: string; why: string }
+
 export interface AlternateMeta {
-  /** Divergence point inside established Mass Effect history. */
   divergence: { year: number; approximate?: boolean; event: string };
-  /** Established canon up to the divergence, in original wording: the codex "established canon" block. */
-  canonBasis: string;
+  canonBasis: string;            // the codex "established canon" block, original wording
   provenance: 'AU_MODIFIED';
-  /** Intended tier; tests/alternateTimelines.test.ts requires the generated table to agree (TIMELINES_V2.md §1.8). */
-  declaredTier: ThreatTier;
-  /** The one knob a release may move to keep the declared tier, and its story-safe range (TIMELINES_V2.md §1.8). */
-  lever: { key: string; min: number; max: number };
+  declaredTier: ThreatTier;      // tests require the generated table to agree (§1.8)
+  lever: { key: string; min: number; max: number; step: number | 'count' };   // §1.8
+  worldState?: Record<string, WorldStateLock>;   // §4.10: keyed by world-state option id
+  campaignNote?: string;         // what the campaign cannot express of the premise (§4.10)
 }
 
-// The ten literals and ALTERNATE_META: Appendix C, verbatim.
-export const ALTERNATE_PRESETS: RuleSet[] = [/* tier order, Appendix C */];
-export const ALTERNATE_META: Record<string, AlternateMeta> = {/* Appendix C */};
+export const ALTERNATE_PRESETS: RuleSet[];                 // declared-tier order, then divergence year
+export const ALTERNATE_META: Record<string, AlternateMeta>;
+export function getLever(rules: RuleSet, key: string): number;              // 'factionOverrides.turian.accuracy', …
+export function withLever(rules: RuleSet, key: string, value: number): RuleSet;
+export const CAMPAIGN_WORLD_STATE_CHOICES: Readonly<Record<string, readonly string[]>>;   // the setup screen's options
+export const CAMPAIGN_WORLD_STATE_DEFAULTS: Readonly<Record<string, string>>;
+export function lockWorldState(rules, ws, choices, applyHidden = true): { ws; locked; hidden };
 ```
 
-Every literal spreads the canon constants, so `validateRuleSet` returns it unchanged; the strings use typographic apostrophes like the existing presets.
+Every literal spreads the canon constants, so `validateRuleSet` returns it unchanged; the strings use typographic apostrophes like the existing presets. The file is the authority for every text and value of §2 (Appendix C of the first draft is superseded by it).
 
 ### 4.3 `src/timelines/presets.ts`
 
@@ -638,251 +701,59 @@ export const PRESETS: RuleSet[] = [
 
 Pure data and arithmetic: no DOM, no simulation import, no clock (it sits under the determinism lint).
 
-```ts
-import type { RuleSet } from './rules';
-import { REAPER_THREAT, THREAT_REFERENCE_META } from './threatMeasured';
-export { REAPER_THREAT, THREAT_REFERENCE_META };
+- Constants: `THREAT_FORMULA_VERSION` (1), `THREAT_THRESHOLDS` (`[17, 30, 48, 62, 87]`), `THREAT_TIME_LIMIT_BOUND` (0.25), `THREAT_TIERS` (tier, label, band and the band statement of §1.3), `THREAT_RUNGS` (the five base groups with their names).
+- Types: `RungGroup` (name, capitals, destroyers as deployed); `ThreatRun` (rung, seed, reaperLoss, organicSurvival, winner, duration, `timeLimit`); `RungMeasure` (a `RungGroup` plus index, the two terms, wins, battles and time-limit endings); `MeasuredThreat` (index, the two terms, `holdsRungs`, `holdsUpTo`, `timeLimitShare`, rungs); `ThreatRating` (plus tier, label, summary); `ThreatReferenceMeta`; `ThreatLeverMeasure`.
+- Functions: `threatIndex(L, S)`; `tierForIndex(index)`; `summariseThreat(runs, groups)`, which takes the **deployed** groups and rounds as the table stores (index one decimal, fractions three); `threatRating(rules)`, undefined for `category: 'custom'` and for any id the table does not cover; `threatHoldsText(m)` (§1.4); `threatRungLines(m)`; `threatTooltip(rating)`.
 
-export type ThreatTier = 1 | 2 | 3 | 4 | 5 | 6;
-export type ThreatLabel = 'Negligible' | 'Low' | 'Moderate' | 'Serious' | 'Severe' | 'Existential';
+Tooltip wording (all numbers rounded to whole per cent):
 
-/** Lower bounds of tiers 2–6 on the 0–100 index (TIMELINES_V2.md §1.3). Fixed: never tuned to a preset. */
-export const THREAT_THRESHOLDS = [17, 30, 48, 62, 87] as const;
-
-export interface ThreatTierInfo { tier: ThreatTier; label: ThreatLabel; min: number; max: number; summary: string }
-/** One row per tier; `summary` is the "what it means" column of §1.3, in player-facing words. */
-export const THREAT_TIERS: readonly ThreatTierInfo[] = [/* six rows */];
-
-/** One reference battle, as src/scenarios/threatReference.ts reports it. */
-export interface ThreatRun { rung: number; seed: number; reaperLoss: number; organicSurvival: number; winner: 'A' | 'B' | 'draw'; duration: number }
-export interface RungMeasure { capitals: number; destroyers: number; index: number; reaperLoss: number; organicSurvival: number; wins: number; battles: number }
-export interface MeasuredThreat { index: number; reaperLoss: number; organicSurvival: number; holdsUpTo: number; rungs: RungMeasure[] }
-export interface ThreatRating extends MeasuredThreat { tier: ThreatTier; label: ThreatLabel; summary: string }
-
-const clamp01 = (x: number): number => Math.min(1, Math.max(0, x));
-const mean = (xs: readonly number[]): number => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0);
-const r1 = (x: number): number => Math.round(x * 10) / 10;
-const r3 = (x: number): number => Math.round(x * 1000) / 1000;
-
-/** The battle or timeline index: 50 × (Reaper hull lost + organic survival), both 0–1. */
-export const threatIndex = (reaperLoss: number, organicSurvival: number): number => 50 * (clamp01(reaperLoss) + clamp01(organicSurvival));
-
-export function tierForIndex(index: number): ThreatTier {
-  let tier = 1;
-  for (const t of THREAT_THRESHOLDS) if (index >= t) tier++;
-  return tier as ThreatTier;
-}
-
-/** Aggregates the runs of one timeline (rungs × seeds, equal weights); rounds as the generated table stores it. */
-export function summariseThreat(runs: readonly ThreatRun[], rungs: readonly { capitals: number; destroyers: number }[]): MeasuredThreat {
-  const per: RungMeasure[] = rungs.map((g, k) => {
-    const rs = runs.filter((r) => r.rung === k);
-    const L = mean(rs.map((r) => r.reaperLoss));
-    const S = mean(rs.map((r) => r.organicSurvival));
-    return { capitals: g.capitals, destroyers: g.destroyers, index: r1(threatIndex(L, S)), reaperLoss: r3(L), organicSurvival: r3(S), wins: rs.filter((r) => r.winner === 'A').length, battles: rs.length };
-  });
-  let holdsUpTo = 0;
-  for (const p of per) {
-    if (p.battles > 0 && p.wins * 4 >= p.battles * 3) holdsUpTo = p.capitals;
-    else break;
-  }
-  const L = mean(runs.map((r) => r.reaperLoss));
-  const S = mean(runs.map((r) => r.organicSurvival));
-  return { index: r1(threatIndex(L, S)), reaperLoss: r3(L), organicSurvival: r3(S), holdsUpTo, rungs: per };
-}
-
-/** The rating the UI shows; undefined ("Unrated") for custom timelines and anything the table does not cover. */
-export function threatRating(rules: Pick<RuleSet, 'id' | 'category'>): ThreatRating | undefined {
-  if (rules.category === 'custom') return undefined;
-  const m = REAPER_THREAT[rules.id];
-  if (!m) return undefined;
-  const info = THREAT_TIERS[tierForIndex(m.index) - 1];
-  return { ...m, tier: info.tier, label: info.label, summary: info.summary };
-}
-
-export const UNRATED = 'Unrated';
-
-/** Tooltip text: the measured losses and survival, the breaking point, and how it was measured. */
-export function threatTooltip(r: ThreatRating | undefined, reaperFleetStrength = 1): string { /* see below */ }
-```
-
-Tooltip wording (generated from the rating, all numbers rounded to whole per cent):
-
-- Rated: `Threat to the Reapers 3/6 — Moderate (index 36). Reaper losses 55 %, organic survival 17 %. Holds the reference Reaper groups up to the 2-capital raid. Measured in conventional battle: threat reference engagement, 5 Reaper group sizes × 4 seeds (abc1234). Simulation estimate.` When the timeline scales the Reaper groups, add `Reaper groups ×1.3 in this timeline.` When it holds nothing: `Holds none of the reference Reaper groups.`
+- Rated: `Threat to the Reapers 3/6 — Moderate (index 35). Reaper losses 53 %, organic survival 18 %. Holds the Raid (2 capitals, 5 destroyers in this timeline) and no larger reference group. Measured in conventional battle: threat reference engagement, 5 Reaper group sizes × 4 seeds (abc1234). Simulation estimate.`
 - Unrated: `Threat to the Reapers: unrated. Custom timelines are not measured; tiers are measured for the built-in timelines on the threat reference engagement.`
 
 ### 4.5 `src/timelines/threatMeasured.ts` (generated)
 
-Written only by the script; reviewed like code; byte-identical when regenerated on the same commit (no timestamp, keys in `PRESETS` order, fixed decimals).
-
-```ts
-// GENERATED by scripts/timeline-threat.ts. Do not edit by hand; regenerate with `npm run timeline:threat`.
-// Threat reference engagement: 5 Reaper groups × 4 seeds per preset (docs/apex/TIMELINES_V2.md §1).
-import type { MeasuredThreat } from './threat';
-
-export const THREAT_REFERENCE_META = {
-  reference: 'threat_reference',
-  formulaVersion: 1,
-  seeds: [1, 2, 3, 4],
-  rungs: [{ capitals: 2, destroyers: 5 }, { capitals: 3, destroyers: 7 }, { capitals: 4, destroyers: 10 }, { capitals: 5, destroyers: 12 }, { capitals: 6, destroyers: 14 }],
-  maxDuration: 240,
-  measuredOn: 'abc1234',
-} as const;
-
-export const REAPER_THREAT: Readonly<Record<string, MeasuredThreat>> = {
-  canon_me3: { index: 36.1, reaperLoss: 0.553, organicSurvival: 0.169, holdsUpTo: 2, rungs: [/* five RungMeasure rows */] },
-  // … one entry per PRESETS id, in PRESETS order
-};
-```
-
-`measuredOn` is `git rev-parse --short HEAD` at generation (`unknown` when git is unavailable). The `import type` keeps the mutual reference with `threat.ts` type-only. Bootstrap: the first commit carries a placeholder with `REAPER_THREAT = {}` so that everything compiles before the first run; the script never reads the table except in `--check` mode and when merging `--only` results.
+Written only by the script; reviewed like code; byte-identical when regenerated on the same commit (no timestamp, keys in `PRESETS` order, fixed decimals). It exports `THREAT_REFERENCE_META` (reference id, formula version, seeds, base rungs, `standoffKm`, `maxDuration`, `battles`, `timeLimitShare`, `measuredOn`), `REAPER_THREAT` (one `MeasuredThreat` per `PRESETS` id, in `PRESETS` order) and `THREAT_LEVERS` (one `ThreatLeverMeasure` per new timeline). `measuredOn` is `git rev-parse --short HEAD` at generation, with `+dirty` when `src/` differed from it (`unknown` without git; a `--only` run appends `(partial: …)`, which the release step replaces with a full run). The `import type` keeps the mutual reference with `threat.ts` type-only. The first commit carries a placeholder (`REAPER_THREAT = {}`) so that everything compiles before the first run.
 
 ### 4.6 `src/scenarios/threatReference.ts`
 
 The engagement of §1.1 and the metrics of §1.2. Deterministic (it sits under the determinism lint); it imports `fleet` from `./index` and is not registered in `SCENARIOS`.
 
-```ts
-import { v3 } from '@/core/vec3';
-import type { FactionId } from '@/data/types';
-import { BattleSimulation } from '@/simulation/battle';
-import { summarise } from '@/simulation/results';
-import type { BattleConfig, FleetSpec, FormationType } from '@/simulation/types';
-import { isApexRules, type RuleSet } from '@/timelines/rules';
-import type { ThreatRun } from '@/timelines/threat';
-import { fleet } from './index';
-
-export const THREAT_REFERENCE_ID = 'threat_reference';
-export const THREAT_SEEDS = [1, 2, 3, 4] as const;
-export const THREAT_MAX_DURATION = 240;
-export const THREAT_RUNGS = [
-  { name: 'Raid', capitals: 2, destroyers: 5 },
-  { name: 'Strike group', capitals: 3, destroyers: 7 },
-  { name: 'Battlegroup', capitals: 4, destroyers: 10 },
-  { name: 'Assault fleet', capitals: 5, destroyers: 12 },
-  { name: 'Harvest fleet', capitals: 6, destroyers: 14 },
-] as const;
-
-const allied = (r: RuleSet): boolean => r.strategic.cerberusStance === 'cooperative' || r.strategic.cerberusStance === 'controls_reapers';
-
-interface Contingent { id: string; faction: Exclude<FactionId, 'reaper'>; name: string; x: number; z: number; formation: FormationType; when?: (r: RuleSet) => boolean; counts: (r: RuleSet) => Record<string, number> }
-
-/** §1.1, in this order: the order fixes the random draws. */
-export const THREAT_COALITION: readonly Contingent[] = [
-  { id: 'ref-alliance', faction: 'alliance', name: 'Systems Alliance', x: -5, z: -30, formation: 'line_abreast', counts: (r) => ({ alliance_dreadnought: 2, alliance_carrier: 1, alliance_cruiser: 3, alliance_frigate: 3, normandy_sr2: r.strategic.shepardAlive ? 1 : 0, normandy_valkyrie: r.special.valkyrieAvailable ? 1 : 0, alliance_super_dreadnought: r.special.superDreadnoughts ? 1 : 0 }) },
-  { id: 'ref-turian', faction: 'turian', name: 'Turian Hierarchy', x: -15, z: -30, formation: 'line_abreast', counts: (r) => ({ turian_dreadnought: 2, turian_cruiser: 3, turian_frigate: 3, turian_super_dreadnought: r.special.superDreadnoughts ? 1 : 0 }) },
-  { id: 'ref-asari', faction: 'asari', name: 'Asari Republics', x: 5, z: -30, formation: 'defensive_screen', counts: () => ({ asari_dreadnought: 1, asari_cruiser: 3 }) },
-  { id: 'ref-salarian', faction: 'salarian', name: 'Salarian Union', x: 15, z: -30, formation: 'line_abreast', counts: () => ({ salarian_dreadnought: 1, salarian_cruiser: 2, salarian_frigate: 2 }) },
-  { id: 'ref-quarian', faction: 'quarian', name: 'Migrant Fleet', x: 25, z: -30, formation: 'defensive_screen', counts: () => ({ quarian_heavy: 1, quarian_cruiser: 3 }) },
-  { id: 'ref-geth', faction: 'geth', name: 'Geth', x: -25, z: -30, formation: 'strike_wedge', counts: () => ({ geth_dreadnought: 1, geth_cruiser: 2, geth_frigate: 2 }) },
-  { id: 'ref-cerberus', faction: 'cerberus', name: 'Cerberus', x: 0, z: -42, formation: 'strike_wedge', when: allied, counts: (r) => ({ cerberus_cruiser: 2, cerberus_frigate: 3, cerberus_dreadnought: isApexRules(r) ? 1 : 0 }) },
-];
-
-/** `rung` is 0-based (0 = Raid … 4 = Harvest fleet). Fleet scaling is on: no `ws`, no `mult`. */
-export function buildThreatReference(rules: RuleSet, rung: number, seed: number): BattleConfig {
-  const g = THREAT_RUNGS[rung];
-  const fleets: FleetSpec[] = THREAT_COALITION.filter((c) => !c.when || c.when(rules)).map((c) =>
-    fleet(c.id, c.faction, rules, { counts: c.counts(rules), name: c.name, formation: c.formation, position: v3(c.x, 0, c.z) }),
-  );
-  fleets.push(fleet('ref-reapers', 'reaper', rules, { counts: { reaper_capital: g.capitals, reaper_destroyer: g.destroyers }, name: `Reaper ${g.name.toLowerCase()}`, side: 'B', formation: 'strike_wedge', position: v3(0, 0, 30), heading: v3(0, 0, -1), playerControlled: false }));
-  return {
-    id: `${THREAT_REFERENCE_ID}-${rules.id}-r${rung + 1}-${seed}`,
-    name: `Threat reference: ${g.name}`,
-    scenarioId: THREAT_REFERENCE_ID,
-    seed,
-    rules,
-    environment: 'deep_space',
-    maxDuration: THREAT_MAX_DURATION,
-    perspectiveSide: 'A',
-    objective: 'Destroy the Reaper group.',
-    fleets: fleets.filter((f) => f.ships.length > 0),
-  };
-}
-
-/** The §1.2 metrics of a finished battle. */
-export function threatRunOf(sim: BattleSimulation, rung: number, seed: number): ThreatRun {
-  const result = sim.result ?? summarise(sim);
-  let value = 0;
-  let lost = 0;
-  for (const s of sim.ships) {
-    if (s.side !== 'B' || s.role === 'fighter') continue;
-    value += s.pointValue;
-    lost += s.pointValue * (s.alive ? Math.max(0, 1 - s.hull / s.maxHull) : 1);
-  }
-  return { rung, seed, reaperLoss: value > 0 ? lost / value : 0, organicSurvival: result.sides.A.survivalPercent / 100, winner: result.winner, duration: sim.time };
-}
-
-/** Synchronous: the script's path. Tests step with tests/support/async.ts `runSimAsync` and call `threatRunOf`. */
-export function runThreatReference(rules: RuleSet, rung: number, seed: number): ThreatRun {
-  const sim = new BattleSimulation(buildThreatReference(rules, rung, seed));
-  sim.run();
-  return threatRunOf(sim, rung, seed);
-}
-```
-
-The design-time prototype differs only in fleet names (it used the faction ids); names do not reach the random draws. If CORE changes the `fleet()` signature or removes a classic formation id before this lands, adapt the call and keep the §1.1 table.
+- `THREAT_LONGEST_RANGE` (the maximum `range` over `WEAPON_LIST`), `THREAT_STANDOFF` (1.07 × that, in 0.1 km steps), `THREAT_MAX_DURATION` (3.2 × the standoff ÷ the `reaper_capital` top speed, in whole seconds), `THREAT_SEEDS`.
+- `THREAT_COALITION`: the seven contingents of §1.1 in their fixed order, each with `counts(rules)` and, for Cerberus, the alliance predicate; `contingentFields(c, rules)` adds the "fleetStrength > 0" rule.
+- `threatRungGroups(rules)`: the five groups as the timeline deploys them, counted from the built Reaper fleet.
+- `buildThreatReference(rules, rung, seed)`: the `BattleConfig` (fleet scaling on; no `ws`, no `mult`).
+- `threatRunOf(sim, rung, seed)` and `runThreatReference(rules, rung, seed)` (synchronous, the script’s path; tests step with `runSimAsync` and call `threatRunOf`).
 
 ### 4.7 `scripts/timeline-threat.ts` and `package.json`
 
 `"timeline:threat": "node --import tsx/esm scripts/timeline-threat.ts"`.
 
 ```
-npm run timeline:threat                       # measure every preset, write the table and the report
-npm run timeline:threat -- --only a,b         # measure a subset and merge it into the existing table (retuning, §1.8)
-npm run timeline:threat -- --check            # measure every preset, compare tiers with the committed table, write nothing
+npm run timeline:threat                       # every preset, and each new timeline's lever at both ends; writes the table and the report
+npm run timeline:threat -- --only a,b         # a subset (and its levers), merged into the committed table (retuning, §1.8)
+npm run timeline:threat -- --check            # every preset; compare tiers with the committed table; write nothing
+npm run timeline:threat -- --no-levers        # skip the lever measurements (the committed ones are kept)
+npm run timeline:threat -- --probes           # the preset-blind probe ladder of the re-basing rule (§1.8); prints only
+npm run timeline:threat -- --file sets.json   # measure rule sets from a JSON file (one RuleSet or an array); prints only
 npm run timeline:threat -- --jobs 4           # worker processes; default min(4, os.availableParallelism())
 ```
 
-1. For every preset in `PRESETS` (or `--only`), run the five rungs × four seeds with `runThreatReference`. With `--jobs` > 1 the script re-invokes itself as `process.execPath --import tsx/esm scripts/timeline-threat.ts --worker <id>` per preset; a worker prints one JSON line of `ThreatRun[]`. Results are keyed by id and assembled in `PRESETS` order, so the output never depends on scheduling.
-2. `summariseThreat(runs, THREAT_RUNGS)` per preset.
-3. Write `src/timelines/threatMeasured.ts` (§4.5) and `docs/apex/TIMELINE_THREAT.md`: the formula, the reference, the thresholds and `measuredOn`; a table sorted by index (preset, category, tier, label, index, Reaper losses, organic survival, breaking point); the per-rung table of Appendix A’s shape; and "declared vs measured" for the new presets. Wall times go to stdout only, never into a committed file.
-4. Print a console table with the wall time per preset.
-5. Exit with code 1, after writing, if any new preset’s declared tier differs from `tierForIndex(index)`; with `--check`, exit 1 if any preset’s tier differs from the committed table. The release step cannot miss either.
+1. Every battle (timeline × rung × seed) is a task. With `--jobs` > 1 the script starts that many workers (`process.execPath --import tsx/esm scripts/timeline-threat.ts --worker`), feeds each one task per stdin line and reads one `ThreatRun` per stdout line. Results are keyed by task and assembled in `PRESETS` order, so the output never depends on scheduling (the simulation keeps no module-level state).
+2. `summariseThreat(runs, threatRungGroups(rules))` per timeline; the lever variants are `withLever(preset, key, min | max)`.
+3. Write `src/timelines/threatMeasured.ts` (§4.5) and `docs/apex/TIMELINE_THREAT.md`: the formula, the reference (standoff, time limit, the time-limit share and its bound), the thresholds and `measuredOn`; the ratings sorted by index with the breaking-point sentence; the per-group table with the deployed groups; "declared and measured" for the new timelines with their distance to the nearest boundary; and the levers measured at both ends. Wall times go to stdout only, never into a committed file.
+4. Print a console line per timeline (index, tier, rung indices and wins, time-limit endings, CPU seconds).
+5. Exit with code 1, after writing, if any new timeline’s declared tier differs from `tierForIndex(index)` or more than 25 % of the battles ended on the time limit; with `--check`, exit 1 if any preset’s tier differs from the committed table, or on either of those two conditions. The release step cannot miss them.
 
-### 4.8 UI: the threat badge
+### 4.8 UI: the threat badge and the world-state locks
 
-New module `src/ui/threatBadge.ts`:
+New module `src/ui/threatBadge.ts`: `threatBadge(rules, size)` (six pips, the label, `data-threat-tier`, an `aria-label` and the tooltip of §4.4; "Unrated" with dashed pips for custom timelines), `threatOptionSuffix(rules)` for `<option>` labels, `threatPanel(rules)` for the detail block, and `worldStateLockNote(rules, lock)`. The label text always accompanies the pips (never colour alone).
 
-```ts
-import { el } from './dom';
-import type { RuleSet } from '@/timelines/rules';
-import { threatRating, threatTooltip } from '@/timelines/threat';
+- **Timelines screen** (`renderTimelines`): every list card gets the compact badge on a second line under the name (the category tag stays at the right). The detail panel gets a "THREAT TO THE REAPERS" block under the tagline: the full badge, the band statement, "Reaper losses X %, organic survival Y % over 20 reference battles", the breaking-point sentence, and a five-row table (group as deployed in this timeline, index, wins of 4). In edit mode and for saved custom timelines the block says "Unrated" and that custom timelines are not measured. The two-column grid becomes a class that stacks to one column below 900 px.
+- **Briefing** (`renderBriefing`): each `<option>` label gets `threatOptionSuffix(t)`; the full badge sits under the select with the tooltip (a `title` on an `<option>` is not shown reliably in every browser, so the badge carries it). World-state options the timeline locks are preselected, the contradicting choices disabled, and an AU line gives the reason; keys the scenario reads without exposing them (the Normandy and the Ascension in the Final Battle of Earth) are applied and listed in one AU note.
+- **Campaign setup** (`renderCampaignSetup`): the same suffix and badge under the rule-set select; the locked world-state selects are disabled with the AU reason under each, and the timeline’s `campaignNote` appears AU-prefixed. The campaign starts from the user’s choices with the locks applied on top, so switching timeline never leaves a stale lock behind.
+- **CSS** (`src/style.css`): `.threat`, `.threat .pips`, `.threat .pip(.on)`, `.threat.unrated`, `.btn .threat`, the detail block and the responsive `.timelines-layout`.
 
-/** Pips 1–6, the label and a tooltip with the measured Reaper losses and organic survival; "Unrated" for custom timelines. */
-export function threatBadge(rules: RuleSet, size: 'compact' | 'full' = 'compact'): HTMLElement {
-  const r = threatRating(rules);
-  const pips = el('span', { class: 'pips', 'aria-hidden': 'true' }, [1, 2, 3, 4, 5, 6].map((i) => el('i', { class: r && i <= r.tier ? 'pip on' : 'pip' })));
-  const text = r ? (size === 'full' ? `${r.tier}/6 ${r.label} · index ${Math.round(r.index)}` : r.label) : 'Unrated';
-  return el('span', {
-    class: r ? 'threat' : 'threat unrated',
-    'data-threat-tier': r ? String(r.tier) : 'unrated',
-    title: threatTooltip(r, rules.fleetStrength.reaper),
-    'aria-label': r ? `Threat to the Reapers: ${r.tier} of 6, ${r.label}` : 'Threat to the Reapers: unrated',
-  }, [pips, el('span', { class: 'threat-label' }, text)]);
-}
-
-/** Plain-text form for <option> labels. */
-export const threatOptionSuffix = (rules: RuleSet): string => {
-  const r = threatRating(rules);
-  return r ? ` · Threat ${r.tier}/6 ${r.label}` : ' · Threat unrated';
-};
-```
-
-- **Timelines screen** (`renderTimelines`): every list card gets `threatBadge(t)` on a second line between the name and the category tag. The detail panel gets a "THREAT TO THE REAPERS" block under the tagline: `threatBadge(rules, 'full')`, the tier’s summary sentence, "Reaper losses X %, organic survival Y % (20 reference battles)", the breaking-point line, and a five-row rung table (rung name, the Reaper group after this timeline’s `fleetStrength.reaper`, index, wins of 4). In edit mode and for saved custom timelines the block shows "Unrated" and one line: custom timelines are not measured.
-- **Briefing** (`renderBriefing`): each `<option>` label gets `threatOptionSuffix(t)`; `threatBadge(rules, 'full')` sits under the select with the tooltip (a `title` on an `<option>` is not shown reliably in every browser, so the badge carries it).
-- **Campaign setup** (`renderCampaignSetup`): the same suffix and badge under the rule-set select. The setup already lists `app.allTimelines()`, so the new presets appear with no other change.
-- **CSS** (`src/style.css`):
-
-```css
-.threat { display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; }
-.threat .pips { display: inline-flex; gap: 2px; }
-.threat .pip { width: 7px; height: 7px; border: 1px solid currentColor; opacity: 0.35; }
-.threat .pip.on { background: currentColor; opacity: 1; }
-.threat.unrated { opacity: 0.7; }
-.threat.unrated .pip { border-style: dashed; }
-.btn .threat { display: flex; margin-top: 4px; }
-```
-
-The label text always accompanies the pips (never colour alone); `data-threat-tier` gives e2e a hook. An optional e2e line (owned by stage D): the timelines screen shows `[data-threat-tier]` on every card and `unrated` on a saved custom timeline.
+An optional e2e line (owned by stage D): the timelines screen shows `[data-threat-tier]` on every card and `unrated` on a saved custom timeline.
 
 ### 4.9 Codex: the Timelines category
 
@@ -890,36 +761,25 @@ The label text always accompanies the pips (never colour alone); `data-threat-ti
 
 - `CodexEntry.category` gains `'Timelines'`; `CODEX_CATEGORIES` lists it after `'Reaper War'`.
 - New optional field `alternate?: string[]`: always shown, in an alternate-universe block, whatever timeline is active; every line starts with `auPrefix(name)`.
-- One entry per new timeline, generated from `ALTERNATE_PRESETS` and `ALTERNATE_META` so the text is never duplicated by hand:
-
-```ts
-const pct = (x: number): string => `${Math.round(100 * x)} %`;
-const TIMELINE_ENTRIES: CodexEntry[] = ALTERNATE_PRESETS.map((p) => {
-  const meta = ALTERNATE_META[p.id];
-  const pre = auPrefix(p.name);
-  const r = threatRating(p);
-  return {
-    id: `timeline_${p.id}`,
-    category: 'Timelines',
-    title: p.name,
-    canon: [meta.canonBasis],
-    estimate: ['How the threat is measured: see “Threat to the Reapers (measured scale)”.'],
-    alternate: [
-      `${pre}diverges in ${meta.divergence.approximate ? 'about ' : ''}${meta.divergence.year}: ${meta.divergence.event}`,
-      `${pre}${p.description.replace(/^ALTERNATE UNIVERSE\.\s*/, '')}`,
-      ...p.historyChanges.map((h) => `${pre}${h}`),
-      `${pre}threat to the Reapers ${r ? `${r.tier}/6 ${r.label} (index ${r.index.toFixed(1)}; Reaper losses ${pct(r.reaperLoss)}, organic survival ${pct(r.organicSurvival)})` : 'unrated'}, measured in conventional battle.`,
-    ],
-  };
-});
-```
-
-- One entry `threat_scale`, "Threat to the Reapers (measured scale)", category Timelines, `canon: []`, with `estimate` lines generated from `THREAT_TIERS`, `THREAT_THRESHOLDS`, `THREAT_REFERENCE_META` and `REAPER_THREAT`: what is measured and why ("measured, not asserted"); the reference engagement (coalition, the five Reaper groups, four seeds); the formula; the six tiers with their thresholds and meanings; what the scale cannot see (§1.5); then one line per preset with its tier and index, where every AU preset’s line starts with `auPrefix(name)`.
+- One entry per new timeline, generated from `ALTERNATE_PRESETS`, `ALTERNATE_META` and the rating so the text is never duplicated by hand: `canon: [meta.canonBasis]`; `alternate`: the divergence, the description, every history line, the world-state locks, the campaign note and the measured rating with its breaking point, each AU-prefixed.
+- One entry `threat_scale`, "Threat to the Reapers (measured scale)", category Timelines, `canon: []`, with `estimate` lines generated from `THREAT_TIERS`, `THREAT_THRESHOLDS`, `THREAT_REFERENCE_META` and `REAPER_THREAT`: what is measured and why ("measured, not asserted"); the reference engagement (coalition, the five Reaper groups, four seeds, the standoff and the time limit); the formula; the six tiers with their thresholds and band statements; what the scale cannot see (§1.5); then one line per preset with its tier and index, where every AU preset’s line starts with `auPrefix(name)`.
 - `src/ui/screens/codex.ts`: render `e.alternate` as an `entry-block au` with the badge "alternate universe" (independent of the active timeline), and tag such entries "AU" in the navigation.
 
-### 4.10 Campaign
+### 4.10 Campaign and Quick Battle world state
 
-No engine change. The new presets reach the campaign through `PRESETS` and use their fleet and strategic values exactly as every preset does (Sovereign’s Triumph has no Crucible, The Conduit Protocol has a reinforcement pool of 2 and flags conventional victory as possible, and so on). A smoke test (§4.11) creates a campaign under each new preset and advances it a few turns. Optional for the release: AI-run reference outcomes (seeds 5, 9, 21) recorded in `AU_RULES.md`, as the existing presets have.
+No engine change. The new presets reach the campaign through `PRESETS` and use their fleet and strategic values exactly as every preset does (Sovereign’s Triumph has no Crucible, The Conduit Protocol has a reinforcement pool of 2 and flags conventional victory as possible, and so on).
+
+The default world states contradicted three premises (review findings 6 and 10): the setup defaults to the Ascension saved and Rannoch at war, and Quick Battle spawns the Normandy by default. So each story carries the world state it implies in `AlternateMeta.worldState`, keyed by world-state option id:
+
+| Timeline | Locks |
+| --- | --- |
+| Sovereign’s Triumph | `ascension: 'absent'` (the Council died aboard the Ascension in 2183), `rannoch: 'war'` and `outcome: 'war'` (no one makes peace), `normandy: 'no'` (Shepard dead since 2183), `genophage: 'sabotaged'` (no cure is ever made) |
+| The Collectors’ Harvest | `rannoch: 'war'`, `outcome: 'war'`, `normandy: 'no'`, `genophage: 'sabotaged'` |
+| The Geth–Quarian Concord | `rannoch: 'peace'`, `outcome: 'peace'` (no Morning War) |
+
+Campaign setup and the Quick Battle briefing preselect and lock those values with an AU note (`lockWorldState`): a locked key the screen exposes is set only when its value is one of the offered choices (Battle of the Citadel’s `ascension` offers `save`/`sovereign`, so Sovereign’s Triumph does not touch it); in the briefing a key the scenario reads without exposing it is applied as well and listed in the note; the campaign applies only its own five keys. For the genophage the closest available state for "no cure is ever made" is `sabotaged`: the krogan stay on Tuchanka, but the Salarian First Fleet still joins the war, which the lock’s note states rather than hides. The campaign smoke test uses the locked world state.
+
+What the campaign still cannot express is said once, AU-prefixed, in `campaignNote` (campaign setup and the codex): Sovereign’s Triumph opens on the 2186 map with the Citadel in allied hands (its 2183 fall is not modelled); The Collectors’ Harvest opens at the canon 2186 start; the Concord’s two fleets keep the Migrant Fleet and Geth Consensus Fleet names and hull lists; The Conduit Protocol’s Reaper fleets still move along the relay lanes. Known limitations, listed in `AU_RULES.md`: a faction at `fleetStrength` 0 keeps one hull per class in Quick Battle scenarios and the campaign (`scaleCount`); comparison mode and custom battle ignore the locks; Cerberus Ascendant, an existing preset with Shepard dead, still spawns the Normandy by default in Quick Battle. Optional for the release: AI-run reference outcomes (seeds 5, 9, 21) recorded in `AU_RULES.md`, as the existing presets have.
 
 ### 4.11 Tests
 
@@ -931,394 +791,116 @@ No engine change. The new presets reach the campaign through `PRESETS` and use t
 | data | schema round trip | for every new preset, `validateRuleSet(JSON.parse(exportRuleSet(p)))` is ok with **no warnings** and `toEqual(p)`. |
 | data | normalisation | `normaliseRules(p)` `toEqual(p)`. |
 | data | the AU label everywhere | `category === 'au'`; `description` starts with `ALTERNATE UNIVERSE.`; the codex has exactly one `timeline_<id>` entry per new preset in category Timelines and every `alternate` line starts with `auPrefix(p.name)`; the `threat_scale` entry exists and its AU preset lines carry the prefix; `forbiddenWording` is false for every text, and the light-speed and 3× phrasing checks that `tests/timelines.test.ts` applies to presets pass for every codex line too. |
-| data | metadata | one `ALTERNATE_META` entry per new preset; divergence year between 1800 and 2186 (inside established history); `provenance === 'AU_MODIFIED'`; non-empty `canonBasis` and event; the lever names a numeric key of the preset whose current value lies inside `[min, max]`. |
-| data | span and direction | the declared tiers cover 1–6; for every preset declared 1 or 2, every battle-relevant knob that differs from canon favours the Reapers (organic tech or fleets below canon, Reaper tech, fleets or competence above, coordination below 0.5, indoctrination above 1) and none favours the organics (no organic tech or fleet above canon, no Reaper value below, no `reaperCommandVulnerability`, `indoctrinationDisabled`, `hyperMassAccelerators`, `hadesRounds` or fleet-wide Thanix). |
-| scale | arithmetic | `THREAT_THRESHOLDS` strictly increasing; `tierForIndex` at 0, 16.99, 17, 29.99, 30, 47.99, 48, 61.99, 62, 86.99, 87, 100; `threatIndex(0, 0) === 0`, `threatIndex(1, 1) === 100`; `summariseThreat` on synthetic runs (equal weights, rounding, `holdsUpTo` stops at the first rung won fewer than 3 of 4). |
-| scale | table coverage | the keys of `REAPER_THREAT` equal the `PRESETS` ids; every value is finite and in range (index 0–100, fractions 0–1, five rungs, `battles === 4`); `THREAT_REFERENCE_META` has 4 seeds and 5 rungs. |
+| data | metadata | one `ALTERNATE_META` entry per new preset; divergence year between 1800 and 2186 (inside established history); `provenance === 'AU_MODIFIED'`; non-empty `canonBasis` and event; the lever names a numeric key of the preset, `min < max`, the current value lies inside `[min, max]`, the step is 0.05 or `'count'` (and `'count'` only for a `fleetStrength` key); `THREAT_LEVERS` holds both ends of exactly that range. |
+| data | world state | every lock key is a campaign key or a world-state option of some scenario, and its value one of that option’s choices somewhere; every new preset with `shepardAlive` false locks `normandy: 'no'`; `lockWorldState` sets exposed keys only to offered values, applies hidden keys only when asked, and leaves other timelines untouched; every `campaignNote` and lock reason passes the wording checks. |
+| data | span and direction | the declared tiers cover 1–6; for every preset declared 1 or 2, every battle-relevant knob that differs from canon favours the Reapers (organic tech or fleets below canon, Reaper tech, fleets or competence above, coordination below 0.5, indoctrination above 1) and none favours the organics (no organic tech or fleet above canon, no Reaper value below, no `reaperCommandVulnerability`, `indoctrinationDisabled`, `hyperMassAccelerators`, `hadesRounds` or fleet-wide Thanix); no new preset below tier 6 except the Covenant sets `reaperCommandVulnerability`. |
+| scale | arithmetic | `THREAT_THRESHOLDS` strictly increasing and matching `THREAT_TIERS`; `tierForIndex` at 0, 16.99, 17, 29.99, 30, 47.99, 48, 61.99, 62, 86.99, 87, 100; `threatIndex(0, 0) === 0`, `threatIndex(1, 1) === 100`; `summariseThreat` on synthetic runs (equal weights, rounding, `holdsRungs` stops at the first rung won fewer than 3 of 4, `holdsUpTo` is the deployed capital count, time-limit share); `threatHoldsText` for none, one, several and all rungs. |
+| scale | table coverage | the keys of `REAPER_THREAT` equal the `PRESETS` ids; every value is finite and in range (index 0–100, fractions 0–1, five rungs, `battles === 4`), every rung’s deployed group equals `threatRungGroups(preset)`; `THREAT_REFERENCE_META` has 4 seeds, 5 rungs, the current standoff and time limit, and a time-limit share within the bound. |
 | scale | declared = measured | for every new preset, `tierForIndex(REAPER_THREAT[id].index) === ALTERNATE_META[id].declaredTier`. |
-| scale | unrated | `threatRating(makeCustom())`, a `custom_…` id and an unknown id are all undefined. |
-| reference | composition | builds for every preset and rung; fleet scaling acts (Sovereign’s Triumph meets 3 capitals on the raid, The Conduit Protocol 1); a Cerberus fleet only when `cerberusStance` is cooperative or `controls_reapers`; the Normandy only when Shepard lives; no Harbinger. |
-| reference | runtime ordering (async, timeout 120 s) | the lowest-declared and highest-declared new presets (taken from `ALTERNATE_META`, not hard-coded) and canon, on the Battlegroup rung (`rung` 2) with seeds 1 and 2, each battle stepped with `runSimAsync` then `threatRunOf`: index(lowest) < index(canon) < index(highest). Design-time values on that rung: about 10, 25 and 94. |
-| in play | scenarios | every scenario in `SCENARIOS` except `custom` builds under every new preset and steps 40 ticks (as `tests/battle.test.ts` does for the existing eight). |
-| in play | campaign | `createCampaign` under every new preset with the setup screen’s default world state (`ascension: present, rannoch: war, crucible: use, genophage: cured, rachni: saved`), then a few `advanceTick` turns without error. |
+| scale | unrated | `threatRating(makeCustom())`, a `custom_…` id and an unknown id are all undefined; the unrated tooltip says so. |
+| reference | composition | builds for every preset and rung; the standoff is 1.07 × the longest catalogue range and the time limit 3.2 × the crossing time; fleet scaling acts (Sovereign’s Triumph meets 3 capitals on the raid, The Conduit Protocol 1); a contingent appears only when its faction’s `fleetStrength` > 0 (no geth in Sovereign’s Triumph, no quarians or geth in The Collectors’ Harvest); a Cerberus fleet only when `cerberusStance` is cooperative or `controls_reapers`; the Normandy only when Shepard lives; no Harbinger. |
+| reference | runtime ordering (async, timeout 120 s) | the lowest-declared and highest-declared new presets (taken from `ALTERNATE_META`, not hard-coded) and canon, on the Battlegroup rung (`rung` 2) with seeds 1 and 2, each battle stepped with `runSimAsync` then `threatRunOf`: index(lowest) < index(canon) < index(highest). |
+| in play | scenarios | every scenario in `SCENARIOS` except `custom` builds under every new preset with the locked world state and steps 40 ticks (as `tests/battle.test.ts` does for the existing eight); with the locks, no scenario fields the Normandy under a timeline in which Shepard is dead. |
+| in play | campaign | `createCampaign` under every new preset with the setup screen’s defaults and the timeline’s locks applied (`lockWorldState(…, CAMPAIGN_WORLD_STATE_CHOICES, false)`), then a few `advanceTick` turns without error; the Concord fields both Rannoch fleets, Sovereign’s Triumph has no Destiny Ascension. |
 
 `tests/timelines.test.ts`: the `PRESETS` order assertion as in §4.1. Its other checks (unique ids, history lines for every AU preset, the light-speed and 3× wording sweep over `PRESETS`) now cover the new presets automatically.
 
 ### 4.12 Documentation
 
-- `AU_RULES.md`: the ten new rows in the Presets table; a "Threat to the Reapers" section (reference, formula, thresholds, what it cannot see, link to `TIMELINE_THREAT.md`).
+- `AU_RULES.md`: the ten new rows in the Presets table; a "Threat to the Reapers" section (reference, formula, thresholds, what it cannot see, the re-basing rule, link to `TIMELINE_THREAT.md`); the world-state locks and the known limitations of §4.10.
 - `README.md`: the timeline list and one paragraph on the scale.
-- `CHANGELOG.md`: an Unreleased entry (ten timelines; the measured scale; badges; the codex category; the new script).
-- `LORE_REFERENCE.md`: "Canon anchors used by the alternate timelines": Sovereign’s wreck and the Thanix; the Collectors, the Omega 4 relay and the human Reaper; the derelict Reaper at Mnemosyne; the Alpha relay at Bahak; Ilos, Vigil and the Conduit; the beacon in the Temple of Athame; the Morning War; turian service from the age of fifteen and the volus; Despoina, the Leviathans, their thralls, Dr. Ann Bryson, the Leviathans’ creation of the intelligence behind the Reapers and the first Reaper made in their image. Each divergence is AU.
+- `CHANGELOG.md`: an Unreleased entry (ten timelines; the measured scale; badges; the world-state locks; the codex category; the new script).
+- `LORE_REFERENCE.md`: "Canon anchors used by the alternate timelines": Sovereign’s wreck and the Thanix; the Collectors, the Omega 4 relay and the human Reaper; the derelict Reaper at Mnemosyne; the Alpha relay at Bahak; Ilos, Vigil, the Keepers and the Conduit; the beacon in the Temple of Athame; the Morning War and the Council’s AI laws; turian service from the age of fifteen and the volus; Despoina, the Leviathans, their thralls, Dr. Ann Bryson, the Leviathans’ creation of the intelligence behind the Reapers and the first Reaper made in their image. Each divergence is AU.
 - `docs/apex/TIMELINE_THREAT.md`: generated by the script.
 
 ### 4.13 Order of work, commits and gates
 
 Each step is committed as soon as it is complete (`stage(T): …`, attribution lines; no push):
 
-1. `alternates.ts` (Appendix C), the `presets.ts` import and spread, the `tests/timelines.test.ts` assertion → `npm run typecheck`, `npx vitest run tests/timelines.test.ts`.
-2. `threat.ts`, the placeholder `threatMeasured.ts`, `threatReference.ts`, the script, `package.json` → `npm run timeline:threat` → commit the generated table and report.
-3. `tests/alternateTimelines.test.ts` → `npx vitest run tests/alternateTimelines.test.ts`.
-4. `threatBadge.ts`, the timelines, briefing and campaign-setup screens, the CSS → `npm run build`.
-5. The codex category.
-6. Documentation.
+1. This revision of the design (the review findings applied).
+2. `alternates.ts`, the `presets.ts` import and spread, the `tests/timelines.test.ts` assertion → `npm run typecheck`, `npx vitest run tests/timelines.test.ts`.
+3. `threat.ts`, the placeholder `threatMeasured.ts`, `threatReference.ts`, the script, `package.json`; then `npm run timeline:threat` → commit the generated table and report (retuning a new timeline first if it measures outside its tier).
+4. `tests/alternateTimelines.test.ts` → `npx vitest run tests/alternateTimelines.test.ts`.
+5. `threatBadge.ts`, the timelines, briefing and campaign-setup screens with the world-state locks, the CSS → `npm run build`.
+6. The codex category.
+7. Documentation, and this document’s measured figures.
 
-Final gate in the worktree: `npm run typecheck && npx vitest run && npm run build && npx playwright test` (one Playwright process, port 4173) and `npm run timeline:threat -- --check` exits 0.
+Final gate in the worktree: `npm run typecheck && npx vitest run && npm run build`, `npx playwright test e2e/game.spec.ts` (one Playwright process, port 4173), and a visual check of the timelines screen and the briefing at 1920×1080 and 390 px.
 
 ### 4.14 Release
 
-After the merge, in the release worktree, run `npm run timeline:threat`. Exit code 0: commit the regenerated table and report. Exit code 1: follow §1.8 for each new timeline it names, then commit. The changelog lists any existing preset whose label changed, with old and new index.
+After the merge, in the release worktree, run `npm run timeline:threat`. Exit code 0: commit the regenerated table and report. Exit code 1: follow §1.8 for each new timeline it names (or re-base, if the time-limit share is over the bound), then commit. If CORE has changed ranges, speeds or the time scale since `measuredOn`, re-base first (§1.8). The changelog lists any existing preset whose label changed, with old and new index.
 
 ## 5. Rules compliance
 
-- **Canon by default, AU by choice.** `canon_me3` is untouched and stays the default; the ten presets are `category: 'au'`, their descriptions open with `ALTERNATE UNIVERSE.`, every codex line about them opens with `ALTERNATE UNIVERSE (<name>): `, the timelines screen keeps its "Alternate universe. Never presented as canon." note, and the briefing keeps its AU warning.
-- **Original writing.** Every tagline, description, history line and codex line in this document was written for it; none quotes or closely paraphrases the games or the codex. Canon facts are restated in new words and only up to each divergence.
-- **Lore-consistent.** Each timeline follows the trilogy up to its divergence point (named in its provenance note) and changes only what follows from it.
+- **Canon by default, AU by choice.** `canon_me3` is untouched and stays the default; the ten presets are `category: 'au'`, their descriptions open with `ALTERNATE UNIVERSE.`, every codex line, lock reason and campaign note about them opens with `ALTERNATE UNIVERSE (<name>): `, the timelines screen keeps its "Alternate universe. Never presented as canon." note, and the briefing keeps its AU warning.
+- **Original writing.** Every tagline, description, history line, lock reason and codex line was written for this project; none quotes or closely paraphrases the games or the codex. Canon facts are restated in new words and only up to each divergence.
+- **Lore-consistent.** Each timeline follows the trilogy up to its divergence point (named in its provenance note) and changes only what follows from it. A divergence changes what the organics know or do, never what the Reapers are: no timeline gives the Reapers a weakness or a technology canon does not record (Vigil’s Warning has no command vulnerability; Leviathan’s Bargain lends minds, not concealment; the Covenant’s interference is an act of the Leviathans in battle). Where the campaign cannot follow a premise, the locks and the campaign note say so.
 - **Determinism.** `threat.ts`, `threatReference.ts` and `alternates.ts` read no clock and use no unseeded random source; every battle draws from the seeded `Rng` through `BattleSimulation`; the generated table carries no timestamp. Wall times appear on stdout only.
 - **HADES wording.** None of the new timelines uses HADES; where the scale mentions it, it says "HADES penetrators" (a penetrator with a nuclear warhead).
-- **No hull caps.** Counts come from `fleetStrength` through the existing `fleet()` rules (rounding, one hull minimum, carriers at most ×1.5, unique hulls once); nothing new caps a fleet.
-- **Honesty.** Tiers are measured, not asserted: the label is always the generated table’s; declared tiers are checked by a test; the existing presets keep their numbers and take whatever label the measurement gives (§3); §1.5 states what the scale cannot see, and every design-time figure is labelled as such.
+- **No hull caps.** Counts come from `fleetStrength` through the existing `fleet()` rules (rounding, one hull minimum, carriers at most ×1.5, unique hulls once); the reference only leaves out a contingent whose faction is at 0; nothing new caps a fleet.
+- **Honesty.** Tiers are measured, not asserted: the label is always the generated table’s; declared tiers are checked by a test; the existing presets keep their numbers and take whatever label the measurement gives (§3); the tier sentences are true by construction and every rung sentence comes from the timeline’s own measurement; the levers are measured at both ends; §1.5 states what the scale cannot see, and every design-time figure is labelled as such.
 
-## Appendix A. Design-time per-rung results
+## Appendix A. Measured per-group results
 
-Index per rung with wins of 4 in brackets; base commit `ba4decf`, prototype of Appendix B, seeds 1–4.
+Index per Reaper group, coalition wins of 4 in brackets, then the group as the timeline deploys it (capitals/destroyers); implementation run, seeds 1–4 (`TIMELINE_THREAT.md` is the authority). The first draft’s design-time table (prototype geometry on `ba4decf`) is in this file’s git history.
 
-| Preset | Raid 2/5 | Strike group 3/7 | Battlegroup 4/10 | Assault fleet 5/12 | Harvest fleet 6/14 | Index |
+| Preset | Raid | Strike group | Battlegroup | Assault fleet | Harvest fleet | Index |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `canon_me3` | 92 (4) | 37 (0) | 25 (0) | 14 (0) | 12 (0) | 36.1 |
-| `prepared_galaxy` | 95 (4) | 92 (4) | 84 (4) | 59 (2) | 31 (0) | 72.2 |
-| `humanity_ascendant` | 98 (4) | 94 (4) | 87 (4) | 54 (1) | 54 (2) | 77.5 |
-| `cerberus_reformed` | 93 (4) | 57 (1) | 28 (0) | 24 (0) | 14 (0) | 43.1 |
-| `reaper_escalation` | 24 (0) | 14 (0) | 9 (0) | 5 (0) | 4 (0) | 11.2 |
-| `prime_apex` | 99 (4) | 98 (4) | 97 (4) | 96 (4) | 95 (4) | 97.1 |
-| `apex_legacy` | 99 (4) | 99 (4) | 97 (4) | 96 (4) | 95 (4) | 97.2 |
-| `cerberus_ascendant` | 93 (4) | 64 (2) | 30 (0) | 23 (0) | 14 (0) | 44.6 |
-| `sovereigns_triumph` | 24 (0) | 19 (0) | 10 (0) | 5 (0) | 4 (0) | 12.4 |
-| `collectors_harvest` | 85 (4) | 19 (0) | 11 (0) | 8 (0) | 4 (0) | 25.3 |
-| `indoctrinated_council` | 68 (2) | 23 (0) | 18 (0) | 12 (0) | 4 (0) | 25.0 |
-| `leviathans_bargain` | 54 (1) | 23 (0) | 19 (0) | 10 (0) | 5 (0) | 22.1 |
-| `vigils_warning` | 94 (4) | 63 (2) | 25 (0) | 16 (0) | 14 (0) | 42.4 |
-| `geth_quarian_concord` | 95 (4) | 89 (4) | 51 (1) | 31 (0) | 19 (0) | 57.0 |
-| `asari_disclosure` | 94 (4) | 88 (4) | 57 (1) | 29 (0) | 20 (0) | 57.5 |
-| `turian_total_war` | 96 (4) | 90 (4) | 86 (4) | 56 (2) | 33 (0) | 72.3 |
-| `leviathans_covenant` | 98 (4) | 90 (4) | 80 (4) | 53 (2) | 30 (0) | 70.4 |
-| `conduit_protocol` | 98 (4) | 97 (4) | 94 (4) | 92 (4) | 92 (4) | 94.5 |
+| `canon_me3` | 94 (4) 2/5 | 32 (0) 3/7 | 25 (0) 4/10 | 15 (0) 5/12 | 11 (0) 6/14 | 35.4 |
+| `prepared_galaxy` | 97 (4) 2/5 | 91 (4) 3/7 | 85 (4) 4/10 | 62 (2) 5/12 | 30 (0) 6/14 | 73.0 |
+| `humanity_ascendant` | 98 (4) 2/5 | 94 (4) 3/7 | 87 (4) 4/10 | 72 (3) 5/12 | 59 (3) 6/14 | 81.8 |
+| `cerberus_reformed` | 94 (4) 2/5 | 55 (2) 3/7 | 29 (0) 4/10 | 19 (0) 5/12 | 15 (0) 6/14 | 42.2 |
+| `reaper_escalation` | 24 (0) 3/8 | 14 (0) 5/11 | 8 (0) 6/16 | 5 (0) 8/19 | 4 (0) 10/22 | 11.1 |
+| `prime_apex` | 100 (4) 2/5 | 99 (4) 3/7 | 97 (4) 4/10 | 96 (4) 5/12 | 95 (4) 6/14 | 97.1 |
+| `apex_legacy` | 99 (4) 2/5 | 98 (4) 3/7 | 97 (4) 4/10 | 96 (4) 5/12 | 95 (4) 6/14 | 97.3 |
+| `cerberus_ascendant` | 93 (4) 2/5 | 69 (2) 3/7 | 27 (0) 4/10 | 19 (0) 5/12 | 12 (0) 6/14 | 44.1 |
+| `sovereigns_triumph` | 23 (0) 3/7 | 10 (0) 4/9 | 7 (0) 5/13 | 1 (0) 7/16 | 1 (0) 8/18 | 8.3 |
+| `collectors_harvest` | 82 (4) 2/6 | 24 (0) 3/8 | 8 (0) 5/12 | 6 (0) 6/14 | 5 (0) 7/16 | 24.9 |
+| `indoctrinated_council` | 56 (1) 2/5 | 23 (0) 3/7 | 18 (0) 4/10 | 11 (0) 5/12 | 3 (0) 6/14 | 22.3 |
+| `leviathans_bargain` | 62 (2) 2/5 | 22 (0) 3/7 | 16 (0) 4/10 | 8 (0) 5/12 | 4 (0) 6/14 | 22.3 |
+| `vigils_warning` | 93 (4) 2/5 | 55 (2) 3/7 | 25 (0) 4/10 | 20 (0) 5/12 | 12 (0) 6/14 | 40.9 |
+| `geth_quarian_concord` | 94 (4) 2/5 | 87 (4) 3/7 | 48 (1) 4/10 | 32 (0) 5/12 | 18 (0) 6/14 | 55.7 |
+| `asari_disclosure` | 94 (4) 2/5 | 88 (4) 3/7 | 47 (0) 4/10 | 21 (0) 5/12 | 17 (0) 6/14 | 53.2 |
+| `turian_total_war` | 96 (4) 2/5 | 92 (4) 3/7 | 85 (4) 4/10 | 35 (0) 5/12 | 31 (0) 6/14 | 67.5 |
+| `leviathans_covenant` | 97 (4) 2/5 | 96 (4) 3/7 | 81 (4) 4/10 | 58 (1) 5/12 | 30 (0) 6/14 | 72.2 |
+| `conduit_protocol` | 97 (4) 1/2 | 97 (4) 1/3 | 93 (4) 2/4 | 93 (4) 2/5 | 92 (4) 2/6 | 94.4 |
 
 ## Appendix B. The design-time prototype
 
+The first draft’s figures came from this prototype; the implementation (§4.6) differs from it in the review’s three reference changes: absent factions field nothing, the standoff (59.9 km) and the time limit (240 s) are derived from the catalogue instead of fixed at 60 km and 240 s, and the contingents carry neutral names.
+
 The prototype that produced every design-time figure built the §1.1 engagement with `fleet()` from `src/scenarios/index.ts` exactly as §4.6 does: the same fleet ids, contingent and class order, anchors, formations, rung sizes, seeds, `maxDuration` 240 and deep-space environment; only the fleet names differed (it used the faction ids). It computed L, S and the index as in §1.2 and the breaking point as in §1.4, ran each battle with `new BattleSimulation(config).run()`, and was run as four parallel processes. The alternatives it rejected (§1.6) were: the same builder with a 74-hull coalition (Alliance 3 DN, 1 CV, 6 CA, 8 FF; Hierarchy 3 DN, 6 CA, 8 FF; Republics 2 DN, 6 CA; Union 1 DN, 4 CA, 6 FF; Migrant Fleet 2 HV, 6 CA; geth 1 DN, 4 CA, 6 FF) 76 km from single Reaper groups of 4/10, 5/12 and 6/14, at `maxDuration` 300 and 240; the 36-hull coalition spread out (geth (−40, −38), Hierarchy (−24, −32), Alliance (0, −30), Republics (24, −32), Union (−12, −42), Migrant Fleet (12, −42), Cerberus (40, −38)); and the same coalition stacked on one anchor, (0, −30) to (0, −42) in 2 km steps in contingent order.
 
-## Appendix C. The ten literals and their metadata
+## Appendix C. The literals and their metadata
 
-Verbatim for `src/timelines/alternates.ts` after the header of §4.2. Verified at design time: each validates with no warning and round-trips unchanged, `normaliseRules` returns it unchanged, its battle-relevant values are exactly those measured, and the tiers 1–2 direction check of §4.11 passes.
+Superseded by `src/timelines/alternates.ts`, which is the authority for every value and text of the ten timelines and their metadata (it validates with no warning, round-trips unchanged and passes `normaliseRules` unchanged, all tested). The first draft carried the literals here; the review changed them as follows:
 
-```ts
-export const SOVEREIGNS_TRIUMPH: RuleSet = {
-  id: 'sovereigns_triumph',
-  name: 'Sovereign’s Triumph',
-  tagline: 'The Citadel relay opened in 2183. The Reapers did not have to wait three more years.',
-  category: 'au',
-  description:
-    'ALTERNATE UNIVERSE. In 2183 Saren’s lock on the Citadel is never broken: the station’s arms stay sealed, the Council dies aboard the Destiny Ascension and Sovereign opens the Citadel relay for the fleet waiting in dark space. The Reapers enter the heart of Council space three years before canon, with no Sovereign wreck left behind to teach anyone the Thanix and no time to search Prothean ruins for a Crucible. Each species meets the harvest alone, and every battle faces more Reapers than the canon war ever did.',
-  historyChanges: [
-    '2183: Saren’s override of the Citadel holds; the arms stay sealed and Sovereign opens the Citadel relay to dark space.',
-    'The Council dies aboard the Destiny Ascension; the Citadel Fleet and the Alliance Fifth Fleet are destroyed in the Serpent Nebula, and Shepard falls in the Presidium.',
-    'No Reaper wreck is salvaged, so the Thanix cannon is never developed.',
-    'The harvest begins at the Citadel; nobody searches the Prothean archive on Mars, and there is no Crucible.',
-    'Without a Council or a shared command, every species defends its own space alone.',
-  ],
-  organic: tech(),
-  reaper: tech(),
-  factionOverrides: {},
-  special: { ...CANON_SPECIAL, thanixAvailability: 'none' },
-  fleetStrength: { ...CANON_FLEETS, alliance: 0.8, turian: 0.6, asari: 0.5, salarian: 0.85, geth: 0.5, reaper: 1.3 },
-  strategic: { ...CANON_STRATEGIC, alliedCoordination: 0.1, indoctrinationEffectiveness: 1.5, reaperCompetence: 1.1, reaperReinforcements: 1.5, crucibleAvailable: false, shepardAlive: false, shepardEffectiveness: 0 },
-};
+| Timeline | Change after review |
+| --- | --- |
+| Sovereign’s Triumph | `fleetStrength.geth` 0.5 → 0 (absent); history line on the geth; lever `fleetStrength.reaper` [1.25, 1.5] (the measured `strategic.reaperCompetence` [1.0, 1.3] alternative did not move the index: 8.1 at both ends); world-state locks and campaign note. |
+| The Collectors’ Harvest | `fleetStrength.alliance` 0.65 → 0.8, `quarian` and `geth` 0.5 → 0 (absent), `reaper` 1.2 → 1.15; new tagline, description and history (no year of Collector hunts; the Alpha relay stands); lever `fleetStrength.reaper` [1.1, 1.2] (the suggested `strategic.reaperCompetence` [1.0, 1.2] measured flat, 13.2 and 13.3, and the alliance count has a tier cliff at 0.75); world-state locks and campaign note. |
+| The Indoctrinated Council | Sabotaged accuracy 0.8 / 0.85 / 0.85 → 0.7 / 0.75 / 0.75 (the first literals measured 27.4, 2.6 points under the tier-3 floor); lever `factionOverrides.asari.accuracy` (the suggested turian accuracy and Reaper competence measured flat). |
+| Leviathan’s Bargain | `reaper.electronicWarfare` 1.8 → 1.85 (1.8 measured 26.7 under the revised reference); new tagline, description, history and divergence (minds, not concealment). |
+| Vigil’s Warning | `special.reaperCommandVulnerability` removed; `organic.crewQuality` 1.04 added (the lever); new tagline, description, history and divergence (the secret response). |
+| The Geth–Quarian Concord | `strategic.alliedCoordination` 0.6 → canon 0.5; new tagline, description and history (Citadel AI law, the treaty, the stand-ins); lever `factionOverrides.geth.electronicWarfare` [1.0, 1.6] (the geth count jumps a tier at 2.5, where the third dreadnought appears); world-state locks and campaign note. |
+| The Asari Disclosure | `organic.massAcceleratorDamage` 1.2 → 1.15 (1.2 measured 59.0, 3 points under the tier-5 floor); lever range [1.1, 1.2]. |
+| Turian Total War | Unchanged; lever measured at both ends. |
+| Leviathan’s Covenant | Values unchanged; the command vulnerability is justified by the Leviathans’ active interference, not by knowledge. |
+| The Conduit Protocol | Values unchanged; lever range [0.35, 0.45] → [0.35, 0.41]; campaign note. |
 
-export const COLLECTORS_HARVEST: RuleSet = {
-  id: 'collectors_harvest',
-  name: 'The Collectors’ Harvest',
-  tagline: 'The Normandy never came back through the Omega 4 relay. The human Reaper woke, and the Reapers came early.',
-  category: 'au',
-  description:
-    'ALTERNATE UNIVERSE. In 2185 the Normandy is destroyed beyond the Omega 4 relay: Shepard and the crew are lost and the Collectors finish the human Reaper. The abductions from human colonies go on, nobody destroys the Alpha relay in the Bahak system, and the Reapers enter batarian space months early and in one mass. No one brokers peace at Rannoch or unites the Council races, and the Alliance meets the invasion after a year spent hunting Collectors.',
-  historyChanges: [
-    '2185: the Normandy SR-2 is destroyed at the Collector base; Shepard and the crew are killed.',
-    'The Collectors complete the human Reaper and keep raiding human colonies; the Alliance strips its fleets to hunt them.',
-    'The Alpha relay is never destroyed: the Reapers reach batarian space months ahead of canon, and together.',
-    'Rannoch stays at war and no one unites the Council races: the quarian and geth fleets never join the coalition.',
-  ],
-  organic: tech(),
-  reaper: tech(),
-  factionOverrides: {},
-  special: { ...CANON_SPECIAL },
-  fleetStrength: { ...CANON_FLEETS, alliance: 0.65, quarian: 0.5, geth: 0.5, reaper: 1.2 },
-  strategic: { ...CANON_STRATEGIC, alliedCoordination: 0.25, indoctrinationEffectiveness: 1.3, reaperReinforcements: 1.3, shepardAlive: false, shepardEffectiveness: 0 },
-};
+## Review notes (4 November)
 
-export const INDOCTRINATED_COUNCIL: RuleSet = {
-  id: 'indoctrinated_council',
-  name: 'The Indoctrinated Council',
-  tagline: 'A dead Reaper was towed home for study. By 2186 it had friends on the Council.',
-  category: 'au',
-  description:
-    'ALTERNATE UNIVERSE. After Shepard’s team recovers the Reaper IFF in 2185, an STG task force that had been tracking Cerberus reaches the derelict Reaper over Mnemosyne before it falls and tows it to a hidden Council research station. The dead machine still indoctrinates: through its researchers its influence reaches the councillors’ staffs and the turian, asari and salarian admiralties. By 2186 fleets are held back on plausible pretexts, fire-control and sensor software is quietly corrupted, and every deployment reaches the Reapers before it reaches the front.',
-  historyChanges: [
-    '2185: an STG task force salvages the derelict Reaper at Mnemosyne instead of letting it fall into the brown dwarf.',
-    'The wreck’s residual indoctrination spreads from the research station into the councillors’ staffs and the turian, asari and salarian admiralties.',
-    'Compromised admirals hold fleets in reserve and corrupt fire control, sensors and electronic warfare across the Council navies.',
-    'The Reapers learn every deployment in advance; the Alliance, kept outside the programme, is untouched.',
-  ],
-  organic: tech(),
-  reaper: tech(),
-  factionOverrides: {
-    turian: { accuracy: 0.8, sensors: 0.8, crewQuality: 0.85 },
-    asari: { accuracy: 0.85, sensors: 0.8, electronicWarfare: 0.8 },
-    salarian: { accuracy: 0.85, sensors: 0.8, electronicWarfare: 0.7 },
-  },
-  special: { ...CANON_SPECIAL },
-  fleetStrength: { ...CANON_FLEETS, turian: 0.7, asari: 0.7, salarian: 0.6 },
-  strategic: { ...CANON_STRATEGIC, alliedCoordination: 0.2, indoctrinationEffectiveness: 2, reaperCompetence: 1.3 },
-};
+The design review of 4 November raised eleven findings, all major. All eleven were accepted; none is rebutted. Where a finding’s suggested value or lever did not survive measurement, the measurement is quoted and the alternative chosen is named.
 
-export const LEVIATHANS_BARGAIN: RuleSet = {
-  id: 'leviathans_bargain',
-  name: 'Leviathan’s Bargain',
-  tagline: 'The Reapers found Despoina first. The Leviathans chose to outlive the cycle, and lent the harvest their minds.',
-  category: 'au',
-  description:
-    'ALTERNATE UNIVERSE. In 2186 the Reapers find Despoina before anyone else, and the last Leviathans, who created the intelligence that built the Reapers, buy their survival with service. They give the harvest their oldest arts: the hold they keep on thralls in every port and fleet, and the concealment that hid them from the Reapers for aeons. Organic crews fight beside officers who are no longer their own, against Reaper hulls that slide out of every firing solution.',
-  historyChanges: [
-    '2186: the Reapers locate Despoina before Shepard’s search does; the surviving Leviathans negotiate instead of fighting.',
-    'In exchange for being spared, the Leviathans turn their thralls in allied ports and fleets against the war effort.',
-    'The Leviathans teach the Reapers the concealment that hid them for aeons; Reaper hulls become far harder to target.',
-    'Indoctrination and thrall control reinforce each other, and trust between allied commands collapses.',
-  ],
-  organic: tech({ crewQuality: 0.8, accuracy: 0.9 }),
-  reaper: tech({ electronicWarfare: 1.8, sensors: 1.4 }),
-  factionOverrides: {},
-  special: { ...CANON_SPECIAL },
-  fleetStrength: { ...CANON_FLEETS },
-  strategic: { ...CANON_STRATEGIC, alliedCoordination: 0.3, indoctrinationEffectiveness: 2, reaperCompetence: 1.4 },
-};
-
-export const VIGILS_WARNING: RuleSet = {
-  id: 'vigils_warning',
-  name: 'Vigil’s Warning',
-  tagline: 'Ilos told the whole story in 2183. The Council believed it, and learned how the Protheans lost.',
-  category: 'au',
-  description:
-    'ALTERNATE UNIVERSE. In 2183 the whole of Vigil’s archive leaves Ilos with Shepard, and the Council cannot dismiss fifty thousand years of Prothean records. The galaxy learns how the Protheans fell: the Citadel taken first, commands hollowed out by indoctrinated agents, Reaper fleets that faltered whenever their capital ships died. Screening keeps indoctrinated officers out of the fleets and joint doctrine improves, but the archive holds no weapon that could have saved the Protheans, and no extra warships are built.',
-  historyChanges: [
-    '2183: Vigil’s full archive is recovered from Ilos and authenticated by Council scientists.',
-    'The Council accepts the Reaper threat on Prothean evidence, and every navy adopts indoctrination screening.',
-    'Fleet doctrine takes from the Prothean record that Reaper groups falter when their capital ships are destroyed.',
-    'The Mars archive is searched from 2184 (story only: the campaign’s Crucible clock is unchanged).',
-    'No new weapons and no extra warships: the archive is a record of how the Protheans lost.',
-  ],
-  organic: tech(),
-  reaper: tech(),
-  factionOverrides: {},
-  special: { ...CANON_SPECIAL, reaperCommandVulnerability: true },
-  fleetStrength: { ...CANON_FLEETS },
-  strategic: { ...CANON_STRATEGIC, alliedCoordination: 0.55, indoctrinationEffectiveness: 0.4 },
-};
-
-export const GETH_QUARIAN_CONCORD: RuleSet = {
-  id: 'geth_quarian_concord',
-  name: 'The Geth–Quarian Concord',
-  tagline: 'The quarians recognised the geth instead of shutting them down. Three centuries later, Rannoch builds warships for both.',
-  category: 'au',
-  description:
-    'ALTERNATE UNIVERSE. About three centuries before 2183 the quarians answer their creations’ first questions about themselves with recognition instead of a shutdown order. There is no Morning War and no Migrant Fleet: Rannoch remains a quarian world shared with the geth, the quarians keep their Citadel embassy, and the geth never split into a heretic faction for Sovereign to recruit. By 2186 the Concord fields a homeworld navy crewed by quarians flying with geth intelligences aboard, beside a geth fleet that has had three hundred years of peace to grow.',
-  historyChanges: [
-    'c. 1895: the quarian government recognises the geth as people; the order to shut them down is never given.',
-    'No Morning War and no Migrant Fleet: the quarians keep Rannoch, its industry and their Citadel embassy.',
-    'Quarian warships fly with geth intelligences aboard, with better barriers, electronic warfare and crews than any refugee fleet could field.',
-    'The geth never divide: there are no heretics for Sovereign, and the geth fleet grows for three hundred years.',
-  ],
-  organic: tech(),
-  reaper: tech(),
-  factionOverrides: {
-    quarian: { crewQuality: 1.2, electronicWarfare: 1.4, accuracy: 1.1, kineticBarrierStrength: 1.2, barrierRegen: 1.3 },
-    geth: { crewQuality: 1.2, barrierRegen: 1.3, sensors: 1.2, electronicWarfare: 1.3 },
-  },
-  special: { ...CANON_SPECIAL },
-  fleetStrength: { ...CANON_FLEETS, quarian: 1.9, geth: 2.4 },
-  strategic: { ...CANON_STRATEGIC, alliedCoordination: 0.6 },
-};
-
-export const ASARI_DISCLOSURE: RuleSet = {
-  id: 'asari_disclosure',
-  name: 'The Asari Disclosure',
-  tagline: 'In 2183 the Republics opened the Temple of Athame. Their head start became everyone’s.',
-  category: 'au',
-  description:
-    'ALTERNATE UNIVERSE. Sovereign’s attack persuades the asari councillor and the matriarchs that a secret kept for millennia is no longer worth keeping, and in 2183 the Prothean beacon in the Temple of Athame is opened to Council scientists. Three years of shared study carry the Republics’ lead in barrier projection, sensors and element zero engineering to every navy, and the Republics, no longer hiding the source of their advantage, build openly. The galaxy meets the Reapers with asari-grade defences.',
-  historyChanges: [
-    '2183: the asari disclose the Prothean beacon hidden in the Temple of Athame to the Council.',
-    'Joint research spreads asari barrier, sensor and element zero engineering to every Council navy by 2186.',
-    'More efficient element zero cores let spinal guns hit harder, and hulls gain Prothean-pattern plating.',
-    'The Republics expand their fleet openly, and trust between the Council races deepens.',
-  ],
-  organic: tech({ kineticBarrierStrength: 1.35, barrierRegen: 1.3, sensors: 1.25, massAcceleratorDamage: 1.2, armourStrength: 1.1, hullIntegrity: 1.05 }),
-  reaper: tech(),
-  factionOverrides: {
-    asari: { kineticBarrierStrength: 1.15, crewQuality: 1.1 },
-  },
-  special: { ...CANON_SPECIAL },
-  fleetStrength: { ...CANON_FLEETS, asari: 1.25 },
-  strategic: { ...CANON_STRATEGIC, alliedCoordination: 0.65 },
-};
-
-export const TURIAN_TOTAL_WAR: RuleSet = {
-  id: 'turian_total_war',
-  name: 'Turian Total War',
-  tagline: 'After Sovereign, the Hierarchy did what turians do: every citizen served and every yard built warships.',
-  category: 'au',
-  description:
-    'ALTERNATE UNIVERSE. The Citadel Fleet’s losses in 2183 convince the Primarch that Shepard’s warning is a military fact, and the Hierarchy mobilises as only a society built on universal service can. For three years reserve fleets are recommissioned, colony yards build at war tempo and the volus treasury pays for it. By 2186 the Hierarchy fields about two and a half times its canon fleet with crews drilled for this war, while the other Council races, as alarmed by the build-up as they are reassured, mobilise no faster than in canon.',
-  historyChanges: [
-    'Late 2183: the Primarch places the Hierarchy on a total-war footing in answer to Sovereign’s attack.',
-    'Reserve fleets are recommissioned and colony yards build at war tempo for three years, financed by the volus.',
-    'The Hierarchy enters 2186 with about two and a half times its canon fleet and crews drilled against Reaper tactics.',
-    'The other Council races watch the build-up warily and mobilise no faster than in canon.',
-  ],
-  organic: tech(),
-  reaper: tech(),
-  factionOverrides: {
-    turian: { crewQuality: 1.1, accuracy: 1.05 },
-  },
-  special: { ...CANON_SPECIAL },
-  fleetStrength: { ...CANON_FLEETS, turian: 2.5 },
-  strategic: { ...CANON_STRATEGIC },
-};
-
-export const LEVIATHANS_COVENANT: RuleSet = {
-  id: 'leviathans_covenant',
-  name: 'Leviathan’s Covenant',
-  tagline: 'At Despoina the Leviathans stopped hiding. The makers of the Reapers’ maker went to war.',
-  category: 'au',
-  description:
-    'ALTERNATE UNIVERSE. When Shepard reaches Despoina in 2186, the Leviathans conclude that hiding has failed and commit everything they have to the war. Their hold over minds shields allied crews from indoctrination, their thralls across the galaxy report every Reaper movement, and their knowledge of how the Reapers were made shows gunners where the plating is thinnest. They cannot command a Reaper, but their presence unsettles one: Reaper fire control and coordination falter wherever the Leviathans fight.',
-  historyChanges: [
-    '2186: the Leviathans of Despoina join the war openly rather than as a hidden asset.',
-    'Leviathan mental shielding protects allied crews; indoctrination no longer reaches the fleets.',
-    'Thralls in every sector track Reaper movements, and Leviathan knowledge of Reaper construction guides allied targeting.',
-    'Leviathan interference degrades Reaper targeting, electronic warfare and coordination in battle.',
-  ],
-  organic: tech({ sensors: 1.3, accuracy: 1.15, massAcceleratorPenetration: 1.3 }),
-  reaper: tech({ accuracy: 0.75, electronicWarfare: 0.6 }),
-  factionOverrides: {},
-  special: { ...CANON_SPECIAL, indoctrinationDisabled: true, reaperCommandVulnerability: true },
-  fleetStrength: { ...CANON_FLEETS },
-  strategic: { ...CANON_STRATEGIC, alliedCoordination: 0.7, indoctrinationEffectiveness: 0, reaperCompetence: 0.6 },
-};
-
-export const CONDUIT_PROTOCOL: RuleSet = {
-  id: 'conduit_protocol',
-  name: 'The Conduit Protocol',
-  tagline: 'The Protheans built one relay of their own. By 2186 the galaxy could lock the rest against their builders.',
-  category: 'au',
-  description:
-    'ALTERNATE UNIVERSE. After 2183 the Conduit, the small relay the Prothean scientists of Ilos built for themselves, is studied by a joint Alliance and Salarian Union team. Its design shows how a relay chooses what it carries, and by 2186 the Council can lock the relays the Reapers built against the Reapers themselves. The harvest has to cross the galaxy at ordinary faster-than-light speeds and reaches each battle in scattered groups, while the organic fleets still move through the network at will.',
-  historyChanges: [
-    '2183–2185: a joint Alliance–STG team studies the Prothean Conduit on Ilos.',
-    '2186: the Council deploys relay locks, and the Reapers can no longer travel through the network they built.',
-    'Reaper fleets cross between systems at ordinary FTL speeds and reach each battle in scattered groups.',
-    'The organic fleets keep the relay network and concentrate faster than the Reapers can.',
-  ],
-  organic: tech(),
-  reaper: tech(),
-  factionOverrides: {},
-  special: { ...CANON_SPECIAL },
-  fleetStrength: { ...CANON_FLEETS, reaper: 0.4 },
-  strategic: { ...CANON_STRATEGIC, alliedCoordination: 0.7, reaperReinforcements: 0.3, conventionalVictoryPossible: true },
-};
-
-export const ALTERNATE_PRESETS: RuleSet[] = [
-  SOVEREIGNS_TRIUMPH,
-  COLLECTORS_HARVEST,
-  INDOCTRINATED_COUNCIL,
-  LEVIATHANS_BARGAIN,
-  VIGILS_WARNING,
-  GETH_QUARIAN_CONCORD,
-  ASARI_DISCLOSURE,
-  TURIAN_TOTAL_WAR,
-  LEVIATHANS_COVENANT,
-  CONDUIT_PROTOCOL,
-];
-
-export const ALTERNATE_META: Record<string, AlternateMeta> = {
-  sovereigns_triumph: {
-    divergence: { year: 2183, event: 'Battle of the Citadel: Saren’s override of the Citadel holds and Sovereign opens the Citadel relay to dark space.' },
-    canonBasis: 'In 2183 Saren reached the Citadel through the Conduit and locked its arms while Sovereign and a geth fleet attacked. Shepard broke the lock with data recovered on Ilos, and the combined fleets destroyed Sovereign after Saren died.',
-    provenance: 'AU_MODIFIED',
-    declaredTier: 1,
-    lever: { key: 'fleetStrength.reaper', min: 1.25, max: 1.5 },
-  },
-  collectors_harvest: {
-    divergence: { year: 2185, event: 'The assault on the Collector base fails beyond the Omega 4 relay.' },
-    canonBasis: 'In 2185 Shepard, rebuilt by Cerberus, took the Normandy SR-2 through the Omega 4 relay to the Collector base near the galactic core and destroyed the human Reaper the Collectors were building from abducted colonists.',
-    provenance: 'AU_MODIFIED',
-    declaredTier: 2,
-    lever: { key: 'fleetStrength.alliance', min: 0.65, max: 0.8 },
-  },
-  indoctrinated_council: {
-    divergence: { year: 2185, event: 'A Council salvage task force recovers the derelict Reaper at Mnemosyne instead of letting it fall into the brown dwarf.' },
-    canonBasis: 'In 2185 Shepard’s team boarded a Reaper that had been dead for millions of years in orbit of the brown dwarf Mnemosyne and recovered its IFF. The Cerberus scientists studying the wreck had been indoctrinated by it, and the derelict was lost to the brown dwarf after the team escaped.',
-    provenance: 'AU_MODIFIED',
-    declaredTier: 2,
-    lever: { key: 'fleetStrength.turian', min: 0.6, max: 0.8 },
-  },
-  leviathans_bargain: {
-    divergence: { year: 2186, event: 'The Reapers reach Despoina before Shepard; the surviving Leviathans bargain for their survival.' },
-    canonBasis: 'In 2186 Dr. Ann Bryson’s research put Shepard on the trail of the Leviathans, the race that created the intelligence that created the Reapers, hidden for aeons on Despoina behind their thralls. In canon Shepard found them first and persuaded them to join the war.',
-    provenance: 'AU_MODIFIED',
-    declaredTier: 2,
-    lever: { key: 'reaper.electronicWarfare', min: 1.5, max: 2 },
-  },
-  vigils_warning: {
-    divergence: { year: 2183, event: 'Vigil’s complete archive leaves Ilos with Shepard and is authenticated by Council scientists.' },
-    canonBasis: 'In 2183 Shepard reached Ilos, where Vigil, a Prothean VI, explained how the Reapers had used the Citadel to cut off the Prothean empire’s leadership, and gave Shepard the data that broke Saren’s hold on the Citadel.',
-    provenance: 'AU_MODIFIED',
-    declaredTier: 3,
-    lever: { key: 'strategic.alliedCoordination', min: 0.5, max: 0.65 },
-  },
-  geth_quarian_concord: {
-    divergence: { year: 1895, approximate: true, event: 'The quarian government recognises the geth instead of ordering their shutdown; the Morning War never happens.' },
-    canonBasis: 'About three hundred years before 2183 the quarians’ geth servants began to show signs of self-awareness. The quarians tried to shut them down, lost the Morning War and fled Rannoch in the Migrant Fleet; by 2183 a heretic faction of geth served Sovereign.',
-    provenance: 'AU_MODIFIED',
-    declaredTier: 4,
-    lever: { key: 'fleetStrength.geth', min: 2, max: 2.6 },
-  },
-  asari_disclosure: {
-    divergence: { year: 2183, event: 'After Sovereign’s attack the asari councillor and the matriarchs disclose the Prothean beacon in the Temple of Athame.' },
-    canonBasis: 'The asari kept a Prothean beacon hidden in the Temple of Athame on Thessia for thousands of years, and it fed their technological lead; the secret came out only in 2186, when the Reapers attacked Thessia.',
-    provenance: 'AU_MODIFIED',
-    declaredTier: 4,
-    lever: { key: 'organic.massAcceleratorDamage', min: 1.1, max: 1.25 },
-  },
-  turian_total_war: {
-    divergence: { year: 2183, event: 'After the Battle of the Citadel the Primarch places the Hierarchy on a total-war footing.' },
-    canonBasis: 'Turians serve in the military from the age of fifteen, the Hierarchy fields the largest navy in Citadel space and the volus are its client race. The Citadel Fleet took heavy losses against Sovereign in 2183, but the Hierarchy did not mobilise against the Reapers before they struck Palaven in 2186.',
-    provenance: 'AU_MODIFIED',
-    declaredTier: 5,
-    lever: { key: 'fleetStrength.turian', min: 2.2, max: 2.8 },
-  },
-  leviathans_covenant: {
-    divergence: { year: 2186, event: 'At Despoina the Leviathans join the war openly instead of as a hidden asset.' },
-    canonBasis: 'In 2186 Shepard followed Dr. Ann Bryson’s research to Despoina, where the Leviathans, who created the intelligence that created the Reapers, had hidden for aeons behind their thralls; the first Reaper had been made in their image. Shepard persuaded them to join the war.',
-    provenance: 'AU_MODIFIED',
-    declaredTier: 5,
-    lever: { key: 'reaper.accuracy', min: 0.7, max: 0.8 },
-  },
-  conduit_protocol: {
-    divergence: { year: 2183, event: 'A joint Alliance–STG team begins studying the Prothean Conduit on Ilos.' },
-    canonBasis: 'The Conduit on Ilos was a small mass relay built by Prothean scientists, and Saren and Shepard used it in 2183 to reach the Citadel. The Reapers built the mass relay network, and the Citadel itself is a relay to dark space.',
-    provenance: 'AU_MODIFIED',
-    declaredTier: 6,
-    lever: { key: 'fleetStrength.reaper', min: 0.35, max: 0.45 },
-  },
-};
-```
+1. **Vigil’s Warning claimed a Prothean-era Reaper weakness (§2.5).** Accepted. `special.reaperCommandVulnerability` is gone from the preset, with the clause about Reaper fleets faltering whenever their capital ships died and the history line that said so: canon records no such weakness, and learning of one could not create it. The doctrine rests on what Vigil told Shepard: the Reapers open each war by taking the Citadel and the relays after indoctrinated agents have hollowed out the commands, so the galaxy guards the Keepers and the Citadel’s controls, plans for losing the relays and screens for indoctrination. The same principle was checked against the other nine: Leviathan’s Covenant keeps its command vulnerability, now justified as the Leviathans’ active interference in battle rather than their knowledge.
+2. **Vigil’s Warning duplicated Prepared Galaxy and contradicted the Ilos scene (§2.5).** Accepted. The response is secret: after the battle a Council recovery team returns to Ilos and brings out what remains of the archive, Council scientists authenticate it, and the Council believes it and buries it to prevent panic. The navies get quiet indoctrination screening and Keeper and Citadel security, but no budget can pass for ships nobody may be told about. New divergence ("a Council team recovers Vigil’s archive after the Battle of the Citadel"), the suggested tagline, new history; the canon line now records that Shepard had only minutes with a failing VI.
+3. **The Collectors’ Harvest’s dates contradicted each other (§2.2).** Accepted. The year of Collector hunts is gone, before and after the divergence: the Alliance meets the invasion months early at its peacetime stations, without the delay the destruction of the Alpha relay bought in canon, which is now the reason for its reduced fleet. `fleetStrength.reaper` rests only on the whole fleet arriving at once through the intact relay; the human Reaper is story only, completed when the harvest arrives; the tagline reads "The human Reaper was never stopped". Re-measured with finding 7 applied, the timeline fell to tier 1 (11.8), so its numbers were retuned inside the same story (Alliance 0.8, Reaper groups ×1.15; §2.2).
+4. **Leviathan’s Bargain gave the Reapers a concealment technology (§2.4).** Accepted. `reaper.electronicWarfare` stays as the engine’s stand-in, but the cause is in organic minds: thralled sensor officers and fire-control crews see what the Leviathans let them see, so Reaper hulls slip out of firing solutions computed by people who are no longer entirely their own. The divergence has a cause: an indoctrinated member of Dr. Ann Bryson’s research circle passes her findings to the Reapers.
+5. **The Geth–Quarian Concord ignored Citadel AI law and kept unexplained canon (§2.6).** Accepted. The quarians choose their children over their embassy: the Council expels them, Rannoch lives under Citadel sanctions for three centuries, and the Concord joins the 2186 war by treaty. `strategic.alliedCoordination` returns to the canon 0.5 (re-measured 55.7, still tier 4). The geth fleet is justified by what differs from canon (no heretic secession, no 2186 war at Rannoch, shared yards). The reference names the contingent neutrally ("Quarian fleet"), the Concord’s order of battle calls it the Rannoch Navy with Migrant Fleet hull classes standing in for Rannoch-built designs, and one history line keeps Shepard, the Normandy and a hostile Cerberus as stand-ins.
+6. **The campaign narrated history these timelines rule out (§4.10, §4.11).** Accepted. `AlternateMeta.worldState` carries the world state each story implies (Sovereign’s Triumph: Ascension lost, Rannoch at war, no Normandy, no cure; The Collectors’ Harvest: Rannoch at war, no Normandy, no cure; the Concord: Rannoch at peace). Campaign setup and the Quick Battle briefing preselect and lock those values with an AU note, and the campaign smoke test uses them. What the campaign still cannot express is said once, AU-prefixed, in a `campaignNote` (Sovereign’s Triumph, The Collectors’ Harvest, the Concord, The Conduit Protocol). For the genophage the closest available state for "no cure is ever made" is "cure sabotaged"; its one inconsistency (the Salarian First Fleet still joins) is stated in the lock’s reason rather than hidden.
+7. **The reference fielded allies the stories rule out (§1.1).** Accepted. A contingent is fielded only when its faction’s `fleetStrength` is above 0 ("0 = absent", §1.1); Sovereign’s Triumph sets `geth` 0 and The Collectors’ Harvest `quarian` and `geth` 0, and both were re-measured.
+8. **The breaking point and the tier sentences described the base rungs (§1.3, §1.4).** Accepted. `RungMeasure` records the group each timeline actually deploys; `holdsUpTo` is that group’s capital count, and the sentence names the rung and the group. The tier summaries are statements about the index band itself, true by construction; every rung sentence is generated from the timeline’s own measured table. The §0 column and §3 were regenerated from the measurement.
+9. **Four levers could not move their preset back (§1.8).** Accepted, and the measurement showed the problem is wider than the four. Every new timeline’s lever was measured at both ends; where a suggested replacement measured flat (Reaper competence for The Collectors’ Harvest and Sovereign’s Triumph; turian accuracy and Reaper competence for The Indoctrinated Council) or a fleet lever jumped a tier inside its range (the Concord’s geth count at 2.5, the Conduit’s Reaper count above 0.4167), another story-safe knob was chosen (§1.8, Appendix C). A step is defined (0.05, or the next count change); `npm run timeline:threat` measures both ends of every lever on every run and writes them into TIMELINE_THREAT.md; each §2 section quotes them. The finding’s measurement of Vigil’s `alliedCoordination` also superseded finding 1’s suggestion to keep it as Vigil’s lever: Vigil’s lever is `organic.crewQuality`.
+10. **No engine change, but the default world states contradicted three premises (§4.10).** Accepted and merged with finding 6: still no engine change, because the locks act in the setup and briefing screens. Quick Battle no longer fields the Normandy under the two new timelines in which Shepard is dead (`normandy: 'no'`), and the briefing lists any key it applied without a control. What the untouched `src/scenarios/index.ts` and the other screens still do differently is listed as known limitations in `AU_RULES.md`.
+11. **The reference was tied to today’s combat scale (§1.1, §1.8).** Accepted, both remedies. The standoff is 1.07 × the longest catalogue weapon range and the time limit 3.2 × the time a Reaper capital at top speed needs to cross it, so the geometry and the clock keep their meaning when the pacing pass changes ranges or speeds (both are computed, and tested). A CORE change to ranges, speeds or the time scale still bumps `THREAT_FORMULA_VERSION` and re-derives the thresholds by the preset-blind probe ladder (`--probes`). The script reports the share of battles ending on the time limit; the default run and `--check` fail above 25 %.
