@@ -50,6 +50,11 @@ The owner: "you have full workflow auth, playable build is only priority, I leav
 4. **Deferred past 1.0.0** (in this order): the remaining cinematic scenes and the full character bible (D-prep run `wf_2f8b94ec-2bf` stays paused; its drafts are in the worktrees), the design-sheet lock-down and likeness loop, the graphics overhaul plan (`wf_c90f6423-5b9`, paused; brief §16), the extreme-scale programme (brief §17), System theatre, Alternate Timelines, the local-hardware build.
 5. The stage prompts in `docs/apex/workflows/stages-abcd.js` are the full-scope prompts; for the 1.0.0 run pass `args: { only: [...] }` and prepend the "lite" scope paragraph from item 3 (write it into the script's COMMON before launching).
 
+## Released (lead log)
+
+- **0.12.0 — 4 Nov 20:31 UTC**, commit `917cae2` on `main`, Pages deployment success (https://rdrm95.github.io/reaperwar/), CI green. Contents: CORE T1–T10 (movement rewrite, tactical withdrawal, firing solutions, IES stealth and hunter doctrine, HADES penetrators, canon calibration, Apex core/legacy presets, new catalogue classes on placeholder models, spatial grid). Gate on `46b7006`: typecheck, 217 unit tests, build, 8/8 e2e, screenshots inspected. Release procedure that worked: detached worktree at the candidate, `npm ci`, the suites (Playwright through a temporary config on port 4178 so it never collides with another worktree's server on 4173), screenshots via `scripts/screenshots.mjs <dir> http://localhost:4178`, `npm version X --no-git-tag-version` + CHANGELOG on a `release/X` branch, `git push origin release/X:main` (fast-forward), merge `release/X` into the integration branch, poll `gh api repos/RDRM95/reaperwar/actions/runs?branch=main` until "Deploy to GitHub Pages" and "CI" complete, read the deployment status.
+- Next: 0.12.1 = the new timelines when `wf_07ef8a55-815` finishes; 0.12.2 = the playback workstream.
+
 ## Sequence after 4 Nov 18:40 UTC (lead)
 
 1. Running: CORE (`wf_2f3d7476-5c1`, T10 in progress) and the new timelines (`wf_07ef8a55-815`, worktree `/home/user/reaperwar-T`, branch `stage/T-timelines`).
