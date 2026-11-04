@@ -59,13 +59,18 @@ Options:
   --vsync           Keep the frame rate locked to the monitor's refresh rate
                     (default: uncapped).
   --fullscreen      Start full screen (F11 toggles it).
+  --gpu-info        Open chrome://gpu on the game's browser profile, with the same
+                    flags, to check which GPU it uses (works while the game runs).
   --no-browser      Only serve, and print the address to open.
   --help            Show this help.
 
 Ctrl+C stops the server; closing the game window stops it too.`;
 
+/** Page --gpu-info opens (Edge maps chrome:// pages to edge://). */
+export const GPU_INFO_PAGE = 'chrome://gpu';
+
 /**
- * @typedef {{ port: number, rebuild: boolean, browser?: string, vsync: boolean, fullscreen: boolean, noBrowser: boolean, help: boolean }} LaunchOptions
+ * @typedef {{ port: number, rebuild: boolean, browser?: string, vsync: boolean, fullscreen: boolean, gpuInfo: boolean, noBrowser: boolean, help: boolean }} LaunchOptions
  */
 
 /**
@@ -75,7 +80,7 @@ Ctrl+C stops the server; closing the game window stops it too.`;
  */
 export function parseLaunchArgs(argv) {
   /** @type {LaunchOptions} */
-  const out = { port: DEFAULT_PORT, rebuild: false, browser: undefined, vsync: false, fullscreen: false, noBrowser: false, help: false };
+  const out = { port: DEFAULT_PORT, rebuild: false, browser: undefined, vsync: false, fullscreen: false, gpuInfo: false, noBrowser: false, help: false };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     const eq = arg.startsWith('--') ? arg.indexOf('=') : -1;
@@ -105,6 +110,9 @@ export function parseLaunchArgs(argv) {
         break;
       case '--fullscreen':
         out.fullscreen = flag();
+        break;
+      case '--gpu-info':
+        out.gpuInfo = flag();
         break;
       case '--no-browser':
         out.noBrowser = flag();
@@ -212,12 +220,14 @@ export function findBrowser({ platform, env, exists, explicit }) {
 }
 
 /**
- * Browser command-line arguments for the game window.
- * @param {{ url: string, profileDir: string, vsync?: boolean, fullscreen?: boolean }} args
+ * Browser command-line arguments for the game window, or with `gpuInfo` for
+ * an ordinary window on chrome://gpu (same profile and flags).
+ * @param {{ url: string, profileDir: string, vsync?: boolean, fullscreen?: boolean, gpuInfo?: boolean }} args
  * @returns {string[]}
  */
-export function buildBrowserArgs({ url, profileDir, vsync = false, fullscreen = false }) {
-  return [`--app=${url}`, `--user-data-dir=${profileDir}`, ...PROFILE_FLAGS, ...GPU_FLAGS, ...(vsync ? [] : UNCAPPED_FLAGS), ...(fullscreen ? ['--start-fullscreen'] : [])];
+export function buildBrowserArgs({ url, profileDir, vsync = false, fullscreen = false, gpuInfo = false }) {
+  const flags = [`--user-data-dir=${profileDir}`, ...PROFILE_FLAGS, ...GPU_FLAGS, ...(vsync ? [] : UNCAPPED_FLAGS), ...(fullscreen ? ['--start-fullscreen'] : [])];
+  return gpuInfo ? [...flags, GPU_INFO_PAGE] : [`--app=${url}`, ...flags];
 }
 
 /**
@@ -234,7 +244,7 @@ export function buildBrowserArgs({ url, profileDir, vsync = false, fullscreen = 
 export function planLaunch(options, { platform, env, exists, repoRoot }) {
   const url = appUrl(options.port);
   const profileDir = pathApi(platform).join(repoRoot, PROFILE_DIR_NAME);
-  const args = buildBrowserArgs({ url, profileDir, vsync: options.vsync, fullscreen: options.fullscreen });
+  const args = buildBrowserArgs({ url, profileDir, vsync: options.vsync, fullscreen: options.fullscreen, gpuInfo: options.gpuInfo });
   const browser = findBrowser({ platform, env, exists, explicit: options.browser });
   if (options.noBrowser) return { action: 'serve-only', url, profileDir, args, browser };
   if (!browser) return { action: options.browser ? 'browser-missing' : 'no-browser-found', url, profileDir, args };
@@ -391,7 +401,7 @@ async function main() {
       console.log(`The Local Edition is already being served at ${plan.url}`);
       if (plan.action === 'launch' && plan.browser) {
         spawn(plan.browser, plan.args, { stdio: 'ignore', detached: true }).on('error', () => printManualOpen(plan)).unref();
-        console.log('Opened another game window.');
+        console.log(opts.gpuInfo ? `Opened ${GPU_INFO_PAGE} on the game's browser profile.` : 'Opened another game window.');
       } else {
         console.log(`Open ${plan.url}`);
       }
@@ -438,12 +448,12 @@ async function main() {
     return;
   }
 
-  console.log(`Opening the game window: ${plan.browser}`);
+  console.log(opts.gpuInfo ? `Opening ${GPU_INFO_PAGE} on the game's browser profile: ${plan.browser}` : `Opening the game window: ${plan.browser}`);
   console.log(`  ${plan.args.join(' ')}`);
   console.log(
     process.platform === 'darwin'
       ? 'Quit the browser (Cmd+Q) or press Ctrl+C here to stop the server.'
-      : 'Close the game window or press Ctrl+C here to stop the server.',
+      : 'Close the browser window or press Ctrl+C here to stop the server.',
   );
   const started = Date.now();
   let failed = false;

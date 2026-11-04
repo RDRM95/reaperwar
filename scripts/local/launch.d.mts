@@ -10,6 +10,7 @@ export declare const BUILD_INPUTS: readonly string[];
 export declare const HANDOFF_MS: number;
 export declare const LINUX_BROWSER_NAMES: readonly string[];
 export declare const USAGE: string;
+export declare const GPU_INFO_PAGE: string;
 
 export interface LaunchOptions {
   port: number;
@@ -17,6 +18,7 @@ export interface LaunchOptions {
   browser?: string;
   vsync: boolean;
   fullscreen: boolean;
+  gpuInfo: boolean;
   noBrowser: boolean;
   help: boolean;
 }
@@ -35,7 +37,7 @@ export declare function parseLaunchArgs(argv: string[]): LaunchOptions;
 export declare function appUrl(port: number): string;
 export declare function browserCandidates(platform: string, env: Env): string[];
 export declare function findBrowser(args: { platform: string; env: Env; exists: (p: string) => boolean; explicit?: string }): string | undefined;
-export declare function buildBrowserArgs(args: { url: string; profileDir: string; vsync?: boolean; fullscreen?: boolean }): string[];
+export declare function buildBrowserArgs(args: { url: string; profileDir: string; vsync?: boolean; fullscreen?: boolean; gpuInfo?: boolean }): string[];
 export declare function planLaunch(options: LaunchOptions, host: { platform: string; env: Env; exists: (p: string) => boolean; repoRoot: string }): LaunchPlan;
 export declare function npmBuildCommand(platform: string, env: Env, nodePath: string): { command: string; args: string[]; shell: boolean };
 export declare function newestMtime(p: string): { mtimeMs: number; path: string };

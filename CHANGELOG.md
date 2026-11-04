@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **Local Edition: play on your own GPU.** `run-local.cmd` (Windows) or `./run-local.sh` / `npm run local` (macOS, Linux) builds the game when needed, serves it to this machine only with cross-origin isolation, and opens Chrome or Edge as a game window on a dedicated profile with GPU flags and no frame-rate cap (`--vsync`, `--fullscreen`, `--gpu-info`, `--port`, `--browser`, `--no-browser`). New **Ultra — local GPU** graphics quality, the Local Edition's first-run default: native resolution up to 3× pixel density, 2.5× level-of-detail distances, doubled effect budgets, maximum anisotropic filtering, a larger environment map and an FPS readout on the battle HUD. Drawing only: battle results are unchanged. See the README, "Run it locally on your own GPU".
+
 ## 0.12.0 — V2 preview: movement, firing solutions, stealth, HADES penetrators
 
 First playable preview of the V2 simulation core (CORE tasks T1–T10). Rendering, HUD and cinematics work for V2 has not started yet, so new hull classes appear with simple placeholder models.

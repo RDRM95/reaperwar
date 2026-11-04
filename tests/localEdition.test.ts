@@ -378,6 +378,14 @@ describe('Local Edition launcher: arguments and plan', () => {
     ]);
   });
 
+  it('--gpu-info opens chrome://gpu on the same profile with the same flags instead of the game', () => {
+    const args = planLaunch(parseLaunchArgs(['--gpu-info']), host).args;
+    expect(args[args.length - 1]).toBe('chrome://gpu');
+    expect(args.some((a) => a.startsWith('--app='))).toBe(false);
+    expect(args).toContain('--user-data-dir=/home/shepard/reaperwar/.local-profile');
+    for (const f of [...GPU_FLAGS, ...UNCAPPED_FLAGS]) expect(args).toContain(f);
+  });
+
   it('--no-browser only serves', () => {
     const plan = planLaunch(parseLaunchArgs(['--no-browser', '--port', '4181']), host);
     expect(plan.action).toBe('serve-only');
@@ -397,7 +405,8 @@ describe('Local Edition launcher: arguments and plan', () => {
   });
 
   it('parses every option and rejects bad ones', () => {
-    expect(parseLaunchArgs(['--rebuild', '--vsync', '--fullscreen', '--no-browser', '--browser', '/b', '--port', '5000'])).toMatchObject({ rebuild: true, vsync: true, fullscreen: true, noBrowser: true, browser: '/b', port: 5000 });
+    expect(parseLaunchArgs(['--rebuild', '--vsync', '--fullscreen', '--gpu-info', '--no-browser', '--browser', '/b', '--port', '5000'])).toMatchObject({ rebuild: true, vsync: true, fullscreen: true, gpuInfo: true, noBrowser: true, browser: '/b', port: 5000 });
+    expect(parseLaunchArgs([])).toMatchObject({ port: 4180, rebuild: false, vsync: false, fullscreen: false, gpuInfo: false, noBrowser: false, help: false });
     expect(parseLaunchArgs(['--help']).help).toBe(true);
     expect(() => parseLaunchArgs(['--turbo'])).toThrow(/unknown option/);
     expect(() => parseLaunchArgs(['--port', 'abc'])).toThrow(/--port/);
