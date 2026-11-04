@@ -7,3 +7,9 @@
  * are unaffected because speeds and ranges scale together.
  */
 export const BATTLESPACE_SCALE = 0.4;
+
+/**
+ * Vertical reach of an arc-limited mount: it bears only on a target with |Δy| / distance below this (about ±37°,
+ * world frame — the hull's own pitch does not change it). Turreted mounts (arc 360) cover every bearing.
+ */
+export const ARC_VERTICAL_REACH = 0.6;

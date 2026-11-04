@@ -92,13 +92,33 @@ describe('battle simulation', () => {
     expect(b.reaperCapitalLosses).toBeGreaterThan(a.reaperCapitalLosses);
   }, 120_000);
 
-  it('player orders change behaviour: retreat ends the battle by withdrawal', () => {
+  // ADOPTION_PLAN.md §16: "retreat ends the battle by withdrawal" becomes "disengage pulls the fleet behind its line,
+  // barriers recover, nobody escapes" (brief §8.6: nobody runs; Disengage holds at 1.5 × standoff, CORE T10).
+  it('player orders change behaviour: disengage pulls the fleet behind its line, barriers recover, nobody escapes', () => {
     const sim = new BattleSimulation(buildScenario('alliance_fleet_engagement', 'canon_me3', 5, fixed));
-    for (let i = 0; i < 200; i++) sim.step();
-    sim.issueOrders('alliance-tf', { order: 'retreat' });
-    const r = sim.run();
-    expect(r.reason).toMatch(/withdrew|destroyed/);
-    expect(sim.events.some((e) => e.type === 'order_issued')).toBe(true);
+    for (let i = 0; i < 600; i++) sim.step();
+    const f = sim.fleets.get('alliance-tf')!;
+    const bearing = { ...f.approachBearing };
+    const lineBefore = f.anchor.x * bearing.x + f.anchor.z * bearing.z;
+    expect(sim.issueOrders('alliance-tf', { order: 'retreat' })).toBe('issued');
+    expect(sim.events.some((e) => e.type === 'order_issued' && e.fleetId === 'alliance-tf' && e.order.includes('retreat'))).toBe(true);
+    const low = new Map<string, number>();
+    let recovered = 0;
+    for (let i = 0; i < 1200; i++) {
+      sim.step();
+      for (const s of sim.ships) {
+        if (s.fleetId !== 'alliance-tf' || !s.alive || s.role === 'fighter' || s.maxBarriers === 0) continue;
+        const m = Math.min(low.get(s.id) ?? s.barriers, s.barriers);
+        low.set(s.id, m);
+        if (s.barriers > m + 0.1 * s.maxBarriers) recovered++;
+      }
+    }
+    // The line fell back behind where it stood (along its bearing; the Reapers may follow), barriers regenerated on
+    // the hulls it pulled out of contact, and nobody left the battlespace.
+    expect(f.anchor.x * bearing.x + f.anchor.z * bearing.z).toBeLessThan(lineBefore - 2);
+    expect(recovered).toBeGreaterThan(0);
+    for (const s of sim.ships) if (s.role !== 'fighter') expect(s.escaped, s.id).toBe(false);
+    expect(sim.result?.reason ?? '').not.toMatch(/withdrew/);
   });
 
   it('attack_target order focuses the fleet on the chosen ship', () => {

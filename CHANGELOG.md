@@ -9,6 +9,23 @@
 - Codex: a Timelines category with one entry per new timeline and an entry explaining the scale.
 - The timelines screen stacks to one column on phones, its Reaper-group table fits a phone without scrolling, and long timeline names no longer widen the briefing or campaign setup past the screen.
 
+## 0.12.0 — V2 preview: movement, firing solutions, stealth, HADES penetrators
+
+First playable preview of the V2 simulation core (CORE tasks T1–T10). Rendering, HUD and cinematics work for V2 has not started yet, so new hull classes appear with simple placeholder models.
+
+- **Movement rewrite.** Fleets steer onto a bearing with slow, damped heading changes, close to their engagement band and hold it: no spinning-plate rotation, no spirals, no orbiting the target. Lines decelerate on the run-in; escorts close to their own weapon range while the capital line holds its standoff. Six 3D formations (layered line, stacked wedge, box, swarm descent, broadside line, static), Reapers in a loose cluster, fixed orbital platforms that slew but never move.
+- **Nobody runs.** Battered hulls make a tactical withdrawal to a recovery station behind their line with their guns still firing, regenerate and re-engage; only carrier recovery takes a hull off the field. Battles end by destruction or the time limit.
+- **Firing solutions.** Every gun builds a solution on its target from sensors, crew, range, electronic warfare and the target's manoeuvring; hard manoeuvres break solutions, and misses at range are common.
+- **Stealth frigates.** The SSV Normandy SR-2 is a unique command vessel; the SR-2-pattern stealth frigates are their own class. Both run silent with an emission sink, are invisible to fire beyond close detection range, are revealed by firing, being hit or close contact, and must vent when the sink fills. They fight as hunters: silent approach, one strike on the most vulnerable target, break away, go silent again.
+- **HADES penetrators (Apex timelines).** The Project Titan gun carries a finite magazine of penetrators with nuclear warheads; the warhead fires only after a penetrating hit, then the gun falls back to slugs. Per-mount heat, charge times and coordinated salvos.
+- **Canon calibration.** Dreadnought main guns on a 2-second cadence; Sovereign-class capitals, Harbinger and destroyers re-based so a canon dreadnought line loses to Reaper capitals while killing one or two; barriers that recover under fire only below their load threshold.
+- **Timelines.** "Prime/Apex — Apex core" (the tuned Apex rules) and "Apex legacy" (the earlier high-power rules) are separate presets.
+- **Catalogue.** New classes for later V2 scenarios: Oculus drones, SSV Normandy SR-2, SR-2-pattern stealth frigate, Kilimanjaro-class dreadnought, super-dreadnoughts (SSV Omaha leads the Alliance line, AU), Normandy Valkyrie (AU), orbital defence platforms.
+- **Performance.** A spatial grid and staggered decisions make each simulation step 4–9 times faster in large battles.
+- **Tests.** 217 unit tests, including a seed-42 check that a battle run one tick at a time, in 160-tick batches and in uneven batches is identical.
+
+Known limitations of this preview: placeholder models for the new classes; a new campaign fields an SR-2-pattern frigate where the Normandy should be; 8× playback still lags on large battles (fix scheduled for 0.12.x with an exact fast-forward to result); combat ranges and pacing are being redesigned (brief §19.2).
+
 ## 0.11.3 — Camera and recording (hotfix)
 
 - Cinematic director lingers 11–18 s per shot (7 s on a capital death) and cuts away less often.

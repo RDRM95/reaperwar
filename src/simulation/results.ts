@@ -13,8 +13,10 @@ export function summariseSide(sim: BattleSimulation, side: Side): SideSummary {
   const lossesByClass: SideSummary['lossesByClass'] = {};
   for (const s of ships) {
     const e = (lossesByClass[s.classId] ??= { deployed: 0, lost: 0, name: getShipClass(s.classId).name });
-    e.deployed++;
-    if (!s.alive) e.lost++;
+    // A flight counts its craft, not itself (AP §21.3): every member launched, every member lost.
+    const craft = s.flight ? s.flight.maxCraft : 1;
+    e.deployed += craft;
+    e.lost += s.flight ? craft - (s.alive ? s.flight.craft : 0) : s.alive ? 0 : 1;
   }
   const pointsDeployed = combat.reduce((a, s) => a + s.pointValue, 0);
   const pointsLost = destroyed.reduce((a, s) => a + s.pointValue, 0);
