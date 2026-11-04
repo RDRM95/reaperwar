@@ -73,10 +73,12 @@ test.describe('Local Edition', () => {
     });
     expect(view).toMatchObject({ quality: 'ultra', lodScale: 2.5, sparks: 1800 });
     expect(view.pixelRatio).toBe(Math.min(view.dpr, 3));
+    // Run for a few seconds. Software WebGL stalls for seconds whenever it compiles a shader
+    // (first weapon fire, first explosion), so progress is polled rather than sampled once.
     const t0 = await simTime(page);
     await page.waitForTimeout(4000);
-    expect(await simTime(page)).toBeGreaterThan(t0);
-    await expect(page.locator('.hud-clock')).toContainText(/\d+ FPS/);
+    await expect.poll(() => simTime(page), { timeout: 60_000 }).toBeGreaterThan(t0 + 1);
+    await expect(page.locator('.hud-clock')).toContainText(/\d+ FPS/, { timeout: 30_000 });
     expect(errors).toEqual([]);
   });
 });

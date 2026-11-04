@@ -311,9 +311,10 @@ export function createHud(app: App, ctrl: BattleController): Hud {
 
   const refresh = () => {
     const s = sim();
-    // Ultra adds the measured frame rate next to the draw calls (an uncapped Local Edition window can run far above 60).
-    const fps = ctrl.view.settings.quality === 'ultra' ? ` · ${Math.round(ctrl.view.fps)} FPS` : '';
-    clock.replaceChildren(fmtTime(s.time), el('small', {}, `${ctrl.paused ? 'PAUSED' : `${ctrl.speed}× SPEED`} · ${ctrl.isReplay ? 'REPLAY · ' : ''}SEED ${s.config.seed} · ${ctrl.view.drawCalls} DRAWS${fps}`));
+    // Ultra shows the measured frame rate beside the draw calls, right-aligned on the clock row so the panel keeps its height
+    // (an uncapped Local Edition window can run far above 60).
+    const fps = ctrl.view.settings.quality === 'ultra' ? el('span', { class: 'hud-fps', title: 'Frames per second', style: { float: 'right', fontSize: '11px', letterSpacing: '0.2em', color: 'var(--text-dim)', marginTop: '9px' } }, `${Math.round(ctrl.view.fps)} FPS`) : null;
+    clock.replaceChildren(...(fps ? [fps] : []), fmtTime(s.time), el('small', {}, `${ctrl.paused ? 'PAUSED' : `${ctrl.speed}× SPEED`} · ${ctrl.isReplay ? 'REPLAY · ' : ''}SEED ${s.config.seed} · ${ctrl.view.drawCalls} DRAWS`));
     const a = s.ships.filter((x) => x.side === 'A' && x.alive && !x.escaped && x.role !== 'fighter').length;
     const b = s.ships.filter((x) => x.side === 'B' && x.alive && !x.escaped && x.role !== 'fighter').length;
     statusLine.textContent = `ALLIED ${a} · HOSTILE ${b} · ${CAMERA_MODE_LABELS[ctrl.view.rig.mode].toUpperCase()} CAM`;
