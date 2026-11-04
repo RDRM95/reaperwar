@@ -189,3 +189,7 @@ Deviations:
 5. The gate is missed (above); nothing is reported as met.
 
 Open for later chunks: T10 rewrites `updateMovement`/`movementGoal` (still ≈ 10 % of the step with a dozen allocations per ship per tick — the movement rewrite should be allocation-light); T11 flights cut the ≈ 400 individual small craft of the 100 vs 100 row; T19 adds the `perf:sim` entry, runs the §21.5 tuning levers (cell 4 → 6 km, stagger 0.25 → 0.4 s, projectile `ttl` cap, beam-tick batching, flight threshold 64 → 48) and re-measures; INTEGRATION's `scripts/perf.mjs` ladder reads `sim.grid.cellCount` and `sim.profile.report()`. `scripts/_refcheck.ts` (gitignored scratch: reference seeds with organic overrides) stays on disk for T10's re-measure and is deleted at the end of the chunk.
+
+## 2026-11-04 — Chunk 3 paused after T8 (usage budget)
+
+The owner reported 96 % of the weekly usage limit consumed and asked to adjust accordingly. T8 is landed and pushed (`622f98b`); T9 (3D formations, fixed platforms) and T10 (movement rewrite, stealth per brief §15.2, tactical withdrawal on the 0.11.2 base, firing solutions and miss offsets, movement trace test, the INTEGRATION_NOTES Omaha / non-retreat / range / cohesion regression tests) were **not started** — no partial code exists, so nothing is left uncommitted. Starting T10 in the remaining budget would risk an interrupted, untested rewrite. The next chunk-3 run resumes at T9 with the tree as T8 left it (172 tests, 18 files, typecheck clean); `scripts/_refcheck.ts` is still on disk for T10's re-measure.
