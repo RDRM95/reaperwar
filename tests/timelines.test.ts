@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { CANON_ME3, CERBERUS_ASCENDANT, PRESETS, PRIME_APEX, getPreset, makeCustom } from '@/timelines/presets';
 import { CANON_FLEETS, CANON_SPECIAL, CANON_STRATEGIC, CANON_TECH, SPECIAL_KEYS, STRATEGIC_KEYS, TECH_KEYS, applyRulesToShip, applyRulesToWeapon, cloneRules, isApexRules, isApexScenario, type RuleSet } from '@/timelines/rules';
 import { exportRuleSet, importRuleSet, normaliseRules, validateRuleSet } from '@/timelines/schema';
+import { ALTERNATE_PRESETS } from '@/timelines/alternates';
 import { getShipClass, SHIP_CLASS_LIST } from '@/data/ships';
 import { WEAPONS } from '@/data/weapons';
 import { BattleSimulation } from '@/simulation/battle';
@@ -142,7 +143,7 @@ describe('AU isolation', () => {
     expect(legacy.strategic).toEqual(core.strategic);
     expect(legacy.historyChanges.slice(0, core.historyChanges.length)).toEqual(core.historyChanges);
     expect(legacy.historyChanges.length).toBe(core.historyChanges.length + 3);
-    expect(PRESETS.map((p) => p.id)).toEqual(['canon_me3', 'prepared_galaxy', 'humanity_ascendant', 'cerberus_reformed', 'reaper_escalation', 'prime_apex', 'apex_legacy', 'cerberus_ascendant']);
+    expect(PRESETS.map((p) => p.id)).toEqual(['canon_me3', 'prepared_galaxy', 'humanity_ascendant', 'cerberus_reformed', 'reaper_escalation', 'prime_apex', 'apex_legacy', 'cerberus_ascendant', ...ALTERNATE_PRESETS.map((p) => p.id)]);
     // Wording: the HADES history line names the penetrator and the warhead; nothing says "near-c" or quotes the old "~3×" yield.
     const hades = core.historyChanges.find((h) => h.includes('HADES'))!;
     expect(hades).toMatch(/penetrator/);
