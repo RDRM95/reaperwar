@@ -779,7 +779,7 @@ The default world states contradicted three premises (review findings 6 and 10):
 
 Campaign setup and the Quick Battle briefing preselect and lock those values with an AU note (`lockWorldState`): a locked key the screen exposes is set only when its value is one of the offered choices (Battle of the Citadel’s `ascension` offers `save`/`sovereign`, so Sovereign’s Triumph does not touch it); in the briefing a key the scenario reads without exposing it is applied as well and listed in the note; the campaign applies only its own five keys. For the genophage the closest available state for "no cure is ever made" is `sabotaged`: the krogan stay on Tuchanka, but the Salarian First Fleet still joins the war, which the lock’s note states rather than hides. The campaign smoke test uses the locked world state.
 
-What the campaign still cannot express is said once, AU-prefixed, in `campaignNote` (campaign setup and the codex): Sovereign’s Triumph opens on the 2186 map with the Citadel in allied hands (its 2183 fall is not modelled); The Collectors’ Harvest opens at the canon 2186 start; the Concord’s two fleets keep the Migrant Fleet and Geth Consensus Fleet names and hull lists; The Conduit Protocol’s Reaper fleets still move along the relay lanes. Known limitations, listed in `AU_RULES.md`: a faction at `fleetStrength` 0 keeps one hull per class in Quick Battle scenarios and the campaign (`scaleCount`), visible in the Final Battle of Earth, whose default combined fleet always includes a Migrant Fleet detachment and a geth fleet whatever the Rannoch world state (token geth under Sovereign’s Triumph, token quarians and geth under The Collectors’ Harvest; the campaign, with Rannoch locked at war, fields neither); comparison mode and custom battle ignore the locks; Cerberus Ascendant, an existing preset with Shepard dead, still spawns the Normandy by default in Quick Battle. Optional for the release: AI-run reference outcomes (seeds 5, 9, 21) recorded in `AU_RULES.md`, as the existing presets have.
+What the campaign still cannot express is said once, AU-prefixed, in `campaignNote` (campaign setup and the codex): Sovereign’s Triumph opens on the 2186 map with the Citadel in allied hands (its 2183 fall is not modelled); The Collectors’ Harvest opens at the canon 2186 start; the Concord’s two fleets keep the Migrant Fleet and Geth Consensus Fleet names and hull lists; The Conduit Protocol’s Reaper fleets still move along the relay lanes. Known limitations, listed in `AU_RULES.md`: a faction at `fleetStrength` 0 keeps one hull per class in Quick Battle scenarios and the campaign (`scaleCount`), visible in the Final Battle of Earth, whose default combined fleet always includes a Migrant Fleet detachment and a geth fleet whatever the Rannoch world state (token geth under Sovereign’s Triumph, token quarians and geth under The Collectors’ Harvest; the campaign, with Rannoch locked at war, fields neither); comparison mode and custom battle ignore the locks; Cerberus Ascendant, an existing preset with Shepard dead, still spawns the Normandy by default in Quick Battle; and the Prime/Apex Sol Defence scenario fields the Normandy SR-2 unconditionally (it has no Normandy option), so it appears there even under the two new timelines in which Shepard is dead. Optional for the release: AI-run reference outcomes (seeds 5, 9, 21) recorded in `AU_RULES.md`, as the existing presets have.
 
 ### 4.11 Tests
 
@@ -826,6 +826,25 @@ Each step is committed as soon as it is complete (`stage(T): …`, attribution l
 7. Documentation, and this document’s measured figures.
 
 Final gate in the worktree: `npm run typecheck && npx vitest run && npm run build`, `npx playwright test e2e/game.spec.ts` (one Playwright process, port 4173), and a visual check of the timelines screen and the briefing at 1920×1080 and 390 px.
+
+**Commits on `stage/T-timelines`** (base `ba4decf`; not pushed):
+
+| Commit | What | Step |
+| --- | --- | --- |
+| `569f01e` | the first draft of this design | — |
+| `92ae848` | the eleven review findings applied | 1 |
+| `85ab5d1` | `alternates.ts`, the `PRESETS` spread, `threat.ts`, the placeholder table, the `tests/timelines.test.ts` assertion | 2 |
+| `d8ee133` | `threatReference.ts`, `scripts/timeline-threat.ts`, `package.json` | 3 |
+| `6c3955b` | the generated table and `TIMELINE_THREAT.md`, measured on `d8ee133` | 3 |
+| `d34d2b5` | `tests/alternateTimelines.test.ts` | 4 |
+| `bceb31a` | the badge, the world-state locks, the CSS | 5 |
+| `2c71368` | the Timelines codex category | 6 |
+| `70f894c` | the ten presets frozen throughout; the band statements state exact bounds, checked on a grid | — |
+| `383bd15` | `AU_RULES.md`, `README.md`, `CHANGELOG.md`, `LORE_REFERENCE.md`; §2.3’s lever stated as measured | 7 |
+| `7917400` | the group table fits a phone; the Final Battle of Earth’s token fleets listed as a known limitation | 5, 7 |
+| the commit after `7917400` | this list, the verification record and the Sol Defence Normandy limitation | 7 |
+
+**Verification (4 November).** A full `npm run timeline:threat` on `383bd15`, with only `src/style.css` uncommitted (so it stamped `383bd15+dirty`), reproduced `threatMeasured.ts` and `TIMELINE_THREAT.md` byte for byte, levers included, apart from the stamp, and exited 0. The committed table therefore keeps its clean `d8ee133` stamp: the battle code has not changed since. On `7917400`: `npm run typecheck`, `npx vitest run` (19 files, 196 tests) and `npm run build` pass; `npx playwright test e2e/game.spec.ts` (5 tests) and `e2e/campaign.spec.ts` (3 tests) pass against this build’s own preview on port 4173; the visual check at 1920×1080 and 390 px found no overflow, no scrolling table and no page error. The integration branch has since released 0.12.0 (CORE T1–T10, among them the movement rewrite and the first calibration pass), which changes battle trajectories: after the merge the table must be regenerated (§4.14), re-basing first if ranges, speeds or the time scale changed (§1.8).
 
 ### 4.14 Release
 
