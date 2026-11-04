@@ -118,8 +118,23 @@ export function scoreTarget(ctx: AiContext, shooter: ShipState, fleet: FleetStat
     const tgt = target.targetId ? ctx.getShip(target.targetId) : undefined;
     if (tgt && isCapitalRole(tgt.role) && tgt.side === shooter.side) score *= 1.8;
   }
+  // Reapers clear the orbital defence network first (AP §10, brief §8.10) — except while the fleet holds a
+  // pending volley, so a scripted answer lands on the line rather than on the stations (AP §4.2).
+  if (
+    shooter.faction === 'reaper' &&
+    shooter.role !== 'fighter' &&
+    target.role === 'fixed_platform' &&
+    (fleet.orders.order === 'attack' || fleet.orders.order === 'advance') &&
+    !fleet.volley &&
+    dist <= PLATFORM_WEIGHT_RANGE * mainRange
+  )
+    score *= PLATFORM_WEIGHT;
   return score;
 }
+
+/** Reaper target weight against fixed platforms within `PLATFORM_WEIGHT_RANGE` × the shooter's range (AP §10). */
+export const PLATFORM_WEIGHT = 2.5;
+export const PLATFORM_WEIGHT_RANGE = 1.3;
 
 export function chooseTarget(ctx: AiContext, ship: ShipState, fleet: FleetState): string | undefined {
   if (ship.forcedTargetId) {
@@ -259,6 +274,8 @@ export function fleetDecision(ctx: AiContext, fleet: FleetState, dt: number): vo
     FLEET_SLOW.set(fleet, slow);
   }
   if (slow.mine.length === 0) return;
+  // A static fleet (fixed platforms) never moves its anchor or turns its formation; its hulls slew on their own.
+  if (fleet.static) return;
   const o = fleet.orders;
   const { desired, enemyCentre, myCentre, anchorSpeed } = slow;
 

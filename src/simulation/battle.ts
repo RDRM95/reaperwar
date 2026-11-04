@@ -39,7 +39,9 @@ import type {
   FleetOrders,
   FleetSpec,
   FleetState,
+  FormationType,
   Missile,
+  OrderType,
   Projectile,
   ShipState,
   Side,
@@ -81,6 +83,17 @@ export const hadesGateOpen = (target: ShipState): boolean =>
   target.role === 'reaper_capital' && (target.barriers <= 0 || barrierFraction(target) < HADES_GATE.barrierFractionBelow);
 
 const EMPTY_SHIPS: ShipState[] = [];
+
+/** Doctrine facing of a fleet (CINEMATIC_DESIGN.md §7.1): a broadside line turns its flank to the enemy; Reapers always fight bow-on. */
+const doctrineFacingFor = (faction: FactionId, formation: FormationType): 'bow' | 'broadside' => (formation === 'broadside_line' && faction !== 'reaper' ? 'broadside' : 'bow');
+
+/** The orders a static fleet cannot follow: every move-type order, a formation change, a position or an anchor goal. */
+const MOVE_ORDERS: ReadonlySet<OrderType> = new Set<OrderType>(['advance', 'attack', 'withdraw', 'retreat', 'escort', 'intercept', 'defend_position']);
+const movesFleet = (patch: Partial<FleetOrders>, current: FleetOrders): boolean =>
+  (patch.order !== undefined && MOVE_ORDERS.has(patch.order)) ||
+  (patch.formation !== undefined && patch.formation !== current.formation) ||
+  patch.position !== undefined ||
+  patch.anchorGoal !== undefined;
 
 const DEFAULT_ORDERS: FleetOrders = {
   order: 'attack',
@@ -155,7 +168,7 @@ export class BattleSimulation implements AiContext {
       approachBearing: normalize(v3(spec.heading.x, 0, spec.heading.z)),
       headingLocked: false,
       static: spec.static ?? false,
-      doctrineFacing: 'bow',
+      doctrineFacing: doctrineFacingFor(spec.faction, spec.initialOrder?.formation ?? spec.formation),
       decisionSlowTimer: 0,
     };
     this.fleets.set(spec.id, fleet);
@@ -168,6 +181,8 @@ export class BattleSimulation implements AiContext {
       }
     }
     fleet.startPoints = created.reduce((a, s) => a + s.pointValue, 0);
+    // A fleet made only of fixed platforms is static whatever the spec says: it never moves and rejects move orders.
+    if (spec.static === undefined && created.length > 0 && created.every((s) => s.role === 'fixed_platform')) fleet.static = true;
     // Slots.
     const slots = assignSlots(
       created.map((s) => ({ id: s.id, role: s.role, lengthKm: s.lengthKm })),
@@ -478,13 +493,27 @@ export class BattleSimulation implements AiContext {
 
   // ----------------------------------------------------------------- orders
 
-  /** Issue orders to a fleet (player command). */
-  issueOrders(fleetId: string, patch: Partial<FleetOrders>): void {
+  /**
+   * Issue orders to a fleet (player command). A static fleet (fixed platforms) rejects every order that would move
+   * it — the move-type orders, a formation change, a position or an anchor goal — with `order_rejected`; an
+   * `attack_target` is accepted because it only sets the focus the platforms slew to (CINEMATIC_DESIGN.md §7.10).
+   */
+  issueOrders(fleetId: string, patch: Partial<FleetOrders>): 'issued' | 'rejected' {
     const fleet = this.fleets.get(fleetId);
-    if (!fleet) return;
+    if (!fleet) return 'rejected';
+    const label = Object.entries(patch)
+      .map(([k, v]) => `${k}=${typeof v === 'object' ? JSON.stringify(v) : String(v)}`)
+      .join(', ');
+    if (fleet.static && movesFleet(patch, fleet.orders)) {
+      this.emit({ t: this.time, type: 'order_rejected', fleetId, order: label, reason: 'static_fleet' });
+      return 'rejected';
+    }
     const prevFormation = fleet.orders.formation;
     fleet.orders = { ...fleet.orders, ...patch, ...(patch.position ? { position: scale(patch.position, S) } : {}) };
-    if (patch.formation && patch.formation !== prevFormation) this.reassignSlots(fleet);
+    if (patch.formation && patch.formation !== prevFormation) {
+      this.reassignSlots(fleet);
+      fleet.doctrineFacing = doctrineFacingFor(fleet.spec.faction, patch.formation);
+    }
     if (patch.order === 'attack_target' && patch.targetId) {
       fleet.focusTargetId = patch.targetId;
       for (const s of this.ships) if (s.fleetId === fleetId && s.alive && s.role !== 'fighter') s.forcedTargetId = patch.targetId;
@@ -501,10 +530,8 @@ export class BattleSimulation implements AiContext {
     }
     if (patch.focusFire === true || patch.order === 'attack_target') this.comms(fleet.spec.side, 'focus_fire', undefined, fleet);
     if (patch.fightersDeployed === true) this.comms(fleet.spec.side, 'fighters_launch', undefined, fleet);
-    const label = Object.entries(patch)
-      .map(([k, v]) => `${k}=${typeof v === 'object' ? JSON.stringify(v) : String(v)}`)
-      .join(', ');
     this.emit({ t: this.time, type: 'order_issued', fleetId, order: label });
+    return 'issued';
   }
 
   /** Order a single ship (or selection) to attack a target. */
@@ -614,6 +641,16 @@ export class BattleSimulation implements AiContext {
   // --------------------------------------------------------------- movement
 
   private updateMovement(ship: ShipState, fleet: FleetState, dt: number): void {
+    // A fixed platform never moves: it only slews to bear on its target, bounded by its turn rate (brief §8.10).
+    if (ship.maxSpeed <= 0) {
+      ship.vel.x = 0;
+      ship.vel.y = 0;
+      ship.vel.z = 0;
+      if (ship.weapons.some((w) => w.charging !== undefined)) return;
+      const target = ship.targetId ? this.shipById.get(ship.targetId) : undefined;
+      if (target && target.alive) this.turnToward(ship, sub(target.pos, ship.pos), dt);
+      return;
+    }
     const goal = movementGoal(this, ship, fleet);
     const engineFactor = 0.25 + 0.75 * ship.subsystems.engines;
     const maxSpeed = ship.maxSpeed * engineFactor;
@@ -641,7 +678,12 @@ export class BattleSimulation implements AiContext {
     if (goal.face) faceDir = sub(goal.face, ship.pos);
     else if (speed > maxSpeed * 0.15) faceDir = ship.vel;
     else if (ship.role !== 'fighter') faceDir = fleet.heading;
-    if (faceDir && lengthSq(faceDir) > 1e-8) {
+    if (faceDir) this.turnToward(ship, faceDir, dt);
+  }
+
+  /** Turn the hull toward `faceDir` by at most its (engine-scaled) turn rate this step. */
+  private turnToward(ship: ShipState, faceDir: Vec3, dt: number): void {
+    if (lengthSq(faceDir) > 1e-8) {
       const target = normalize(faceDir);
       const cur = ship.heading;
       const cosA = Math.max(-1, Math.min(1, dot(cur, target)));
