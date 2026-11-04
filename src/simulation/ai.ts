@@ -3,7 +3,7 @@ import { scale, v3, type Vec3 } from '@/core/vec3';
 import { FACTIONS, type FactionDoctrine } from '@/data/factions';
 import { isCapitalRole } from '@/data/types';
 import type { RuleSet } from '@/timelines/rules';
-import { BATTLESPACE_SCALE as S } from './constants';
+import { ARC_VERTICAL_REACH, BATTLESPACE_SCALE as S } from './constants';
 import { slotToWorld } from './formations';
 import {
   REWITHDRAW_COOLDOWN,
@@ -138,14 +138,20 @@ export function scoreTarget(ctx: AiContext, shooter: ShipState, fleet: FleetStat
   // Range preference: in range is good, far beyond range is bad.
   if (dist > mainRange) score *= Math.max(0.1, 1 - (dist - mainRange) / mainRange);
   else score *= 1 + 0.2 * (1 - dist / mainRange);
+  const craft = shooter.role === 'fighter';
   // Fighters are poor targets for capital guns.
-  if (target.role === 'fighter' && shooter.role !== 'fighter') score *= 0.05;
-  // Focus fire.
-  if (fleet.focusTargetId === target.id) score *= 1 + d.focusFire * 2 * (fleet.orders.focusFire ? 1.5 : 1);
-  // Player priority.
-  score *= priorityMultiplier(fleet.orders.priority, target);
-  // Stickiness.
-  if (shooter.targetId === target.id) score *= 1.3;
+  if (target.role === 'fighter' && !craft) score *= 0.05;
+  // Focus fire: the fleet focus is the line's fire-control choice (always a hull). Small craft fly their own missions
+  // and follow the fleet priority instead — with the focus bonus a Trident flew torpedo runs at a muted capital while
+  // the drones shot it down (BALANCE_AUDIT.md §9.2: "a massacre, not a fight").
+  if (!craft && fleet.focusTargetId === target.id) score *= 1 + d.focusFire * 2 * (fleet.orders.focusFire ? 1.5 : 1);
+  // Player priority. Craft carrying anti-small guns switch to the screen automatically when enemy craft appear
+  // (AP §13.1: the 'fighters' weight kicks in for anti-small weapons; it never stacks with the order itself).
+  let pm = priorityMultiplier(fleet.orders.priority, target);
+  if (craft && target.role === 'fighter' && pm < CRAFT_SCREEN_WEIGHT && carriesAntiSmall(shooter)) pm = CRAFT_SCREEN_WEIGHT;
+  score *= pm;
+  // Stickiness — except that a craft ordered onto the fighters does not stick to a hull.
+  if (shooter.targetId === target.id && !(craft && fleet.orders.priority === 'fighters' && target.role !== 'fighter')) score *= 1.3;
   // Protect capitals: escorts favour enemies that are attacking our capitals.
   if (fleet.orders.protectCapitals && (shooter.role === 'frigate' || shooter.role === 'cruiser')) {
     const tgt = target.targetId ? ctx.getShip(target.targetId) : undefined;
@@ -165,9 +171,63 @@ export function scoreTarget(ctx: AiContext, shooter: ShipState, fleet: FleetStat
   return score;
 }
 
+/** A craft armed with anti-small guns weighs enemy craft like the 'fighters' priority does (AP §13.1). */
+export const CRAFT_SCREEN_WEIGHT = 4;
+
+/** Whether a hull carries any anti-small weapon. */
+const carriesAntiSmall = (ship: ShipState): boolean => ship.weapons.some((w) => w.def.antiSmall);
+
 /** Reaper target weight against fixed platforms within `PLATFORM_WEIGHT_RANGE` × the shooter's range (AP §10). */
 export const PLATFORM_WEIGHT = 2.5;
 export const PLATFORM_WEIGHT_RANGE = 1.3;
+
+/**
+ * Time constant of the slew penalty (SIMULATION_ESTIMATE, TUNE): a target that needs this many seconds of turning
+ * before any anti-ship mount bears on it scores half. A Reaper capital turns at 6°/s behind a ±35° beam arc, so a
+ * re-target 146° off the bow cost about 20 s of silence (one burst per 22 s instead of one per 6.4 s) while frigates
+ * sat inside its arc and range — the hull must prefer what it can bring to bear (brief §8.6: every unit with a
+ * weapon in range fires or moves to get a solution).
+ */
+export const SLEW_TAU = 6;
+/** A target steeply above or below an arc-limited mount scores as if it needed this many seconds of turning (factor 0.25). */
+export const VERTICAL_SLEW_S = 3 * SLEW_TAU;
+
+/**
+ * Seconds of turning before one of the hull's anti-ship mounts bears on `target` (0 when a mount already does, or
+ * a turreted mount covers every bearing). Mounts that reach the target are judged first; when none reaches, every
+ * anti-ship mount counts (the hull closes anyway). Mounts of one hardpoint share facing and arc, so only the first
+ * of each is evaluated; an empty magazine does not count. A target outside an arc-limited mount's vertical reach
+ * (`ARC_VERTICAL_REACH`) cannot be brought to bear by turning at all: it counts as `VERTICAL_SLEW_S`.
+ */
+export function slewSeconds(ship: ShipState, target: ShipState, dist: number): number {
+  const rate = ship.turnRate * (0.3 + 0.7 * ship.subsystems.engines);
+  const yaw = Math.atan2(ship.heading.x, ship.heading.z);
+  const bearing = Math.atan2(target.pos.x - ship.pos.x, target.pos.z - ship.pos.z);
+  const steep = dist > 1e-6 && Math.abs(target.pos.y - ship.pos.y) / dist >= ARC_VERTICAL_REACH;
+  let reach = Infinity;
+  let any = Infinity;
+  for (const w of ship.weapons) {
+    if (w.mount !== 0 || w.def.antiSmall || (w.ammo !== undefined && w.ammo <= 0)) continue;
+    let off = 0;
+    if (w.def.arc < 360) {
+      let diff = bearing - yaw - w.facing;
+      diff -= 2 * Math.PI * Math.round(diff / (2 * Math.PI));
+      off = Math.max(0, Math.abs(diff) - ((w.def.arc / 2) * Math.PI) / 180 - 0.05);
+    }
+    let s = off <= 0 ? 0 : rate > 0 ? off / rate : Infinity;
+    if (steep && w.def.arc < 360) s = Math.max(s, VERTICAL_SLEW_S);
+    if (dist <= w.def.range && s < reach) reach = s;
+    if (s < any) any = s;
+  }
+  const s = Number.isFinite(reach) ? reach : any;
+  return Number.isFinite(s) ? s : 0;
+}
+
+/** Score multiplier of the slew penalty: `SLEW_TAU / (SLEW_TAU + slew)` (1 for a target a mount already bears on). */
+export const slewFactor = (ship: ShipState, target: ShipState, dist: number): number => {
+  const s = slewSeconds(ship, target, dist);
+  return s > 0 ? SLEW_TAU / (SLEW_TAU + s) : 1;
+};
 
 export function chooseTarget(ctx: AiContext, ship: ShipState, fleet: FleetState): string | undefined {
   if (ship.forcedTargetId) {
@@ -187,13 +247,16 @@ export function chooseTarget(ctx: AiContext, ship: ShipState, fleet: FleetState)
   // A craft that can only burn small craft (the Oculus: anti-small only, "it cannot hurt a hull", BALANCE_AUDIT.md §9.2)
   // engages small craft only; it never strafes a hull it cannot damage.
   const craftWithoutAntiShip = ship.role === 'fighter' && !ship.weapons.some((w) => !w.def.antiSmall);
+  const craftShooter = ship.role === 'fighter';
   for (const e of enemies) {
     if (!e.alive || e.escaped) continue;
     if (fighterWithoutGuns && e.role === 'fighter') continue;
     if (craftWithoutAntiShip && e.role !== 'fighter') continue;
     // A silent stealth hull beyond its detection range cannot be targeted (brief §15.2).
     if (!detectable(ship, e)) continue;
-    const s = scoreTarget(ctx, ship, fleet, e, mainRange);
+    let s = scoreTarget(ctx, ship, fleet, e, mainRange);
+    // Slow-turning hulls prefer what their mounts can bear on (craft manoeuvre onto their targets instead).
+    if (!craftShooter) s *= slewFactor(ship, e, Math.hypot(e.pos.x - ship.pos.x, e.pos.y - ship.pos.y, e.pos.z - ship.pos.z));
     if (s > bestScore) {
       bestScore = s;
       best = e;

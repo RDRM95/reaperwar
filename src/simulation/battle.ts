@@ -30,7 +30,7 @@ import { STEALTH_SAFE_RANGE, STEALTH_VENT_FRACTION, detectable, hunterHoldsFire,
 import { SimProfile } from './profile';
 import { summarise } from './results';
 import { GRID_CELL_KM, SpatialGrid } from './spatial';
-import { BATTLESPACE_SCALE as S } from './constants';
+import { ARC_VERTICAL_REACH, BATTLESPACE_SCALE as S } from './constants';
 
 /** Hangar time for a fighter to reload torpedoes alongside its carrier. */
 const REARM_SECONDS = 12;
@@ -636,7 +636,8 @@ export class BattleSimulation implements AiContext {
       this.updateMovement(ship, fleet, dt);
       if (profiling) tp = prof.lap('movement', tp);
       this.updateHousekeeping(ship, dt);
-      updateSolutions(this.solutionCtx, ship, fleet.focusTargetId, dt);
+      // Firing solutions govern the anti-ship guns and beams of hulls only (solutions.ts `usesSolution`): small craft keep none.
+      if (ship.role !== 'fighter') updateSolutions(this.solutionCtx, ship, fleet.focusTargetId, dt);
       if (profiling) tp = prof.lap('housekeeping', tp);
       this.updateCarrier(ship, fleet, dt);
       if (profiling) tp = prof.lap('carriers', tp);
@@ -747,10 +748,11 @@ export class BattleSimulation implements AiContext {
         st.state = 'silent';
         this.emit({ t: this.time, type: 'stealth_engaged', shipId: ship.id });
       }
-      // Venting is forced at capacity, or chosen once the sink runs high and nothing is within reach (brief §15.2).
+      // Venting is forced at capacity, or chosen once the sink runs high (or the hull is too hot to fire) and nothing
+      // is within reach (brief §15.2).
       const chosen =
         st.state === 'silent' &&
-        st.sinkHeat >= STEALTH_VENT_FRACTION * st.capacity &&
+        (st.sinkHeat >= STEALTH_VENT_FRACTION * st.capacity || ship.overheated) &&
         ship.manoeuvre?.phase !== 'run' &&
         !this.grid.anyWithin(ship.pos, STEALTH_SAFE_RANGE, ship);
       if (st.sinkHeat >= st.capacity || chosen) {
@@ -882,7 +884,7 @@ export class BattleSimulation implements AiContext {
     const flat2 = dx * dx + dz * dz;
     const len = Math.sqrt(flat2 + dy * dy);
     if (len < 1e-9) return true;
-    if (Math.abs(dy) / len >= 0.6) return false;
+    if (Math.abs(dy) / len >= ARC_VERTICAL_REACH) return false;
     if (flat2 < 1e-18) return true;
     const cosA = (facingSin * dx + facingCos * dz) / Math.sqrt(flat2);
     return cosA >= cosLimit;

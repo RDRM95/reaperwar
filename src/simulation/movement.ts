@@ -678,6 +678,17 @@ function engageRange(ship: ShipState, target: ShipState): number {
   return r;
 }
 
+/** Projectile speed of the fastest gun that can engage the target (beams count as instantaneous). */
+function gunSpeed(ship: ShipState, target: ShipState): number {
+  let v = 0;
+  const small = target.role === 'fighter';
+  for (const w of ship.weapons) {
+    if (small ? !w.def.antiSmall : w.def.antiSmall) continue;
+    v = Math.max(v, Number.isFinite(w.def.projectileSpeed) ? w.def.projectileSpeed : 1e6);
+  }
+  return v > 0 ? v : 1e6;
+}
+
 /**
  * Point-defence repulsion (CINEMATIC_DESIGN.md §7.1 item 6): a velocity bias away from every enemy hull other than
  * the target whose point-defence envelope (× 1.1) the craft is inside.
@@ -716,19 +727,23 @@ export function fighterPassGoal(ctx: AiContext, ship: ShipState, target: ShipSta
   const m = shipMotion(ship);
   const now = ctx.time;
   const tp = target.pos;
-  // Against another craft it is a chase, not a strafing pass: hold the stand-off (0.9 × gun range) on the target's
-  // tail with lead, nose on it — no orbit, and no ramming through it.
+  // Against another craft it is a chase, not a strafing pass: hold the stand-off (0.9 × gun range) behind the target,
+  // matching its velocity, nose on it — no orbit, and no ramming through it. The nose points at the target itself:
+  // the guns' arc is judged on the target's position (the round is then aimed at the intercept), so a nose on a
+  // lead point a second ahead kept a crossing drone outside a 20° gun arc almost all the time (CORE T10 → chunk 4 fix).
   if (target.role === 'fighter') {
     ship.manoeuvre = undefined;
-    const standoffKm = 0.9 * engageRange(ship, target);
+    const gun = engageRange(ship, target);
+    const standoffKm = 0.9 * gun;
     const dx = ship.pos.x - tp.x;
     const dy = ship.pos.y - tp.y;
     const dz = ship.pos.z - tp.z;
     const d = Math.hypot(dx, dy, dz) || 1;
-    const lead = Math.min(1.5, d / Math.max(0.1, ship.maxSpeed));
+    // Pursuit lead: the round's flight time to the target (never more than half a second).
+    const lead = Math.min(0.5, d / Math.max(0.1, gunSpeed(ship, target)));
     const aim = v3(tp.x + target.vel.x * lead, tp.y + target.vel.y * lead, tp.z + target.vel.z * lead);
     const hold = v3(aim.x + (dx / d) * standoffKm, aim.y + (dy / d) * standoffKm, aim.z + (dz / d) * standoffKm);
-    return { position: hold, speedFraction: 1, velocity: target.vel, face: aim, repel: pdRepulsion(ctx, ship, undefined, near) };
+    return { position: hold, speedFraction: 1, velocity: target.vel, face: tp, repel: pdRepulsion(ctx, ship, undefined, near) };
   }
   const standoff = 0.9 * engageRange(ship, target);
   const hitR = target.radiusKm;

@@ -35,8 +35,9 @@ describe('canon calibration values (AP §3.2)', () => {
   });
 
   it('Reaper cadence, point defence and torpedo survivability follow the plan', () => {
-    // AP §3.2 set 6.0; the AP §3.5 re-measure after the movement rewrite (CORE T10) moved lever 4 to 6.4 (range 6.0–7.5).
-    expect(WEAPONS.reaper_capital_beam.cooldown).toBe(6.4);
+    // AP §3.2 set 6.0; the AP §3.5 re-measure after the movement rewrite (CORE T10) moved lever 4 to 6.4, and the one
+    // after the chunk-4 craft-targeting / slew-aware targeting / hunter fixes back to 6.2 (range 6.0–7.5; levers 1–3 measured first).
+    expect(WEAPONS.reaper_capital_beam.cooldown).toBe(6.2);
     expect(WEAPONS.reaper_capital_beam.damage).toBe(1900);
     expect(WEAPONS.reaper_capital_beam.beamDuration).toBe(2.8);
     expect(WEAPONS.reaper_destroyer_beam.cooldown).toBe(6.5);

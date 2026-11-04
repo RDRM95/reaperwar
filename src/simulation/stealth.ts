@@ -94,6 +94,10 @@ const JINK_RAD = (25 * Math.PI) / 180;
 const JINK_PERIOD = 2.5;
 /** Torpedoes go on the way in, released this far outside the Thanix strike range (about two seconds before the shot). */
 const TORPEDO_LEAD_KM = 1.5;
+/** The strike position keeps the target within this elevation (sine) of the hunter: inside the arc model's 0.6 vertical reach. */
+const RUN_MAX_ELEVATION = 0.5;
+/** The vent point lies this far beyond `STEALTH_SAFE_RANGE` from the enemy centroid. */
+const VENT_MARGIN_KM = 4 * S;
 
 /** Enemy hulls within this distance of a candidate make it a poor hunter target (it is covered by its neighbours' guns). */
 const CROWD_KM = 6 * S;
@@ -163,6 +167,12 @@ export function hunterGoal(ctx: AiContext, ship: ShipState, fleet: FleetState, t
       const p = v3(tp.x + dir.x * start, tp.y + dir.y * start, tp.z + dir.z * start);
       man.line = { from: v3(ship.pos.x, ship.pos.y, ship.pos.z), to: p };
       const there = Math.hypot(p.x - ship.pos.x, p.y - ship.pos.y, p.z - ship.pos.z) < 0.6;
+      // A hull too hot to fire breaks off to vent first: a run it cannot finish would only park it under the guns.
+      if (ship.overheated) {
+        man.phase = 'turn';
+        man.until = now + 60;
+        return ventGoal(ctx, ship, fleet);
+      }
       // Run in once at the start point (or close enough and coming from the blind side), never while venting.
       if (st.state !== 'venting' && (there || now > man.until || dist < start * 0.9)) {
         man.phase = 'run';
@@ -174,7 +184,9 @@ export function hunterGoal(ctx: AiContext, ship: ShipState, fleet: FleetState, t
       const strike = strikeRange(ship, target);
       const th = thanixOf(ship);
       const fired = th !== undefined && (th.beamRemaining > 0 || (th.cooldown > th.def.cooldown * 0.7 && dist < strike + 1));
-      if (fired || now > man.until) {
+      // Overheated in the run (silent running sheds no heat, and revealed point defence piles it on): the guns cannot
+      // fire, so the pass is over — break away rather than hold under the target's guns until a forced vent.
+      if (fired || now > man.until || ship.overheated) {
         // Break away: a hard turn and a burn away from the target and out past its exposed flank, away from the
         // rest of its formation, out of its point defence and beyond detection.
         man.phase = 'extend';
@@ -189,10 +201,23 @@ export function hunterGoal(ctx: AiContext, ship: ShipState, fleet: FleetState, t
         const reach = 3 * runStart(ship, target);
         man.line = { from: v3(ship.pos.x, ship.pos.y, ship.pos.z), to: v3(ship.pos.x + (ox / ol) * reach, ship.pos.y - 0.08 * reach, ship.pos.z + (oz / ol) * reach) };
       }
-      // Close to strike range and hold there for the shot.
-      const hold = Math.max(0, dist - strike);
-      const k = dist > 1e-6 ? hold / dist : 0;
-      return { position: v3(ship.pos.x + (tp.x - ship.pos.x) * k, ship.pos.y + (tp.y - ship.pos.y) * k, ship.pos.z + (tp.z - ship.pos.z) * k), speedFraction: 1, transit: hold > 0.3, face: tp };
+      // Close to strike range and hold there for the shot — inside the Thanix's vertical reach (the arc model fires
+      // only while |dy| / d < 0.6), so a hunter that ends its approach steeply below its target climbs into a firing
+      // position instead of holding where its gun cannot bear (measured: the Normandy sat 24 s under a Reaper capital).
+      const ux = ship.pos.x - tp.x;
+      const uy = ship.pos.y - tp.y;
+      const uz = ship.pos.z - tp.z;
+      const flat = Math.hypot(ux, uz);
+      const len = Math.hypot(flat, uy) || 1;
+      let ey = uy / len;
+      if (Math.abs(ey) > RUN_MAX_ELEVATION) ey = Math.sign(ey) * RUN_MAX_ELEVATION;
+      const ef = Math.sqrt(1 - ey * ey);
+      const hx = flat > 1e-6 ? ux / flat : 1;
+      const hz = flat > 1e-6 ? uz / flat : 0;
+      const r = Math.min(dist, strike);
+      const p = v3(tp.x + hx * ef * r, tp.y + ey * r, tp.z + hz * ef * r);
+      const gap = Math.hypot(p.x - ship.pos.x, p.y - ship.pos.y, p.z - ship.pos.z);
+      return { position: p, speedFraction: 1, transit: gap > 0.3, face: tp };
     }
     case 'extend': {
       if (now > man.until) {
@@ -212,7 +237,12 @@ export function hunterGoal(ctx: AiContext, ship: ShipState, fleet: FleetState, t
     }
     case 'turn':
     default: {
-      // Re-stealth (and vent, when safe) before the next pass; keep moving, out of the target's reach.
+      // Re-stealth (and vent, when safe) before the next pass; keep moving, out of the target's reach. A hull too
+      // hot to fire goes out of everyone's reach to vent (brief §15.2: "vent out of range") before it hunts again.
+      if (ship.overheated) {
+        if (now > man.until) man.until = now + 60;
+        return ventGoal(ctx, ship, fleet);
+      }
       if (st.state === 'silent' || now > man.until) {
         man.phase = 'approach';
         man.until = now + 45;
@@ -220,6 +250,30 @@ export function hunterGoal(ctx: AiContext, ship: ShipState, fleet: FleetState, t
       return shadowGoal(ctx, ship, fleet, target);
     }
   }
+}
+
+/**
+ * Out of everyone's reach to vent: on the far side of the hunter's own fleet from the enemy, `STEALTH_SAFE_RANGE` plus
+ * a margin from the enemy's centroid, where the chosen vent can start (battle.ts housekeeping). A hull that gets there
+ * while enemies still crowd it keeps drifting on its flank station instead of parking.
+ */
+function ventGoal(ctx: AiContext, ship: ShipState, fleet: FleetState): MovementGoal {
+  const c = ctx.enemyCentroid(ship.side);
+  if (!c) return shadowGoal(ctx, ship, fleet);
+  let ax = fleet.anchor.x - c.x;
+  let az = fleet.anchor.z - c.z;
+  let al = Math.hypot(ax, az);
+  if (al < 1e-6) {
+    ax = -fleet.heading.x;
+    az = -fleet.heading.z;
+    al = Math.hypot(ax, az) || 1;
+  }
+  const reach = STEALTH_SAFE_RANGE + VENT_MARGIN_KM;
+  const r = rightOf(v3(ax / al, 0, az / al));
+  const lateral = (hash01(ship.id, 31) < 0.5 ? 1 : -1) * 6;
+  const p = v3(c.x + (ax / al) * reach + r.x * lateral, fleet.anchor.y - 1.5, c.z + (az / al) * reach + r.z * lateral);
+  if (Math.hypot(p.x - ship.pos.x, p.y - ship.pos.y, p.z - ship.pos.z) < 1) return shadowGoal(ctx, ship, fleet);
+  return { position: p, speedFraction: 1, transit: true };
 }
 
 /** Shadowing: hold a silent station on the fleet's flank, a little behind the anchor, drifting so the hull is never parked. */
