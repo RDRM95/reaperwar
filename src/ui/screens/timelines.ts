@@ -3,6 +3,24 @@ import { el } from '../dom';
 import { CANON_TECH, TECH_KEYS, cloneRules, type RuleSet, type TechModifiers } from '@/timelines/rules';
 import { TECH_RANGE, exportRuleSet, importRuleSet } from '@/timelines/schema';
 import { makeCustom } from '@/timelines/presets';
+import { alternateMeta, auPrefix } from '@/timelines/alternates';
+import { threatBadge, threatPanel } from '../threatBadge';
+
+/** The alternate-universe block of a new timeline: divergence, world-state locks and campaign note (TIMELINES_V2.md §4.8). */
+function alternateBlock(rules: RuleSet): HTMLElement | null {
+  const meta = alternateMeta(rules.id);
+  if (!meta || rules.category !== 'au') return null;
+  const pre = auPrefix(rules.name);
+  const year = `${meta.divergence.approximate ? 'about ' : ''}${meta.divergence.year}`;
+  return el('div', { class: 'entry-block au timeline-au' }, [
+    el('div', { class: 'panel-title' }, [el('span', { class: 'badge au' }, 'alternate universe')]),
+    el('p', {}, `${pre}diverges in ${year}: ${meta.divergence.event}`),
+    ...Object.values(meta.worldState ?? {})
+      .filter((l, i, all) => all.findIndex((x) => x.why === l.why) === i)
+      .map((l) => el('p', { class: 'dim' }, `${pre}${l.why}`)),
+    meta.campaignNote ? el('p', { class: 'dim' }, `${pre}${meta.campaignNote}`) : null,
+  ]);
+}
 
 const TECH_LABELS: Record<keyof TechModifiers, { label: string; tip: string }> = {
   massAcceleratorDamage: { label: 'Mass accelerator damage', tip: 'Multiplies kinetic slug damage. Above ~1.5 canon fleets start killing Reaper destroyers reliably.' },
@@ -32,12 +50,12 @@ export function renderTimelines(app: App, params?: { editId?: string }): HTMLEle
   const status = el('div', { class: 'mono dim', style: { fontSize: '11px', flex: '1' } });
 
   const list = () =>
-    el('div', { class: 'col' }, app.allTimelines().map((t) => el('button', { class: `btn ${t.id === selectedId ? 'active' : ''}`, 'data-timeline': t.id, onclick: () => {
+    el('div', { class: 'col' }, app.allTimelines().map((t) => el('button', { class: `btn timeline-card ${t.id === selectedId ? 'active' : ''}`, 'data-timeline': t.id, onclick: () => {
       selectedId = t.id;
       editing = undefined;
       app.playUi('ui_click');
       render();
-    } }, [t.name, el('span', { class: 'tag' }, t.category.toUpperCase())])));
+    } }, [t.name, el('span', { class: 'tag' }, t.category.toUpperCase()), threatBadge(t)])));
 
   const techTable = (group: 'organic' | 'reaper', rules: RuleSet, editable: boolean) =>
     el('table', {}, [
@@ -107,7 +125,7 @@ export function renderTimelines(app: App, params?: { editId?: string }): HTMLEle
     const editable = !!editing;
     const isCustomSaved = app.customTimelines.some((t) => t.id === rules.id);
     body.replaceChildren(
-      el('div', { style: { display: 'grid', gridTemplateColumns: '280px 1fr', gap: '18px' } }, [
+      el('div', { class: 'timelines-layout' }, [
         el('div', { class: 'col' }, [
           el('div', { class: 'panel' }, [el('div', { class: 'panel-title' }, 'TIMELINES'), list()]),
           el('div', { class: 'panel orange' }, [
@@ -157,10 +175,12 @@ export function renderTimelines(app: App, params?: { editId?: string }): HTMLEle
                 ])
               : el('h2', {}, rules.name),
             el('p', { class: 'dim' }, rules.tagline),
+            threatPanel(rules, editable || rules.category === 'custom'),
             editable
               ? el('label', { class: 'field' }, ['Description', el('textarea', { rows: 3, onchange: (e: Event) => (rules.description = (e.target as HTMLTextAreaElement).value.slice(0, 2000)) }, rules.description)])
               : el('p', {}, rules.description),
             rules.historyChanges.length > 0 ? el('div', {}, [el('h3', {}, 'Changed history'), el('ul', { style: { paddingLeft: '18px' } }, rules.historyChanges.map((h) => el('li', {}, h)))]) : null,
+            editable ? null : alternateBlock(rules),
             editable ? el('label', { class: 'field' }, ['Changed history (one per line)', el('textarea', { rows: 4, onchange: (e: Event) => (rules.historyChanges = (e.target as HTMLTextAreaElement).value.split('\n').map((s) => s.trim()).filter(Boolean).slice(0, 40)) }, rules.historyChanges.join('\n'))]) : null,
             rules.category === 'canon' ? el('p', { style: { color: '#7fe0a0' } }, 'Canon rules: all multipliers are 1. Player-dependent ME3 outcomes are chosen in the scenario briefing, not here.') : el('p', { style: { color: 'var(--orange)' } }, 'Alternate universe. Never presented as canon.'),
             el('div', { class: 'row' }, [
