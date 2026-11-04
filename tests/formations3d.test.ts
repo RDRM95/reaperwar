@@ -112,7 +112,7 @@ describe('3D formations', () => {
     for (const f of FORMATIONS_3D) expect(FORMATION_LABELS[f]).toBeTruthy();
   });
 
-  it.each([...FORMATIONS_3D])('spacing guard: no two of 40 mixed hulls closer than 1.7 × the longer hull (%s)', (formation) => {
+  it.each(Object.keys(FORMATION_LABELS) as FormationType[])('spacing guard: no two of 40 mixed hulls closer than 1.7 × the longer hull (%s)', (formation) => {
     const fleet = [
       ...many('reaper_capital', 2),
       ...many('harbinger', 1),

@@ -214,7 +214,7 @@ export const WEAPONS: Record<string, WeaponDef> = {
     kind: 'reaper_beam',
     damageType: 'reaper_beam',
     damage: 1900, // per second while the burst lasts
-    cooldown: 6.0,
+    cooldown: 6.4,
     range: 44,
     projectileSpeed: Infinity,
     accuracy: 0.93,
@@ -226,7 +226,7 @@ export const WEAPONS: Record<string, WeaponDef> = {
     arc: 70,
     provenance: canon(
       'Reaper capital ships fire a magnetohydrodynamic stream of molten metal at a fraction of light speed, yielding 132–454 kilotons per shot; capable of destroying a dreadnought.',
-      'Codex: Reaper Capital Ship (ME3). Burst model is SIMULATION_ESTIMATE: one 2.8 s burst ≈ 5.3 dreadnought rounds ≈ 206 kt-equivalent, inside the codex band; cooldown 6.0 s (ADOPTION_PLAN.md §3.2) makes the canon reference engagement a Reaper win.',
+      'Codex: Reaper Capital Ship (ME3). Burst model is SIMULATION_ESTIMATE: one 2.8 s burst ≈ 5.3 dreadnought rounds ≈ 206 kt-equivalent, inside the codex band; cooldown 6.0 s (ADOPTION_PLAN.md §3.2) made the canon reference engagement a Reaper win; re-measured after the movement rewrite (CORE T10) inside the AP §3.5 lever range 6.0–7.5 at 6.4 s, which keeps the canon reference a Reaper win and gives the Apex reference its target.',
     ),
   },
   reaper_destroyer_beam: {

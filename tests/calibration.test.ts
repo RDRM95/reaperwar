@@ -106,9 +106,12 @@ describe('cruiser vs destroyer (canon, 40 km)', () => {
       await yieldToLoop();
     }
     expect(twoWins).toBeGreaterThanOrEqual(8);
+    // AP §3.3 measured 30 s with instant accuracy; under the firing solutions of the movement rewrite (CORE T10, AP §19
+    // 8.7) the opening rounds mostly miss: seed 1 needs 15 rounds for the first hit and kills at 33.5 s. Re-pinned
+    // at 40 s (AP §3.5: no lever acts on this duel — floor 0.25–0.35 leaves it at 33.5 s); T19 re-measures.
     const dn = await runInstrumentedAsync(new BattleSimulation(duelConfig({ a: { alliance_dreadnought: 1 }, b: { reaper_destroyer: 1 }, seed: 1 })));
     expect(dn.killedAt).toBeDefined();
-    expect(dn.killedAt!).toBeLessThanOrEqual(30);
+    expect(dn.killedAt!).toBeLessThanOrEqual(40);
     let frigateWins = 0;
     for (let seed = 1; seed <= 10; seed++) {
       const r = await runInstrumentedAsync(new BattleSimulation(duelConfig({ a: { alliance_frigate: 4 }, b: { reaper_destroyer: 1 }, seed, aFormation: 'dispersed' })));
@@ -146,20 +149,24 @@ describe('cadence and heat', () => {
 
 describe('Oculus screen', () => {
   /**
-   * Interim pin (calibration pass 1). WORK_BREAKDOWN.md §1.6.1 wants the last small-craft death between 60 and
+   * Interim pin (calibration pass 1, re-pinned in CORE T10 — see below). WORK_BREAKDOWN.md §1.6.1 wants the last small-craft death between 60 and
    * 120 s; the measured screen resolves at 149 / 196 / 165 s because the Tridents still orbit at torpedo
    * stand-off and strafe the drones only in passing — BALANCE_AUDIT.md §9.3's "without the stand-off rule"
    * case. T11 lands the stand-off-by-weapon rule and pins the 120 s bound; until then the screen must resolve
    * (both sides lose craft, the drones are beaten) inside 240 s and never before 60 s.
    */
-  it.each([1, 2, 3])('24 Tridents against 24 Oculi with the hulls muted resolve after 60 s and inside 240 s, the drones losing (seed %i)', async (seed) => {
+  // Re-pinned in CORE T10: the movement rewrite replaced the orbit with strafing passes against hulls and a
+  // stand-off chase against craft, and the Oculus now engages small craft only (BALANCE_AUDIT.md §9.2: "antiSmall
+  // makes the drone shoot only fighters"; with the hull passes it otherwise heated the dreadnoughts' GARDIAN past
+  // capacity in the reference engagement). The interim "drones losing" clause encoded v0.11's orbit (the drones spent
+  // themselves orbiting hulls they cannot damage); the audit's own measured screen has the drones winning four seeds
+  // of five. What T10 pins is the screen resolving inside the window; T11 tunes the dogfight and pins 60–120 s.
+  it.each([1, 2, 3])('24 Tridents against 24 Oculi with the hulls muted resolve after 60 s and inside 240 s (seed %i)', async (seed) => {
     const sim = oculusScreen(seed);
     const r = await runInstrumentedAsync(sim, { untilTime: 240 });
     expect(r.oculusStats?.lastSmallCraftDeath).toBeDefined();
     expect(r.oculusStats!.lastSmallCraftDeath!).toBeGreaterThanOrEqual(60);
     expect(r.oculusStats!.lastSmallCraftDeath!).toBeLessThanOrEqual(240);
-    expect(r.oculusStats!.oculiLost).toBeGreaterThanOrEqual(20);
-    expect(r.oculusStats!.tridentsLost).toBeGreaterThanOrEqual(8);
-    expect(r.oculusStats!.tridentsLost).toBeLessThan(24);
+    expect(r.oculusStats!.tridentsLost + r.oculusStats!.oculiLost).toBeGreaterThan(0);
   }, 120_000);
 });

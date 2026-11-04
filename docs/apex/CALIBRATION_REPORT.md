@@ -66,6 +66,24 @@ Adopted: seeds 7–9 hold every AP §16 pin (A wins at 127 / 130 / 138 s, 17 / 1
 
 `npx vitest run`: 17 files / 163 tests in 84.1 s before T8; 18 files / 172 tests in 33–44 s after (`battle.test.ts` 83 → 36 s). `tests/perf.test.ts` adds 9 tests: the grid against brute force (1,000 random segments, 1,000 radii including radii larger than the battlespace, 500 nearest queries, the filter semantics, the empty grid), the scaling bound (300 vs 100 ≤ 4 × the 100 vs 100 per-step cost in one process: measured ≈ 2.2×), the smoke ceiling (400 steps of 300 vs 100 in ≈ 4 s against the 20 s bound) and the profiler's structure (all zeros while disabled, every phase present, phase sum ≤ total, the same battle with it on and off).
 
+## 1b. Interim re-measure after the movement rewrite (CORE T10, 4 November 2026)
+
+Not calibration pass 2 (that is T19, after T11–T14); this is what T10 had to measure and move to land green. Method: `alliance_fleet_engagement` fixed fleets seeds 7–9 under canon and Apex core, the AP §3.3 duels, the solution-model checks; scratch probes, deleted.
+
+**Why the pass-1 Apex result did not survive the rewrite (measured).** The v0.11 "arrive" controller slowed a hull within `4 × 1.5 × length` of its slot, so a 2 km Reaper capital following a moving slot crawled at ≈ 0.04 km/s instead of 0.32 (an 8 DN vs 4 capital duel: Reaper capitals moved 0.7 km in 30 s; the Titan line engaged them from 19.5 km, beyond beam reach, for 6 s before the first beam). Pass 1's Apex win was calibrated on that artefact: with correct station keeping the Reapers advance at their real speed, the Titan gun's 19.2 vs 17.6 km edge lasts seconds, and the reference became a Reaper win on every seed. The same lag had also let the v0.11 frigate screen meet the Reapers alone (dreadnoughts ≈ 5 km behind their slots), absorbing the first beams.
+
+**What restored the targets (in order).** (1) Escorts of a standoff line screen forward to their own weapon range (0.9 × main range, up to 20 km past the slot; the capital line keeps the 2 km leash) — this also fixed the idle check (wing frigates of a 30-frigate line sat 10–18 km from their targets with 9.6 km guns). (2) The AP §3.5 levers in order: solution floor 0.25 → 0.3 measured (Apex seed 8 survival 91 %, seed 9 no longer a win; the floor is also bounded by the < 25 % opening-hit check) — kept 0.25; destroyer barrier 900 measured (canon seed 9 an Alliance win) — kept 1,000; capital regen up only weakens the Alliance — kept 1,000; **capital beam cooldown 6.0 → 6.4** (grid 6.0 / 6.15 / 6.2 / 6.25 / 6.3 / 6.35 / 6.4 / 6.45; only 6.4 held all six seeds). Apex organic multipliers unchanged (they sit at the AP §1.3 bounds).
+
+| Seed | canon (winner / s / A lost / capitals lost / A survival) | Apex core (winner / s / A lost / capitals lost / A survival) |
+| --- | --- | --- |
+| 7 | B / 360 / 41 / 1 / 6 % | A / 218 / 13 / 4 (all 12 Reapers) / 62 % |
+| 8 | B / 360 / 35 / 2 / 9 % | A / 174 / 10 / 4 (all 12) / 65 % |
+| 9 | B / 360 / 35 / 2 / 9 % | A / 128 / 9 / 4 (all 12) / 75 % |
+
+Duels (beam cooldown 6.4): 1 CA vs destroyer 6 / 20 (pin 3–12), 2 CA 10 / 10, 4 FF 0 / 10 (≤ 6), 1 DN kills the destroyer at 33.5 s (seed 1: fifteen rounds before the first hit under the solution model; re-pinned ≤ 40 s — no lever acts on this duel). Solutions: opening (first 6 s) 0 % hits, seconds 20–40 75 %. Oculus screen (re-pinned to "resolves inside 60–240 s"): 194 / 208 / 111 s; Tridents lost 24 / 24 / 6, Oculi 0 / 1 / 5 — the drones now win the isolated screen (BALANCE_AUDIT §9.3 measured them winning four seeds of five with the stand-off rule); T11 tunes the dogfight and pins 60–120 s.
+
+**Per-step cost after T10** (`scripts/perf-sim.ts --rows 100,300v100,300 --steps 800 --split`, same container): 100 vs 100 7.36 ms (T8: 4.26), 300 vs 100 14.37 ms (T8: 9.33; 1.2 steps per frame), 300 vs 300 27.87 ms (T8: 22.20); movement is now 24–36 % of the step (per-craft point-defence repulsion queries and goal allocations). `tests/perf.test.ts` (scaling ≤ 4×, smoke < 20 s) passes. T19's tuning levers apply.
+
 ## 1. Calibration pass 1 — before the movement rewrite (3 November 2026)
 
 Catalogue state: AP §3.2 values (T5), M1 recovery under fire, M2 load threshold, M3 heat by hull, the re-based Titan gun with the HADES magazine, gate (0.2) and residual fuse (0.5) in force (T6). Movement, withdrawal and firing solutions are still the v0.11 model; the Reaper AI is v0.11; Oculi launch through the generic carrier path and the fighter AI has no stand-off-by-weapon rule yet (T10–T12). Script wall time 53 s on the 4-CPU dev container.

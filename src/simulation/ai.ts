@@ -1,10 +1,29 @@
 import type { Rng } from '@/core/rng';
-import { add, distance, lengthSq, normalize, scale, sub, v3, type Vec3 } from '@/core/vec3';
+import { scale, v3, type Vec3 } from '@/core/vec3';
 import { FACTIONS, type FactionDoctrine } from '@/data/factions';
 import { isCapitalRole } from '@/data/types';
 import type { RuleSet } from '@/timelines/rules';
-import { slotToWorld } from './formations';
 import { BATTLESPACE_SCALE as S } from './constants';
+import { slotToWorld } from './formations';
+import {
+  REWITHDRAW_COOLDOWN,
+  WITHDRAWAL,
+  carrierGoal,
+  fighterPassGoal,
+  fleetMotion,
+  frigateRunGoal,
+  frigateRuns,
+  reaperAdvanceGoal,
+  recoveryStation,
+  shipMotion,
+  standoffOf,
+  stationGoal,
+  stationThreatened,
+  steerFleet,
+  type FleetView,
+} from './movement';
+import { solutionFor } from './solutions';
+import { detectable, hunterGoal, hunterTarget } from './stealth';
 import type { FleetState, ShipState, TargetPriority } from './types';
 
 /**
@@ -43,6 +62,12 @@ export interface MovementGoal {
   speedFraction: number;
   /** Optional facing target (world point). */
   face?: Vec3;
+  /** The goal's own velocity (a slot moving with its anchor): the station-keeping controller tracks it. */
+  velocity?: Vec3;
+  /** Fly straight at the point at the speed fraction (runs, passes, transits) instead of keeping station on it. */
+  transit?: boolean;
+  /** Velocity bias added after steering (point-defence repulsion of small craft). */
+  repel?: Vec3;
 }
 
 export const doctrineOf = (ship: ShipState): FactionDoctrine => FACTIONS[ship.faction].doctrine;
@@ -61,14 +86,21 @@ export function centroid(ships: ShipState[]): Vec3 | undefined {
   return scale(c, 1 / w);
 }
 
-/** Longest-range anti-capital weapon in the fleet. */
+/** A fleet with no anti-ship weapon at all engages at this range (compressed km). */
+const FALLBACK_ENGAGEMENT_RANGE = 20 * S;
+
+/**
+ * Longest-range anti-capital weapon in the fleet (compressed km, like every weapon range in the simulation). The
+ * v0.11 floor of 20 was a nominal-km figure compared with compressed ranges, so every fleet engaged as if it had a
+ * 50 km (nominal) gun; the floor now applies only to a fleet with no anti-ship weapon.
+ */
 export function fleetEngagementRange(fleetShips: ShipState[]): number {
-  let r = 20;
+  let r = 0;
   for (const s of fleetShips) {
     if (s.role === 'fighter') continue;
     for (const w of s.weapons) if (w.def.antiCapital || !w.def.antiSmall) r = Math.max(r, w.def.range);
   }
-  return r;
+  return r > 0 ? r : FALLBACK_ENGAGEMENT_RANGE;
 }
 
 export function priorityMultiplier(priority: TargetPriority, target: ShipState): number {
@@ -101,7 +133,8 @@ export function scoreTarget(ctx: AiContext, shooter: ShipState, fleet: FleetStat
   const threat = Math.log2(1 + target.pointValue) / 12;
   const wounded = 1 - target.hull / target.maxHull;
   const barriersDown = target.barriers <= 0 ? 0.25 : 0;
-  let score = 0.4 + threat * d.threatPriority * 2 + wounded * d.finishWounded + barriersDown;
+  // A maturing firing solution concentrates fire (AP §19 8.7: scoreTarget += 0.3·q).
+  let score = 0.4 + threat * d.threatPriority * 2 + wounded * d.finishWounded + barriersDown + 0.3 * solutionFor(shooter, target.id);
   // Range preference: in range is good, far beyond range is bad.
   if (dist > mainRange) score *= Math.max(0.1, 1 - (dist - mainRange) / mainRange);
   else score *= 1 + 0.2 * (1 - dist / mainRange);
@@ -139,7 +172,7 @@ export const PLATFORM_WEIGHT_RANGE = 1.3;
 export function chooseTarget(ctx: AiContext, ship: ShipState, fleet: FleetState): string | undefined {
   if (ship.forcedTargetId) {
     const t = ctx.getShip(ship.forcedTargetId);
-    if (t && t.alive && !t.escaped) return t.id;
+    if (t && t.alive && !t.escaped && detectable(ship, t)) return t.id;
     ship.forcedTargetId = undefined;
   }
   // Candidates within 1.5 × the (damaged) sensor range through the spatial grid, capped (AP §21.5).
@@ -151,9 +184,15 @@ export function chooseTarget(ctx: AiContext, ship: ShipState, fleet: FleetState)
   let best: ShipState | undefined;
   let bestScore = -Infinity;
   const fighterWithoutGuns = ship.role === 'fighter' && !ship.weapons.some((w) => w.def.antiSmall);
+  // A craft that can only burn small craft (the Oculus: anti-small only, "it cannot hurt a hull", BALANCE_AUDIT.md §9.2)
+  // engages small craft only; it never strafes a hull it cannot damage.
+  const craftWithoutAntiShip = ship.role === 'fighter' && !ship.weapons.some((w) => !w.def.antiSmall);
   for (const e of enemies) {
     if (!e.alive || e.escaped) continue;
     if (fighterWithoutGuns && e.role === 'fighter') continue;
+    if (craftWithoutAntiShip && e.role !== 'fighter') continue;
+    // A silent stealth hull beyond its detection range cannot be targeted (brief §15.2).
+    if (!detectable(ship, e)) continue;
     const s = scoreTarget(ctx, ship, fleet, e, mainRange);
     if (s > bestScore) {
       bestScore = s;
@@ -164,38 +203,50 @@ export function chooseTarget(ctx: AiContext, ship: ShipState, fleet: FleetState)
 }
 
 /** The slowly refreshed part of a fleet decision (AP §21.5: the expensive part of `fleetDecision` on a 0.25 s timer). */
-interface FleetSlowState {
+interface FleetSlowState extends FleetView {
   /** Fighting members: alive, present, non-fighter, not withdrawing. */
   mine: ShipState[];
-  enemyCentre?: Vec3;
-  myCentre: Vec3;
-  anchorSpeed: number;
-  /** Where the anchor is heading until the next refresh. */
-  desired?: Vec3;
 }
 
 /** Per-fleet slow state; keyed by the fleet object so it dies with it and the contract types stay untouched. */
 const FLEET_SLOW = new WeakMap<FleetState, FleetSlowState>();
 
-/** Recomputes the member lists, centroids, range and anchor goal; re-evaluates the focus target when its timer has run out. */
+/** Longest spinal-gun range among a fleet's dreadnought-class hulls (0 without one). */
+function spinalRange(mine: ShipState[]): number {
+  let r = 0;
+  for (const s of mine) {
+    if (s.role !== 'dreadnought' && s.role !== 'super_dreadnought') continue;
+    for (const w of s.weapons) if (w.def.kind === 'mass_accelerator' && w.def.antiCapital && w.def.arc <= 20 && w.def.range > r) r = w.def.range;
+  }
+  return r;
+}
+
+/** Recomputes the member lists, centroids, ranges and anchor speed; re-evaluates the focus target when its timer has run out. */
 function refreshFleetSlow(ctx: AiContext, fleet: FleetState): FleetSlowState {
   const doctrine = FACTIONS[fleet.spec.faction].doctrine;
   const mine = ctx.membersOf(fleet.spec.id).filter((s) => s.role !== 'fighter' && !s.withdrawing);
   const enemyCentre = ctx.enemyCentroid(fleet.spec.side);
-  const myCentre = centroid(mine) ?? fleet.anchor;
-  const slow: FleetSlowState = { mine, enemyCentre, myCentre, anchorSpeed: 0 };
+  // Stealth hunters never hold a station, so they do not pull the anchor's lag clamp after them.
+  const myCentre = centroid(mine.filter((s) => !s.stealth)) ?? fleet.anchor;
+  const range = fleetEngagementRange(mine);
+  let slotRadius = 0;
+  // The capital line's width limits how fast the formation may turn (escort screens are excluded: they can catch up).
+  for (const s of mine) if (!s.stealth && isCapitalRole(s.role)) slotRadius = Math.max(slotRadius, Math.hypot(s.slot.x, s.slot.z));
+  const slow: FleetSlowState = { mine, enemyCentre, myCentre, anchorSpeed: 0, range, spinal: spinalRange(mine), slotRadius };
   if (mine.length === 0) return slow;
 
-  // Focus target: periodically re-evaluated.
+  // Focus target: periodically re-evaluated (never a silent stealth hull nobody can see).
+  const current = fleet.focusTargetId ? ctx.getShip(fleet.focusTargetId) : undefined;
+  if (current && (!current.alive || current.escaped || (current.stealth && current.stealth.state === 'silent'))) fleet.focusTargetId = undefined;
   if (fleet.decisionTimer <= 0) {
     fleet.decisionTimer = doctrine.decisionInterval * (0.8 + 0.4 * ctx.rng.next());
-    const current = fleet.focusTargetId ? ctx.getShip(fleet.focusTargetId) : undefined;
-    if (!current || !current.alive || current.escaped || ctx.rng.chance(0.3)) {
+    const cur = fleet.focusTargetId ? ctx.getShip(fleet.focusTargetId) : undefined;
+    if (!cur || !cur.alive || cur.escaped || ctx.rng.chance(0.3)) {
       const representative = mine.reduce((a, b) => (a.pointValue >= b.pointValue ? a : b));
       let best: ShipState | undefined;
       let bestScore = -Infinity;
-      const range = fleetEngagementRange(mine);
       for (const e of ctx.enemyCombatants(fleet.spec.side)) {
+        if (!detectable(representative, e)) continue;
         const s = scoreTarget(ctx, representative, fleet, e, range);
         if (s > bestScore) {
           bestScore = s;
@@ -206,63 +257,16 @@ function refreshFleetSlow(ctx: AiContext, fleet: FleetState): FleetSlowState {
     }
   }
 
-  // Anchor goal.
-  const range = fleetEngagementRange(mine);
-  const standoff = range * doctrine.preferredRangeFactor;
   let slowest = Infinity;
-  for (const s of mine) slowest = Math.min(slowest, s.maxSpeed * (0.3 + 0.7 * s.subsystems.engines));
-  slow.anchorSpeed = slowest * 0.95;
-  let desired: Vec3 | undefined;
-  const o = fleet.orders;
-  switch (o.order) {
-    case 'attack':
-    case 'attack_target':
-    case 'advance': {
-      let focus: Vec3 | undefined = enemyCentre;
-      if (o.order === 'attack_target' && o.targetId) {
-        const t = ctx.getShip(o.targetId);
-        if (t && t.alive) focus = t.pos;
-      }
-      if (focus) {
-        const toEnemy = sub(focus, myCentre);
-        const dist = Math.sqrt(lengthSq(toEnemy));
-        const want = o.order === 'advance' ? standoff * 0.55 : standoff * (1.1 - doctrine.aggression * 0.5);
-        if (dist > want) desired = add(fleet.anchor, scale(normalize(toEnemy), Math.min(dist - want, 50 * S)));
-        else if (dist < want * 0.6 && doctrine.aggression < 0.8) desired = add(fleet.anchor, scale(normalize(toEnemy), -(want * 0.6 - dist)));
-      }
-      break;
-    }
-    case 'defend_position':
-      desired = o.position ?? fleet.anchor;
-      break;
-    case 'hold_formation':
-      desired = undefined;
-      break;
-    case 'withdraw':
-    case 'retreat':
-      if (enemyCentre) desired = add(fleet.anchor, scale(normalize(sub(myCentre, enemyCentre)), 60 * S));
-      else desired = add(fleet.anchor, scale(fleet.heading, -60 * S));
-      break;
-    case 'escort': {
-      const t = o.targetId ? ctx.getShip(o.targetId) : undefined;
-      if (t && t.alive) desired = t.pos;
-      break;
-    }
-    case 'intercept': {
-      const t = o.targetId ? ctx.getShip(o.targetId) : undefined;
-      if (t && t.alive) desired = t.pos;
-      else if (enemyCentre) desired = enemyCentre;
-      break;
-    }
-  }
-  slow.desired = desired;
+  for (const s of mine) if (s.maxSpeed > 0) slowest = Math.min(slowest, s.maxSpeed * (0.3 + 0.7 * s.subsystems.engines));
+  slow.anchorSpeed = Number.isFinite(slowest) ? slowest * 0.95 : 0;
   return slow;
 }
 
 /**
- * Fleet-level decision: choose the focus target and move the anchor. The member lists, centroids, engagement
- * range and anchor goal are refreshed every `FLEET_SLOW_INTERVAL`; the anchor integration and the heading turn
- * run every tick against the cached values (AP §21.5 "fleetDecision expensive part on a 0.25 s timer").
+ * Fleet-level decision: choose the focus target and steer the formation. The member lists, centroids, ranges and
+ * anchor speed are refreshed every `FLEET_SLOW_INTERVAL` (AP §21.5); the heading and anchor are steered every
+ * tick against the cached view (`movement.ts`: approach bearing, heading lock, deceleration, standoff).
  */
 export function fleetDecision(ctx: AiContext, fleet: FleetState, dt: number): void {
   fleet.decisionTimer -= dt;
@@ -273,94 +277,81 @@ export function fleetDecision(ctx: AiContext, fleet: FleetState, dt: number): vo
     slow = refreshFleetSlow(ctx, fleet);
     FLEET_SLOW.set(fleet, slow);
   }
-  if (slow.mine.length === 0) return;
-  // A static fleet (fixed platforms) never moves its anchor or turns its formation; its hulls slew on their own.
-  if (fleet.static) return;
-  const o = fleet.orders;
-  const { desired, enemyCentre, myCentre, anchorSpeed } = slow;
-
-  if (desired) {
-    const delta = sub(desired, fleet.anchor);
-    const dist = Math.sqrt(lengthSq(delta));
-    if (dist > 0.05) {
-      const step = Math.min(dist, anchorSpeed * dt);
-      fleet.anchor = add(fleet.anchor, scale(delta, step / dist));
-    }
+  const motion = fleetMotion(fleet);
+  if (slow.mine.length === 0 || fleet.static) {
+    // A static fleet (fixed platforms) never moves its anchor or turns its formation; its hulls slew on their own.
+    motion.anchorVel = v3();
+    return;
   }
-  // Keep anchor from drifting too far from the actual fleet (ships lag behind).
-  const lag = sub(fleet.anchor, myCentre);
-  const lagDist = Math.sqrt(lengthSq(lag));
-  const maxLag = 12 * S;
-  if (lagDist > maxLag) fleet.anchor = add(myCentre, scale(lag, maxLag / lagDist));
-
-  // Fleet heading faces the enemy (or the direction of travel when withdrawing).
-  let faceDir: Vec3 | undefined;
-  if (enemyCentre && o.order !== 'withdraw' && o.order !== 'retreat') faceDir = sub(enemyCentre, fleet.anchor);
-  else if (desired) faceDir = sub(desired, fleet.anchor);
-  if (faceDir && lengthSq(faceDir) > 1e-6) {
-    const target = normalize(v3(faceDir.x, 0, faceDir.z));
-    const turn = 0.25 * dt; // rad/s for the formation as a whole
-    const cur = fleet.heading;
-    const angle = Math.atan2(cur.x * target.z - cur.z * target.x, cur.x * target.x + cur.z * target.z);
-    const a = Math.sign(angle) * Math.min(Math.abs(angle), turn);
-    const c = Math.cos(a);
-    const s = Math.sin(a);
-    fleet.heading = normalize(v3(cur.x * c - cur.z * s, 0, cur.x * s + cur.z * c));
-  }
+  steerFleet(ctx, fleet, slow, dt);
 }
 
-/** Ship-level decision: refresh target, decide on withdrawal. */
+/** The fleet's doctrine standoff distance, from the slow view (the recovery stations sit 0.6 × this behind the anchor). */
+export function fleetStandoff(fleet: FleetState): number {
+  const slow = FLEET_SLOW.get(fleet);
+  return slow ? standoffOf(fleet, slow).standoff : 20;
+}
+
+/** Send a hull into tactical withdrawal: fall back to its recovery station behind the line (brief §8.6). */
+export function beginWithdrawal(ctx: AiContext, ship: ShipState, fleet: FleetState): void {
+  ship.withdrawing = true;
+  ship.recoveryStation = recoveryStation(ship, fleet, fleetStandoff(fleet));
+  shipMotion(ship).withdrawnAt = ctx.time;
+}
+
+/** Ship-level decision: refresh target, decide on tactical withdrawal and re-engagement. */
 export function shipDecision(ctx: AiContext, ship: ShipState, fleet: FleetState): void {
   const d = doctrineOf(ship);
   const current = ship.targetId ? ctx.getShip(ship.targetId) : undefined;
-  if (!current || !current.alive || current.escaped || ctx.rng.chance(0.35)) {
+  if (ship.stealth && ship.role !== 'fighter') {
+    // Hunters keep their target through a pass; a new one is chosen between passes or when it is lost.
+    const phase = ship.manoeuvre?.phase;
+    const lost = !current || !current.alive || current.escaped || !detectable(ship, current);
+    if (lost || phase === undefined || phase === 'turn' || (phase === 'approach' && ctx.rng.chance(0.2))) ship.targetId = hunterTarget(ctx, ship, fleet)?.id;
+  } else if (!current || !current.alive || current.escaped || !detectable(ship, current) || ctx.rng.chance(0.35)) {
     ship.targetId = chooseTarget(ctx, ship, fleet);
   }
   // Tactical withdrawal: a battered ship falls back behind the line to let its barriers recover, then re-engages.
+  const m = shipMotion(ship);
   if (!ship.withdrawing && d.withdrawThreshold > 0 && ship.role !== 'fighter') {
     const hullFrac = ship.hull / ship.maxHull;
-    if (hullFrac < d.withdrawThreshold && ctx.rng.chance(0.5)) ship.withdrawing = true;
+    if (hullFrac < d.withdrawThreshold && ctx.time - m.reengagedAt >= REWITHDRAW_COOLDOWN && ctx.rng.chance(0.5)) beginWithdrawal(ctx, ship, fleet);
   } else if (ship.withdrawing) {
-    const recovered = ship.barriers >= ship.maxBarriers * 0.7 || ship.maxBarriers === 0;
-    const quiet = ctx.time - ship.lastHitAt > 8;
-    if (recovered && quiet) ship.withdrawing = false;
+    const recovered = ship.maxBarriers === 0 || ship.barriers >= ship.maxBarriers * WITHDRAWAL.reengageBarrierFraction;
+    const longEnough = ctx.time - m.withdrawnAt >= WITHDRAWAL.reengageSeconds;
+    const threatened = ship.recoveryStation !== undefined && stationThreatened(ctx, ship, ship.recoveryStation, fleetStandoff(fleet));
+    if ((recovered && longEnough) || threatened) {
+      ship.withdrawing = false;
+      ship.recoveryStation = undefined;
+      m.reengagedAt = ctx.time;
+    }
   }
 }
 
-/** Compute where the ship wants to be and where it wants to point. */
+/** Compute where the ship wants to be and where it wants to point (movement.ts turns it into motion). */
 export function movementGoal(ctx: AiContext, ship: ShipState, fleet: FleetState): MovementGoal {
   const target = ship.targetId ? ctx.getShip(ship.targetId) : undefined;
-  const enemyCentre = ctx.enemyCentroid(ship.side);
+  const slotVel = fleetMotion(fleet).anchorVel;
 
-  // Fighters: strike runs.
+  // Fighters and Oculi: recall and rearm at the carrier, else strafing passes.
   if (ship.role === 'fighter') {
     if ((!fleet.orders.fightersDeployed || ship.rearming) && ship.carrierId) {
       const carrier = ctx.getShip(ship.carrierId);
-      if (carrier && carrier.alive) return { position: carrier.pos, speedFraction: 1 };
+      if (carrier && carrier.alive) return { position: carrier.pos, speedFraction: 1, transit: true };
       if (ship.rearming) ship.rearming = false; // carrier lost: fight on with guns
     }
-    if (target) {
-      const torpRange = Math.max(...ship.weapons.map((w) => w.def.range));
-      const phase = ctx.time * 0.6 + (ship.id.charCodeAt(ship.id.length - 1) % 7);
-      const orbit = v3(Math.cos(phase), 0.3 * Math.sin(phase * 1.7), Math.sin(phase));
-      const standoff = torpRange * 0.9;
-      const pos = add(target.pos, scale(orbit, standoff));
-      return { position: pos, speedFraction: 1, face: target.pos };
-    }
-    return { position: slotToWorld(fleet.anchor, fleet.heading, ship.slot), speedFraction: 0.8 };
+    if (target && target.alive) return fighterPassGoal(ctx, ship, target, ctx.candidates(ship, 3.2));
+    ship.manoeuvre = undefined;
+    return { position: slotToWorld(fleet.anchor, fleet.heading, ship.slot), speedFraction: 0.8, velocity: slotVel };
   }
 
-  // Explicit retreat order: run from the enemy.
-  if (fleet.orders.order === 'retreat') {
-    const away = enemyCentre ? normalize(sub(ship.pos, enemyCentre)) : scale(fleet.heading, -1);
-    return { position: add(ship.pos, scale(away, 40 * S)), speedFraction: 1 };
-  }
-  // Tactical withdrawal: fall back to a station behind the fleet, weaving, guns still bearing on the enemy.
+  // Stealth frigates hunt; they never hold a station in the line (brief §15.2).
+  if (ship.stealth) return hunterGoal(ctx, ship, fleet, target);
+
+  // Tactical withdrawal: fall back to the recovery station behind the line, guns still bearing on the enemy.
   if (ship.withdrawing) {
-    const phase = ctx.time * 0.9 + (ship.id.charCodeAt(ship.id.length - 1) % 9);
-    const right = v3(fleet.heading.z, 0, -fleet.heading.x);
-    const station = add(add(fleet.anchor, scale(fleet.heading, -14 * S)), scale(right, Math.sin(phase) * 5 * S));
-    return { position: station, speedFraction: 1, face: target?.pos ?? enemyCentre };
+    if (!ship.recoveryStation) ship.recoveryStation = recoveryStation(ship, fleet, fleetStandoff(fleet));
+    return { position: ship.recoveryStation, speedFraction: 1, face: target?.pos ?? ctx.enemyCentroid(ship.side) };
   }
 
   // Escort order at ship level.
@@ -368,37 +359,18 @@ export function movementGoal(ctx: AiContext, ship: ShipState, fleet: FleetState)
     const e = ctx.getShip(ship.escortId);
     if (e && e.alive) {
       const off = slotToWorld(e.pos, e.heading, scale(ship.slot, 0.35));
-      return { position: off, speedFraction: 1, face: target?.pos };
+      return { position: off, speedFraction: 1, velocity: e.vel, face: target?.pos };
     }
   }
 
   const slotPos = slotToWorld(fleet.anchor, fleet.heading, ship.slot);
-  const d = doctrineOf(ship);
-  const loose = fleet.orders.formation === 'dispersed' || fleet.orders.formation === 'strike_wedge';
-  // Frigates harass under loose formations and attack orders.
-  if (
-    ship.role === 'frigate' &&
-    loose &&
-    target &&
-    (fleet.orders.order === 'attack' || fleet.orders.order === 'attack_target' || fleet.orders.order === 'intercept') &&
-    d.cohesion < 0.95
-  ) {
-    const torp = ship.weapons.find((w) => w.def.kind === 'disruptor_torpedo');
-    const want = (torp ? torp.def.range : 15) * 0.75;
-    const toT = sub(target.pos, ship.pos);
-    const dist = Math.sqrt(lengthSq(toT));
-    if (dist > want) return { position: add(ship.pos, scale(normalize(toT), dist - want)), speedFraction: 1, face: target.pos };
-    return { position: slotPos, speedFraction: 0.9, face: target.pos };
+  if (target && target.alive && frigateRuns(ship, fleet)) return frigateRunGoal(ctx, ship, fleet, target);
+  ship.manoeuvre = undefined;
+  if (ship.role === 'carrier') return carrierGoal(ctx, ship, fleet, slotPos, slotVel, target);
+  // Reapers never idle: with no target in range and the anchor stopped, close on the nearest enemy group.
+  if (ship.faction === 'reaper') {
+    const advance = reaperAdvanceGoal(ctx, ship, fleet, target);
+    if (advance) return advance;
   }
-
-  // Default: hold formation slot, face the target if we have forward-arc weapons in range.
-  let face: Vec3 | undefined;
-  if (target) {
-    const fwd = ship.weapons.filter((w) => w.def.arc < 180 && !w.def.antiSmall);
-    if (fwd.length > 0) {
-      const maxR = Math.max(...fwd.map((w) => w.def.range));
-      if (distance(ship.pos, target.pos) < maxR * 1.4) face = target.pos;
-    }
-  }
-  return { position: slotPos, speedFraction: 1, face };
+  return stationGoal(ship, fleet, slotPos, slotVel, target);
 }

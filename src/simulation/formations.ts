@@ -51,7 +51,7 @@ function spreadIndex(i: number): number {
 /** Fractional part of i × the golden ratio: a deterministic, well-spread sequence in [0, 1). */
 const golden = (i: number): number => (i * 0.6180339887) % 1;
 
-/** The 3D formations of the V2 roster (CINEMATIC_DESIGN.md §7.2); the other six are the v0.11 layouts. */
+/** The 3D formations of the V2 roster (CINEMATIC_DESIGN.md §7.2); the other six are the v0.11 layouts (the spacing guard runs on all twelve). */
 export const FORMATIONS_3D: readonly FormationType[] = ['layered_line', 'stacked_wedge', 'box', 'swarm_descent', 'broadside_line', 'static'];
 
 export function assignSlots(ships: SlotShip[], formation: FormationType): Map<string, Vec3> {
@@ -59,7 +59,7 @@ export function assignSlots(ships: SlotShip[], formation: FormationType): Map<st
   const k = SLOT_COMPRESSION;
   const slots = new Map<string, Vec3>();
   for (const [id, v] of raw) slots.set(id, v3(v.x * k, v.y * k, v.z * k));
-  if (FORMATIONS_3D.includes(formation)) spacingGuard(ships, slots);
+  spacingGuard(ships, slots);
   return slots;
 }
 
