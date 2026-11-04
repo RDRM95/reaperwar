@@ -2,6 +2,7 @@ import { audio, type SoundId } from '@/audio/engine';
 import { DEFAULT_PREFERENCES, storage, type Preferences } from '@/core/storage';
 import { DEFAULT_PERF_BUDGET, type PerfBudget } from '@/core/perfGovernor';
 import { BattleView } from '@/rendering/battleView';
+import { startupGraphics } from '@/rendering/localHardware';
 import type { CameraMode } from '@/rendering/cameras';
 import { BattleSimulation, SIM_DT } from '@/simulation/battle';
 import type { BattleConfig, BattleEvent, BattleResult, FleetOrders } from '@/simulation/types';
@@ -496,7 +497,7 @@ export class App {
 
   async init(): Promise<void> {
     this.prefs = { ...DEFAULT_PREFERENCES, ...(await storage.get('preferences', DEFAULT_PREFERENCES)) };
-    this.prefs.graphics = { ...DEFAULT_PREFERENCES.graphics, ...this.prefs.graphics };
+    this.prefs.graphics = startupGraphics({ ...DEFAULT_PREFERENCES.graphics, ...this.prefs.graphics });
     this.prefs.audio = { ...DEFAULT_PREFERENCES.audio, ...this.prefs.audio };
     this.prefs.showcase = { ...DEFAULT_PREFERENCES.showcase, ...this.prefs.showcase };
     this.prefs.perf = { ...DEFAULT_PREFERENCES.perf, ...this.prefs.perf, budget: { ...DEFAULT_PERF_BUDGET, ...this.prefs.perf?.budget } };
