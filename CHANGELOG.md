@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased — Ten new timelines and the measured Threat to the Reapers
+
+- Ten new alternate timelines, each diverging at a named event of the trilogy and labelled ALTERNATE UNIVERSE everywhere: Sovereign’s Triumph (2183, the Citadel falls), The Collectors’ Harvest (2185, the suicide mission fails and the Alpha relay stands), The Indoctrinated Council (2185, the Mnemosyne derelict is salvaged), Leviathan’s Bargain (2186, the Reapers reach Despoina first), Vigil’s Warning (2183, the Council believes Vigil’s archive in secret), The Geth–Quarian Concord (c. 1895, no Morning War), The Asari Disclosure (2183, the Athame beacon is shared), Turian Total War (2183, total mobilisation), Leviathan’s Covenant (2186, the Leviathans fight openly) and The Conduit Protocol (2183, relay locks). Existing engine knobs only; every text is original.
+- Threat to the Reapers, a measured 1–6 scale: `npm run timeline:threat` fights the threat reference engagement (a Council-era coalition against five Reaper groups, four seeds) under every timeline and writes `src/timelines/threatMeasured.ts` and `docs/apex/TIMELINE_THREAT.md`; tiers at 17 / 30 / 48 / 62 / 87. The ten new timelines span all six tiers, each measured inside its declared tier; the eight existing presets keep their numbers and take the tier they measure (Reaper Escalation 1, canon 3, Cerberus Reformed 3, Cerberus Ascendant 3, Prepared Galaxy 5, Humanity Ascendant 5, Apex core and legacy 6).
+- Threat badges on the timelines screen (with a detail block: band, measured losses and survival, breaking point, the five Reaper groups as the timeline deploys them), in the briefing and in campaign setup; custom timelines show "unrated".
+- World-state locks: campaign setup and the briefing preselect and lock the world state a timeline’s story implies (Ascension, Rannoch, Normandy, genophage) with an AU note; what the campaign cannot express is stated in an AU campaign note.
+- Codex: a Timelines category with one entry per new timeline and an entry explaining the scale.
+- The timelines screen stacks to one column on phones, and long timeline names no longer widen the briefing or campaign setup past the screen.
+
 ## 0.11.3 — Camera and recording (hotfix)
 
 - Cinematic director lingers 11–18 s per shot (7 s on a capital death) and cuts away less often.

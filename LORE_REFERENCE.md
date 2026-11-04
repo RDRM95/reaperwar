@@ -21,6 +21,19 @@ Every important statistic in `src/data` carries one of four tags, which the UI s
 - **Carriers** (codex): humans alone field them; fighters strike with torpedoes.
 - **Treaty of Farixen** dreadnought ratios; Kilimanjaro-class dreadnought names (SSV Kilimanjaro, SSV Orizaba); F-61 Trident; Normandy SR-2 Thanix refit; Harbinger as the first Reaper; Earth invaded via Charon relay with Arcturus lost; Palaven/Menae under assault.
 
+## Canon anchors used by the alternate timelines
+
+Each of the ten timelines of `src/timelines/alternates.ts` follows the trilogy up to a named divergence and changes only what follows from it; every divergence is ALTERNATE UNIVERSE. The canon each one stands on, restated (design and review: `docs/apex/TIMELINES_V2.md`):
+
+- **Battle of the Citadel (2183)**: Saren reached the Citadel through the Conduit and locked its arms while Sovereign and a geth fleet attacked; the Council could be lost aboard the Destiny Ascension; the Thanix was later reverse-engineered from Sovereign’s wreck. (Sovereign’s Triumph, Turian Total War, The Asari Disclosure.)
+- **Ilos, Vigil, the Keepers and the Conduit (2183)**: a Prothean VI explained how the Reapers took the Citadel and the relays after indoctrinated agents had weakened the Prothean leadership; Prothean scientists had altered the Keepers; the Conduit is a small relay the Protheans built. Vigil records no Reaper weakness. (Vigil’s Warning, The Conduit Protocol.)
+- **The Collectors, the Omega 4 relay and the human Reaper (2185)**, and **the Alpha relay in the Bahak system**, destroyed later that year to delay the Reapers by months. (The Collectors’ Harvest.)
+- **The derelict Reaper at Mnemosyne (2185)**: dead for millions of years, it indoctrinated the Cerberus team studying it. (The Indoctrinated Council.)
+- **The beacon in the Temple of Athame**: hidden by the asari for millennia, revealed in 2186. (The Asari Disclosure.)
+- **The Morning War and the Council’s AI laws**: the quarians lost Rannoch to the geth about three centuries before 2183 and lost their Citadel embassy for creating them; by 2183 heretic geth served Sovereign. (The Geth–Quarian Concord.)
+- **Turian society**: service from the age of fifteen, the largest navy in Citadel space, the volus as a client race. (Turian Total War.)
+- **The Leviathans (2186)**: Dr. Ann Bryson’s research, Despoina, the thralls who kept their secret, the Leviathans’ creation of the intelligence that created the Reapers, and the first Reaper made in their image. (Leviathan’s Bargain, Leviathan’s Covenant.)
+
 ## Inferred
 
 - Everest-class length 888 m; Normandy SR-2 ~216 m; SR-1 ~155 m (commonly cited, not in codex).
