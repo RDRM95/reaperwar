@@ -126,6 +126,25 @@ describe('alternate timelines: data', () => {
     for (let i = 1; i < keys.length; i++) expect(keys[i][0] > keys[i - 1][0] || (keys[i][0] === keys[i - 1][0] && keys[i][1] >= keys[i - 1][1]), ALTERNATE_PRESETS[i].id).toBe(true);
   });
 
+  it('are frozen all the way down, so nothing changes a built-in timeline in place', () => {
+    const frozenThroughout = (o: unknown, path: string): void => {
+      if (o === null || typeof o !== 'object') return;
+      expect(Object.isFrozen(o), path).toBe(true);
+      for (const [k, v] of Object.entries(o)) frozenThroughout(v, `${path}.${k}`);
+    };
+    for (const p of ALTERNATE_PRESETS) {
+      frozenThroughout(p, p.id);
+      expect(() => {
+        (p.fleetStrength as { reaper: number }).reaper = 9;
+      }, p.id).toThrow(TypeError);
+      // Copies stay editable: the timelines editor and the levers work on them.
+      const copy = getPreset(p.id);
+      copy.fleetStrength.reaper = 2;
+      expect(copy.fleetStrength.reaper).toBe(2);
+      expect(withLever(p, ALTERNATE_META[p.id].lever.key, ALTERNATE_META[p.id].lever.min)).not.toBe(p);
+    }
+  });
+
   it('round-trip through the schema with no warnings and pass normaliseRules unchanged', () => {
     for (const p of ALTERNATE_PRESETS) {
       const res = validateRuleSet(JSON.parse(exportRuleSet(p)));
@@ -277,6 +296,37 @@ describe('threat scale: arithmetic', () => {
     expect(threatIndex(1, 1)).toBe(100);
     expect(threatIndex(0.5, 0.2)).toBeCloseTo(35, 10);
     expect(threatIndex(1.4, -0.2)).toBe(50);
+  });
+
+  it('every band statement holds for every Reaper loss and organic survival its band admits', () => {
+    // The statements are claims about L and S alone (index = 50 × (L + S)); check them on a 0.005 grid.
+    const eps = 1e-9;
+    const claims: Record<number, (L: number, S: number) => boolean> = {
+      1: (L, S) => L + S < 0.34 + eps && Math.max(L, S) < 0.34 + eps,
+      2: (L, S) => L + S >= 0.34 - eps && L + S < 0.6 + eps && Math.max(L, S) < 0.6 + eps,
+      3: (L, S) => L + S >= 0.6 - eps && L + S < 0.96 + eps && Math.max(L, S) >= 0.3 - eps && Math.min(L, S) < 0.5 + eps,
+      4: (L, S) => L + S >= 0.96 - eps && L + S < 1.24 + eps && Math.max(L, S) >= 0.48 - eps && Math.min(L, S) < 0.62 + eps,
+      5: (L, S) => L + S >= 1.24 - eps && L + S < 1.74 + eps && Math.min(L, S) >= 0.24 - eps && Math.max(L, S) >= 0.62 - eps,
+      6: (L, S) => L + S >= 1.74 - eps && Math.min(L, S) >= 0.74 - eps,
+    };
+    const seen = new Set<number>();
+    for (let i = 0; i <= 200; i++) {
+      for (let j = 0; j <= 200; j++) {
+        const L = i / 200;
+        const S = j / 200;
+        const tier = tierForIndex(threatIndex(L, S));
+        seen.add(tier);
+        expect(claims[tier](L, S), `tier ${tier} at L ${L}, S ${S}`).toBe(true);
+      }
+    }
+    expect([...seen].sort()).toEqual([1, 2, 3, 4, 5, 6]);
+    // The sentences state exactly those bounds.
+    expect(THREAT_TIERS[0].summary).toMatch(/under 0\.34 together.*less than 34 %.*less than 34 %/);
+    expect(THREAT_TIERS[1].summary).toMatch(/0\.34 to 0\.60 together.*less than 60 %.*less than 60 %/);
+    expect(THREAT_TIERS[2].summary).toMatch(/0\.60 to 0\.96 together.*reaches 30 %.*at most one reaches half/);
+    expect(THREAT_TIERS[3].summary).toMatch(/0\.96 to 1\.24 together.*reaches 48 %.*under 62 %/);
+    expect(THREAT_TIERS[4].summary).toMatch(/1\.24 to 1\.74 together.*at least 24 %.*at least 24 %.*reaches 62 %/);
+    expect(THREAT_TIERS[5].summary).toMatch(/at least 1\.74 together.*at least 74 %.*at least 74 %/);
   });
 
   it('summariseThreat weighs every battle equally, rounds as the table stores, and stops the breaking point at the first rung won fewer than 3 of 4', () => {

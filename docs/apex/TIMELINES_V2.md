@@ -93,16 +93,16 @@ Why these terms: while the organics lose, S is 0 and the index is half the Reape
 
 The thresholds are fixed at **17, 30, 48, 62 and 87**. They sit between the index levels the ladder produced at design time for coalitions that hold none, one, two, three or all five rungs (about 11 for a coalition that cannot hurt even a raid, 23 for one that trades but wins nothing, 36 for one that holds the raid, 51–57 for two rungs, 64–78 for three or four, 94–97 for all five). They are never moved to rescue a label; the only way they move is the preset-blind re-basing of §1.8.
 
-The "what it means" sentences are statements about the index band itself and are true by construction from I = 50 × (L + S) with L and S between 0 and 1. They never name a rung: what a particular timeline holds depends on the groups it actually meets (a timeline with `fleetStrength.reaper` 1.3 meets a three-capital raid), so that sentence is generated from the timeline’s own measured rung table (§1.4).
+The "what it means" sentences are statements about the index band itself and are true by construction from I = 50 × (L + S) with L and S between 0 and 1; they state the exact bounds (34 %, not "a third"), and a test checks each against every (L, S) its band admits on a 0.005 grid. They never name a rung: what a particular timeline holds depends on the groups it actually meets (a timeline with `fleetStrength.reaper` 1.3 meets a three-capital raid), so that sentence is generated from the timeline’s own measured rung table (§1.4).
 
 | Tier | Label | Index | What the band means (`THREAT_TIERS[].summary`) |
 | --- | --- | --- | --- |
-| 1 | Negligible | below 17 | On average the Reapers lose less than a third of the hull value they commit, and less than a third of the coalition survives. |
-| 2 | Low | 17 to below 30 | On average the Reapers lose less than 60 % of the hull value they commit and less than 60 % of the coalition survives, but the two together reach at least a third. |
+| 1 | Negligible | below 17 | Reaper losses and organic survival average under 0.34 together, so the Reapers lose less than 34 % of the hull value they commit and less than 34 % of the coalition survives. |
+| 2 | Low | 17 to below 30 | Reaper losses and organic survival average 0.34 to 0.60 together, so the Reapers lose less than 60 % of the hull value they commit and less than 60 % of the coalition survives. |
 | 3 | Moderate | 30 to below 48 | Reaper losses and organic survival average 0.60 to 0.96 together, so at least one of them reaches 30 % and at most one reaches half. |
 | 4 | Serious | 48 to below 62 | Reaper losses and organic survival average 0.96 to 1.24 together, so at least one of them reaches 48 % and the smaller stays under 62 %. |
-| 5 | Severe | 62 to below 87 | On average the Reapers lose at least a quarter of the hull value they commit and at least a quarter of the coalition survives, and one of the two reaches 62 %. |
-| 6 | Existential | 87 and above | On average the Reapers lose at least three quarters of the hull value they commit and at least three quarters of the coalition survives. |
+| 5 | Severe | 62 to below 87 | Reaper losses and organic survival average 1.24 to 1.74 together, so the Reapers lose at least 24 % of the hull value they commit, at least 24 % of the coalition survives, and one of the two reaches 62 %. |
+| 6 | Existential | 87 and above | Reaper losses and organic survival average at least 1.74 together, so the Reapers lose at least 74 % of the hull value they commit and at least 74 % of the coalition survives. |
 
 The scale measures how dangerous a galaxy is to the Reapers in conventional battle, not who wins the war: a Crucible, a Catalyst or a controlled Reaper fleet changes the campaign, not this index (§1.5). The UI says "measured in conventional battle" next to every rating.
 

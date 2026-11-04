@@ -34,12 +34,12 @@ export interface ThreatTierInfo {
 
 /** One row per tier. Each summary follows from the band itself: index = 50 × (Reaper hull lost + organic survival). */
 export const THREAT_TIERS: readonly ThreatTierInfo[] = [
-  { tier: 1, label: 'Negligible', min: 0, max: 17, summary: 'Index under 17: on average the Reapers lose less than a third of the hull value they commit, and less than a third of the coalition survives.' },
-  { tier: 2, label: 'Low', min: 17, max: 30, summary: 'Index 17 to 30: on average the Reapers lose less than 60 % of the hull value they commit and less than 60 % of the coalition survives, but the two together reach at least a third.' },
+  { tier: 1, label: 'Negligible', min: 0, max: 17, summary: 'Index under 17: Reaper losses and organic survival average under 0.34 together, so the Reapers lose less than 34 % of the hull value they commit and less than 34 % of the coalition survives.' },
+  { tier: 2, label: 'Low', min: 17, max: 30, summary: 'Index 17 to 30: Reaper losses and organic survival average 0.34 to 0.60 together, so the Reapers lose less than 60 % of the hull value they commit and less than 60 % of the coalition survives.' },
   { tier: 3, label: 'Moderate', min: 30, max: 48, summary: 'Index 30 to 48: Reaper losses and organic survival average 0.60 to 0.96 together, so at least one of them reaches 30 % and at most one reaches half.' },
   { tier: 4, label: 'Serious', min: 48, max: 62, summary: 'Index 48 to 62: Reaper losses and organic survival average 0.96 to 1.24 together, so at least one of them reaches 48 % and the smaller stays under 62 %.' },
-  { tier: 5, label: 'Severe', min: 62, max: 87, summary: 'Index 62 to 87: on average the Reapers lose at least a quarter of the hull value they commit and at least a quarter of the coalition survives, and one of the two reaches 62 %.' },
-  { tier: 6, label: 'Existential', min: 87, max: 100, summary: 'Index 87 and above: on average the Reapers lose at least three quarters of the hull value they commit and at least three quarters of the coalition survives.' },
+  { tier: 5, label: 'Severe', min: 62, max: 87, summary: 'Index 62 to 87: Reaper losses and organic survival average 1.24 to 1.74 together, so the Reapers lose at least 24 % of the hull value they commit, at least 24 % of the coalition survives, and one of the two reaches 62 %.' },
+  { tier: 6, label: 'Existential', min: 87, max: 100, summary: 'Index 87 and above: Reaper losses and organic survival average at least 1.74 together, so the Reapers lose at least 74 % of the hull value they commit and at least 74 % of the coalition survives.' },
 ];
 
 /** The five Reaper groups of the reference before a timeline's `fleetStrength.reaper` scales them (TIMELINES_V2.md §1.1). */

@@ -15,6 +15,19 @@ import type { ThreatTier } from './threat';
 
 const tech = (p: Partial<TechModifiers> = {}): TechModifiers => ({ ...CANON_TECH, ...p });
 
+/** Freezes an object and everything inside it. */
+function deepFreeze<T extends object>(o: T): T {
+  for (const v of Object.values(o)) if (v !== null && typeof v === 'object' && !Object.isFrozen(v)) deepFreeze(v as object);
+  return Object.freeze(o);
+}
+
+/**
+ * A preset literal, frozen to the bottom like the canon preset: nothing can
+ * change a built-in timeline in place. Every consumer works on a copy
+ * (`getPreset`, `cloneRules`, `withLever`, the timelines editor).
+ */
+const preset = (r: RuleSet): RuleSet => deepFreeze(r);
+
 /** Prefix for every alternate-universe line shown outside the preset itself (codex, tooltips, world-state notes). */
 export const auPrefix = (name: string): string => `ALTERNATE UNIVERSE (${name}): `;
 
@@ -48,7 +61,7 @@ export interface AlternateMeta {
   campaignNote?: string;
 }
 
-export const SOVEREIGNS_TRIUMPH: RuleSet = {
+export const SOVEREIGNS_TRIUMPH: RuleSet = preset({
   id: 'sovereigns_triumph',
   name: 'Sovereign’s Triumph',
   tagline: 'The Citadel relay opened in 2183. The Reapers did not have to wait three more years.',
@@ -69,9 +82,9 @@ export const SOVEREIGNS_TRIUMPH: RuleSet = {
   special: { ...CANON_SPECIAL, thanixAvailability: 'none' },
   fleetStrength: { ...CANON_FLEETS, alliance: 0.8, turian: 0.6, asari: 0.5, salarian: 0.85, geth: 0, reaper: 1.3 },
   strategic: { ...CANON_STRATEGIC, alliedCoordination: 0.1, indoctrinationEffectiveness: 1.5, reaperCompetence: 1.1, reaperReinforcements: 1.5, crucibleAvailable: false, shepardAlive: false, shepardEffectiveness: 0 },
-};
+});
 
-export const COLLECTORS_HARVEST: RuleSet = {
+export const COLLECTORS_HARVEST: RuleSet = preset({
   id: 'collectors_harvest',
   name: 'The Collectors’ Harvest',
   tagline: 'The Normandy never came back through the Omega 4 relay. The human Reaper was never stopped, and the Reapers came early.',
@@ -91,9 +104,9 @@ export const COLLECTORS_HARVEST: RuleSet = {
   special: { ...CANON_SPECIAL },
   fleetStrength: { ...CANON_FLEETS, alliance: 0.8, quarian: 0, geth: 0, reaper: 1.15 },
   strategic: { ...CANON_STRATEGIC, alliedCoordination: 0.25, indoctrinationEffectiveness: 1.3, reaperCompetence: 1.1, reaperReinforcements: 1.3, shepardAlive: false, shepardEffectiveness: 0 },
-};
+});
 
-export const INDOCTRINATED_COUNCIL: RuleSet = {
+export const INDOCTRINATED_COUNCIL: RuleSet = preset({
   id: 'indoctrinated_council',
   name: 'The Indoctrinated Council',
   tagline: 'A dead Reaper was towed home for study. By 2186 it had friends on the Council.',
@@ -116,9 +129,9 @@ export const INDOCTRINATED_COUNCIL: RuleSet = {
   special: { ...CANON_SPECIAL },
   fleetStrength: { ...CANON_FLEETS, turian: 0.7, asari: 0.7, salarian: 0.6 },
   strategic: { ...CANON_STRATEGIC, alliedCoordination: 0.2, indoctrinationEffectiveness: 2, reaperCompetence: 1.3 },
-};
+});
 
-export const LEVIATHANS_BARGAIN: RuleSet = {
+export const LEVIATHANS_BARGAIN: RuleSet = preset({
   id: 'leviathans_bargain',
   name: 'Leviathan’s Bargain',
   tagline: 'The Reapers found Despoina first. To outlive the cycle, the Leviathans lent the harvest their hold on organic minds.',
@@ -137,9 +150,9 @@ export const LEVIATHANS_BARGAIN: RuleSet = {
   special: { ...CANON_SPECIAL },
   fleetStrength: { ...CANON_FLEETS },
   strategic: { ...CANON_STRATEGIC, alliedCoordination: 0.3, indoctrinationEffectiveness: 2, reaperCompetence: 1.4 },
-};
+});
 
-export const VIGILS_WARNING: RuleSet = {
+export const VIGILS_WARNING: RuleSet = preset({
   id: 'vigils_warning',
   name: 'Vigil’s Warning',
   tagline: 'The Council read the Protheans’ own account in 2183, believed every word, and told no one.',
@@ -159,9 +172,9 @@ export const VIGILS_WARNING: RuleSet = {
   special: { ...CANON_SPECIAL },
   fleetStrength: { ...CANON_FLEETS },
   strategic: { ...CANON_STRATEGIC, alliedCoordination: 0.55, indoctrinationEffectiveness: 0.4 },
-};
+});
 
-export const GETH_QUARIAN_CONCORD: RuleSet = {
+export const GETH_QUARIAN_CONCORD: RuleSet = preset({
   id: 'geth_quarian_concord',
   name: 'The Geth–Quarian Concord',
   tagline: 'The quarians recognised the geth instead of shutting them down, and paid for it with their embassy. Rannoch builds warships for both.',
@@ -185,9 +198,9 @@ export const GETH_QUARIAN_CONCORD: RuleSet = {
   special: { ...CANON_SPECIAL },
   fleetStrength: { ...CANON_FLEETS, quarian: 1.9, geth: 2.4 },
   strategic: { ...CANON_STRATEGIC },
-};
+});
 
-export const ASARI_DISCLOSURE: RuleSet = {
+export const ASARI_DISCLOSURE: RuleSet = preset({
   id: 'asari_disclosure',
   name: 'The Asari Disclosure',
   tagline: 'In 2183 the Republics opened the Temple of Athame. Their head start became everyone’s.',
@@ -208,9 +221,9 @@ export const ASARI_DISCLOSURE: RuleSet = {
   special: { ...CANON_SPECIAL },
   fleetStrength: { ...CANON_FLEETS, asari: 1.25 },
   strategic: { ...CANON_STRATEGIC, alliedCoordination: 0.65 },
-};
+});
 
-export const TURIAN_TOTAL_WAR: RuleSet = {
+export const TURIAN_TOTAL_WAR: RuleSet = preset({
   id: 'turian_total_war',
   name: 'Turian Total War',
   tagline: 'After Sovereign, the Hierarchy did what turians do: every citizen served and every yard built warships.',
@@ -231,9 +244,9 @@ export const TURIAN_TOTAL_WAR: RuleSet = {
   special: { ...CANON_SPECIAL },
   fleetStrength: { ...CANON_FLEETS, turian: 2.5 },
   strategic: { ...CANON_STRATEGIC },
-};
+});
 
-export const LEVIATHANS_COVENANT: RuleSet = {
+export const LEVIATHANS_COVENANT: RuleSet = preset({
   id: 'leviathans_covenant',
   name: 'Leviathan’s Covenant',
   tagline: 'At Despoina the Leviathans stopped hiding. The makers of the Reapers’ maker went to war.',
@@ -252,9 +265,9 @@ export const LEVIATHANS_COVENANT: RuleSet = {
   special: { ...CANON_SPECIAL, indoctrinationDisabled: true, reaperCommandVulnerability: true },
   fleetStrength: { ...CANON_FLEETS },
   strategic: { ...CANON_STRATEGIC, alliedCoordination: 0.7, indoctrinationEffectiveness: 0, reaperCompetence: 0.6 },
-};
+});
 
-export const CONDUIT_PROTOCOL: RuleSet = {
+export const CONDUIT_PROTOCOL: RuleSet = preset({
   id: 'conduit_protocol',
   name: 'The Conduit Protocol',
   tagline: 'The Protheans built one relay of their own. By 2186 the galaxy could lock the rest against their builders.',
@@ -273,7 +286,7 @@ export const CONDUIT_PROTOCOL: RuleSet = {
   special: { ...CANON_SPECIAL },
   fleetStrength: { ...CANON_FLEETS, reaper: 0.4 },
   strategic: { ...CANON_STRATEGIC, alliedCoordination: 0.7, reaperReinforcements: 0.3, conventionalVictoryPossible: true },
-};
+});
 
 /** In declared-tier order, then by divergence year (TIMELINES_V2.md §2). */
 export const ALTERNATE_PRESETS: RuleSet[] = [
