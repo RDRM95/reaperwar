@@ -50,6 +50,14 @@ The owner: "you have full workflow auth, playable build is only priority, I leav
 4. **Deferred past 1.0.0** (in this order): the remaining cinematic scenes and the full character bible (D-prep run `wf_2f8b94ec-2bf` stays paused; its drafts are in the worktrees), the design-sheet lock-down and likeness loop, the graphics overhaul plan (`wf_c90f6423-5b9`, paused; brief §16), the extreme-scale programme (brief §17), System theatre, Alternate Timelines, the local-hardware build.
 5. The stage prompts in `docs/apex/workflows/stages-abcd.js` are the full-scope prompts; for the 1.0.0 run pass `args: { only: [...] }` and prepend the "lite" scope paragraph from item 3 (write it into the script's COMMON before launching).
 
+## Sequence after 4 Nov 18:40 UTC (lead)
+
+1. Running: CORE (`wf_2f3d7476-5c1`, T10 in progress) and the new timelines (`wf_07ef8a55-815`, worktree `/home/user/reaperwar-T`, branch `stage/T-timelines`).
+2. When the timelines finish: merge `stage/T-timelines` into the integration branch at a clean point between CORE tasks, bump to **0.12.0** with a CHANGELOG entry (CORE T1–T10 as landed, the timelines; new hull classes still on placeholder models), push; run the full gate (typecheck, vitest, build, playwright, screenshots looked at) on that commit in a detached release worktree; if green, `git push origin <sha>:main` (a fast-forward) and verify the Pages deployment.
+3. Then launch `docs/apex/workflows/playback-fastforward.js` (brief §19.1: 8× lag, Fast-forward to result, seed-42 determinism, perf HUD); merge and ship as **0.12.1** through the same gate.
+4. Then `docs/apex/workflows/pacing-plan.js` (brief §19.2) so `docs/apex/PACING_PLAN.md` exists before CORE reaches T19; CORE applies it as a pacing pass before calibration pass 2 (INTEGRATION_NOTES bullet of 4 Nov; chunk 6 notes in the CORE script).
+5. Then the trimmed 1.0.0 stages (C, A-lite, B-lite, D-lite) per the "playable build first" section, integration, 1.0.0.
+
 ## Model, identity and history policy (4 Nov)
 
 - **Models.** The lead session and every workflow agent run on Opus 5.5 (the owner's Fable weekly allowance is spent; the workflow scripts carry `model: 'claude-opus-5-5'`). Usage budgets are the lead's concern only: **stage agents never pause, defer or skip work because of usage, budget or limits** — an agent did exactly that on 4 Nov (CORE chunk 3 stopped after T8), and the CORE prompts for chunk 3 onwards now forbid it.
