@@ -81,4 +81,24 @@ test.describe('Local Edition', () => {
     await expect(page.locator('.hud-clock')).toContainText(/\d+ FPS/, { timeout: 30_000 });
     expect(errors).toEqual([]);
   });
+
+  test('a graphics choice made in Settings survives a reload; Ultra switches engine glow on', async ({ page }) => {
+    await page.goto(`${origin}/?local=1`);
+    await page.click('[data-menu="settings"]');
+    const quality = page.locator('select[data-setting="quality"]');
+    const glow = page.locator('select[data-setting="engine-glow"]');
+    await expect(quality).toHaveValue('ultra');
+    await glow.selectOption('off');
+    await quality.selectOption('high');
+    // Preferences reach localStorage at once and IndexedDB a moment later.
+    await expect.poll(() => page.evaluate(() => localStorage.getItem('reaperwar:preferences') ?? '')).toContain('"quality":"high"');
+    await page.waitForTimeout(500);
+
+    await page.reload();
+    await page.click('[data-menu="settings"]');
+    await expect(quality).toHaveValue('high');
+    await expect(glow).toHaveValue('off');
+    await quality.selectOption('ultra');
+    await expect(glow).toHaveValue('on');
+  });
 });
