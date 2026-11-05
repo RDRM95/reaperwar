@@ -5,6 +5,7 @@ import { buildScenario, fleet, FLEET_SCALING_KEY } from '@/scenarios';
 import { SLEW_TAU, VERTICAL_SLEW_S, chooseTarget, slewFactor, slewSeconds } from '@/simulation/ai';
 import { BattleSimulation, IDLE_RETRY_S } from '@/simulation/battle';
 import { WITHDRAWAL } from '@/simulation/movement';
+import { REAPER_AI } from '@/simulation/reaperAi';
 import { detectable } from '@/simulation/stealth';
 import type { BattleConfig, FleetSpec, ShipState, Side } from '@/simulation/types';
 import { getPreset } from '@/timelines/presets';
@@ -45,6 +46,8 @@ interface ReferenceTrace {
   longestReaperIdle: IdleSpan;
   escapedNonFighters: number;
   reaperWithdrawals: number;
+  /** Reaper withdrawals that did not start as the Apex doctrine's threatened-group fall-back (AP §10). */
+  reaperWithdrawalsOutsideGroupRule: number;
   /** The longest gap between two weapon_fired events after first contact (until the battle ends). */
   longestSilence: number;
   reason: string;
@@ -66,13 +69,25 @@ async function traceBattle(sim: BattleSimulation): Promise<ReferenceTrace> {
   let lastFire = -1;
   let longestSilence = 0;
   let reaperWithdrawals = 0;
+  let reaperWithdrawalsOutsideGroupRule = 0;
   let ei = 0;
+  // AP §10 (Apex doctrine only): the fleet fell below 30 % of its starting points with no capital above 50 % hull.
+  const threatenedGroup = (fleetId: string): boolean => {
+    const f = sim.fleets.get(fleetId)!;
+    const hulls = sim.ships.filter((s) => s.fleetId === fleetId && s.alive && !s.escaped && s.role !== 'fighter');
+    const points = hulls.reduce((n, s) => n + s.pointValue, 0);
+    return sim.rules.special.reaperDoctrine === 'apex' && points < REAPER_AI.groupWithdrawPoints * f.startPoints && !hulls.some((s) => s.role === 'reaper_capital' && s.hull > REAPER_AI.groupCapitalHull * s.maxHull);
+  };
   while (!sim.finished) {
     sim.step();
     if (sim.tick % 200 === 0) await yieldToLoop();
     const firedNow = new Set<string>();
     for (; ei < sim.events.length; ei++) {
       const e = sim.events[ei];
+      if (e.type === 'ship_withdrawing') {
+        const s = sim.getShip(e.shipId);
+        if (s?.faction === 'reaper' && !threatenedGroup(s.fleetId)) reaperWithdrawalsOutsideGroupRule++;
+      }
       if (e.type !== 'weapon_fired') continue;
       if (firstContact < 0 && sim.getShip(e.targetId)) firstContact = e.t;
       if (firstContact >= 0) {
@@ -112,6 +127,7 @@ async function traceBattle(sim: BattleSimulation): Promise<ReferenceTrace> {
     longestReaperIdle,
     escapedNonFighters: sim.ships.filter((s) => s.escaped && s.role !== 'fighter').length,
     reaperWithdrawals,
+    reaperWithdrawalsOutsideGroupRule,
     longestSilence,
     reason: sim.result!.reason,
   };
@@ -122,14 +138,17 @@ describe('nobody sits still, nobody runs', () => {
     ['alliance_fleet_engagement', 'canon_me3', 7],
     ['alliance_fleet_engagement', 'prime_apex', 7],
     ['battle_of_earth', 'canon_me3', 42],
-  ] as const)('%s %s seed %i: no hull with an enemy in reach sits stationary and silent for 10 s; Reapers never idle; nobody but recovered craft escapes; no Reaper withdraws; fire never stops for 10 s', async (scenario, rulesId, seed) => {
+  ] as const)('%s %s seed %i: no hull with an enemy in reach sits stationary and silent for 10 s; Reapers never idle; nobody but recovered craft escapes; Reapers withdraw only as the threatened group of the Apex doctrine; fire never stops for 10 s', async (scenario, rulesId, seed) => {
     const t = await traceBattle(new BattleSimulation(buildScenario(scenario, rulesId, seed, scenario === 'alliance_fleet_engagement' ? fixed : {})));
     expect(t.firstContact).toBeGreaterThan(0);
     expect(t.longestIdle.A.seconds, `${t.longestIdle.A.ship} from ${t.longestIdle.A.from.toFixed(1)} s`).toBeLessThan(10);
     expect(t.longestIdle.B.seconds, `${t.longestIdle.B.ship} from ${t.longestIdle.B.from.toFixed(1)} s`).toBeLessThan(10);
     expect(t.longestReaperIdle.seconds, `${t.longestReaperIdle.ship} from ${t.longestReaperIdle.from.toFixed(1)} s`).toBeLessThan(10);
     expect(t.escapedNonFighters).toBe(0);
-    expect(t.reaperWithdrawals).toBe(0);
+    // Reapers never withdraw under canon (the owner's non-retreat rule). Under the Apex doctrine (an AU rule, AP §10,
+    // §0.3 #13) the only fall-back is the threatened group's, to a station inside the battlespace and back.
+    if (getPreset(rulesId).special.reaperDoctrine === 'canon') expect(t.reaperWithdrawals).toBe(0);
+    expect(t.reaperWithdrawalsOutsideGroupRule).toBe(0);
     expect(t.longestSilence).toBeLessThan(10);
   }, 120_000);
 });

@@ -110,6 +110,12 @@ describe('SpatialGrid equals brute force', () => {
     expect(gridFilterPasses(b, rogueB)).toBe(true); // a rogue hull is everyone's enemy
     expect(gridFilterPasses(rogueB, b)).toBe(true); // and sees everyone else
     expect(gridFilterPasses(rogueB, rogueB)).toBe(false);
+    // The rogue group never fights itself; two rogue groups on different sides are enemies (AP §4.1).
+    const rogueB2 = { side: 'B', alive: true, escaped: false, rogue: true } as ShipState;
+    const rogueA = { side: 'A', alive: true, escaped: false, rogue: true } as ShipState;
+    expect(gridFilterPasses(rogueB, rogueB2)).toBe(false);
+    expect(gridFilterPasses(rogueA, rogueB)).toBe(true);
+    expect(gridFilterPasses(rogueA, a)).toBe(true);
     expect(gridFilterPasses(undefined, dead)).toBe(false);
     expect(gridFilterPasses('A', dead)).toBe(false);
   });

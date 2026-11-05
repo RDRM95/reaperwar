@@ -22,6 +22,7 @@ import {
   steerFleet,
   type FleetView,
 } from './movement';
+import { REAPER_AI, coverDamagedCapital, interposeGoal, rotateProtection, transferGoal } from './reaperAi';
 import { solutionFor } from './solutions';
 import { detectable, hunterGoal, hunterTarget } from './stealth';
 import type { FleetState, ShipState, TargetPriority } from './types';
@@ -51,6 +52,8 @@ export interface AiContext {
   membersOf(fleetId: string): ShipState[];
   /** Target candidates within `radius` of the ship through the spatial grid, capped (AP §21.5), in ship-index order. */
   candidates(ship: ShipState, radius: number): ShipState[];
+  /** The visible enemy combatant with the highest recent damage — the Reapers' "active gun platform" (AP §10; cached per tick). */
+  activeGunPlatform(side: 'A' | 'B'): ShipState | undefined;
 }
 
 /** The expensive part of a fleet decision (member lists, centroids, ranges) is refreshed on this timer (AP §21.5 stagger). */
@@ -168,10 +171,19 @@ export function scoreTarget(ctx: AiContext, shooter: ShipState, fleet: FleetStat
     dist <= PLATFORM_WEIGHT_RANGE * mainRange
   )
     score *= PLATFORM_WEIGHT;
+  // Reapers kill the active gun platform: +40 % for the enemy dealing the most damage right now (AP §10; never a
+  // silent stealth hull — a stealth frigate counts only while it is revealed, brief §15.2).
+  if (shooter.faction === 'reaper' && shooter.role !== 'fighter' && ctx.activeGunPlatform(shooter.side) === target) score *= REAPER_AI.gunPlatformBonus;
+  // A rogue hull (hostile to both sides, AP §4.1) prefers the enemies of its own bookkeeping side: ×1.5 (the hostile
+  // Cerberus group at the Final Battle goes for the Alliance and still fights the Reapers that shoot at it).
+  if (shooter.rogue && !target.rogue && target.side !== shooter.side) score *= ROGUE_PREFERENCE;
   // A flight is scored as the craft it stands for (AP §21.3).
   if (target.flight) score *= Math.max(1, target.flight.craft);
   return score;
 }
+
+/** A rogue hull's weight against the other side (AP §4.1). */
+export const ROGUE_PREFERENCE = 1.5;
 
 /** A craft armed with anti-small guns weighs enemy craft like the 'fighters' priority does (AP §13.1). */
 export const CRAFT_SCREEN_WEIGHT = 4;
@@ -376,6 +388,11 @@ export function shipDecision(ctx: AiContext, ship: ShipState, fleet: FleetState)
   } else if (!current || !current.alive || current.escaped || !detectable(ship, current) || ctx.rng.chance(0.35)) {
     ship.targetId = chooseTarget(ctx, ship, fleet);
   }
+  // Reaper capitals rotate protection and call destroyers in to cover them when damaged (AP §10, every preset).
+  if (ship.role === 'reaper_capital') {
+    rotateProtection(ctx, ship, fleet);
+    coverDamagedCapital(ctx, ship);
+  }
   // Tactical withdrawal: a battered ship falls back behind the line to let its barriers recover, then re-engages.
   const m = shipMotion(ship);
   if (!ship.withdrawing && d.withdrawThreshold > 0 && ship.role !== 'fighter') {
@@ -419,6 +436,12 @@ export function movementGoal(ctx: AiContext, ship: ShipState, fleet: FleetState)
     return { position: ship.recoveryStation, speedFraction: 1, face: target?.pos ?? ctx.enemyCentroid(ship.side) };
   }
 
+  // Interpose: hold the line between a protectee and its attacker (Reaper cover, AP §10; Specials.interpose).
+  if (ship.interpose) {
+    const cover = interposeGoal(ctx, ship);
+    if (cover) return cover;
+  }
+
   // Escort order at ship level.
   if (ship.escortId) {
     const e = ctx.getShip(ship.escortId);
@@ -429,6 +452,11 @@ export function movementGoal(ctx: AiContext, ship: ShipState, fleet: FleetState)
   }
 
   const slotPos = slotToWorld(fleet.anchor, fleet.heading, ship.slot);
+  // A capital in a rotate-protection slot exchange flies to its new slot first (AP §10).
+  if (ship.role === 'reaper_capital') {
+    const transfer = transferGoal(ctx, ship, slotPos, slotVel);
+    if (transfer) return transfer;
+  }
   if (target && target.alive && frigateRuns(ship, fleet)) return frigateRunGoal(ctx, ship, fleet, target);
   ship.manoeuvre = undefined;
   if (ship.role === 'carrier') return carrierGoal(ctx, ship, fleet, slotPos, slotVel, target);
