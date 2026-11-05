@@ -17,7 +17,7 @@ export const THREAT_REFERENCE_META: ThreatReferenceMeta = {
   maxDuration: 240,
   battles: 360,
   timeLimitShare: 0.164,
-  measuredOn: '3c91a33',
+  measuredOn: '984d74a',
 };
 
 export const REAPER_THREAT: Readonly<Record<string, MeasuredThreat>> = {
@@ -97,33 +97,33 @@ export const REAPER_THREAT: Readonly<Record<string, MeasuredThreat>> = {
     ],
   },
   prime_apex: {
-    index: 98.6,
-    reaperLoss: 0.996,
+    index: 99.1,
+    reaperLoss: 1.000,
+    organicSurvival: 0.981,
+    holdsRungs: 5,
+    holdsUpTo: 6,
+    timeLimitShare: 0.000,
+    rungs: [
+      { name: 'Raid', capitals: 2, destroyers: 5, index: 99.5, reaperLoss: 1.000, organicSurvival: 0.991, wins: 4, battles: 4, timeLimit: 0 },
+      { name: 'Strike group', capitals: 3, destroyers: 7, index: 99.4, reaperLoss: 1.000, organicSurvival: 0.988, wins: 4, battles: 4, timeLimit: 0 },
+      { name: 'Battlegroup', capitals: 4, destroyers: 10, index: 99.4, reaperLoss: 1.000, organicSurvival: 0.988, wins: 4, battles: 4, timeLimit: 0 },
+      { name: 'Assault fleet', capitals: 5, destroyers: 12, index: 98.5, reaperLoss: 1.000, organicSurvival: 0.970, wins: 4, battles: 4, timeLimit: 0 },
+      { name: 'Harvest fleet', capitals: 6, destroyers: 14, index: 98.4, reaperLoss: 1.000, organicSurvival: 0.968, wins: 4, battles: 4, timeLimit: 0 },
+    ],
+  },
+  apex_legacy: {
+    index: 98.7,
+    reaperLoss: 0.998,
     organicSurvival: 0.976,
     holdsRungs: 5,
     holdsUpTo: 6,
     timeLimitShare: 0.000,
     rungs: [
-      { name: 'Raid', capitals: 2, destroyers: 5, index: 98.6, reaperLoss: 0.981, organicSurvival: 0.991, wins: 4, battles: 4, timeLimit: 0 },
-      { name: 'Strike group', capitals: 3, destroyers: 7, index: 99.4, reaperLoss: 1.000, organicSurvival: 0.988, wins: 4, battles: 4, timeLimit: 0 },
-      { name: 'Battlegroup', capitals: 4, destroyers: 10, index: 99.0, reaperLoss: 1.000, organicSurvival: 0.980, wins: 4, battles: 4, timeLimit: 0 },
-      { name: 'Assault fleet', capitals: 5, destroyers: 12, index: 98.2, reaperLoss: 1.000, organicSurvival: 0.965, wins: 4, battles: 4, timeLimit: 0 },
-      { name: 'Harvest fleet', capitals: 6, destroyers: 14, index: 97.8, reaperLoss: 1.000, organicSurvival: 0.955, wins: 4, battles: 4, timeLimit: 0 },
-    ],
-  },
-  apex_legacy: {
-    index: 98.6,
-    reaperLoss: 0.996,
-    organicSurvival: 0.975,
-    holdsRungs: 5,
-    holdsUpTo: 6,
-    timeLimitShare: 0.000,
-    rungs: [
-      { name: 'Raid', capitals: 2, destroyers: 5, index: 99.0, reaperLoss: 0.988, organicSurvival: 0.992, wins: 4, battles: 4, timeLimit: 0 },
+      { name: 'Raid', capitals: 2, destroyers: 5, index: 99.6, reaperLoss: 1.000, organicSurvival: 0.992, wins: 4, battles: 4, timeLimit: 0 },
       { name: 'Strike group', capitals: 3, destroyers: 7, index: 98.9, reaperLoss: 0.990, organicSurvival: 0.988, wins: 4, battles: 4, timeLimit: 0 },
-      { name: 'Battlegroup', capitals: 4, destroyers: 10, index: 99.2, reaperLoss: 1.000, organicSurvival: 0.984, wins: 4, battles: 4, timeLimit: 0 },
-      { name: 'Assault fleet', capitals: 5, destroyers: 12, index: 98.2, reaperLoss: 1.000, organicSurvival: 0.964, wins: 4, battles: 4, timeLimit: 0 },
-      { name: 'Harvest fleet', capitals: 6, destroyers: 14, index: 97.5, reaperLoss: 1.000, organicSurvival: 0.950, wins: 4, battles: 4, timeLimit: 0 },
+      { name: 'Battlegroup', capitals: 4, destroyers: 10, index: 99.3, reaperLoss: 1.000, organicSurvival: 0.986, wins: 4, battles: 4, timeLimit: 0 },
+      { name: 'Assault fleet', capitals: 5, destroyers: 12, index: 98.3, reaperLoss: 1.000, organicSurvival: 0.966, wins: 4, battles: 4, timeLimit: 0 },
+      { name: 'Harvest fleet', capitals: 6, destroyers: 14, index: 97.4, reaperLoss: 1.000, organicSurvival: 0.948, wins: 4, battles: 4, timeLimit: 0 },
     ],
   },
   cerberus_ascendant: {
@@ -345,7 +345,7 @@ export const THREAT_SCALE: ThreatScale = {
 
 /** What the table was measured from (§1.8): tests/alternateTimelines.test.ts and `--check` compare it with the current catalogue and presets. */
 export const THREAT_FINGERPRINT: ThreatFingerprint = {
-  catalogue: '0f2a7c4ee1a204',
+  catalogue: '0ea9d1ea9deee7',
   presets: {
     canon_me3: '17dae669f6c2d4',
     prepared_galaxy: '179b3446e63b62',
