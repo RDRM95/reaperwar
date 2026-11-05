@@ -101,7 +101,7 @@ export const COLLECTORS_HARVEST: RuleSet = preset({
   tagline: 'The Normandy never came back through the Omega 4 relay. The human Reaper was never stopped, and the Reapers came early.',
   category: 'au',
   description:
-    'ALTERNATE UNIVERSE. In 2185 the Normandy is destroyed beyond the Omega 4 relay: Shepard and the crew are lost and the Collector base survives. The Collectors go on taking human colonies, and nothing stops the human Reaper. With no Shepard to reach the Bahak system, the indoctrinated team watching the Alpha relay is never stopped, the relay stands, and the Reapers pour through it into batarian space months ahead of canon and all at once. They find the Alliance at its peacetime stations, the quarians and the geth at war, and no one left to unite the Council races.',
+    'ALTERNATE UNIVERSE. In 2185 the Normandy is destroyed beyond the Omega 4 relay: Shepard and the crew are lost and the Collector base survives. The Collectors go on taking human colonies, and nothing stops the human Reaper. With no Shepard to reach the Bahak system, the indoctrinated team watching the Alpha relay is never stopped, the relay stands, and the Reapers pour through it into batarian space months ahead of canon and all at once. They find the Alliance at its peacetime stations, the quarians and the geth at war, and no one left to unite the Council races. Only the turian, asari and salarian navies meet them at full strength, each fighting for its own space.',
   historyChanges: [
     '2185: the Normandy SR-2 is destroyed at the Collector base; Shepard and the crew are killed, and the base survives.',
     'The Collectors keep taking human colonies, and the human Reaper is completed when the harvest arrives (story only: one more Reaper does not change the battles).',
@@ -177,7 +177,8 @@ export const VIGILS_WARNING: RuleSet = preset({
     'The Mars archive is searched in secret from 2184 (story only: the campaign’s Crucible clock is unchanged).',
     'No budget can pass for ships nobody may be told about: no extra warships are built, and the archive holds no weapon.',
   ],
-  organic: tech({ crewQuality: 1.04 }),
+  // organic.crewQuality is the tuning lever, at the floor of its range [1, 1.08] since the 5 November re-measurement (TIMELINES_V2.md §2.5).
+  organic: tech(),
   reaper: tech(),
   factionOverrides: {},
   special: { ...CANON_SPECIAL },
@@ -302,10 +303,10 @@ export const CONDUIT_PROTOCOL: RuleSet = preset({
 /** In declared-tier order, then by divergence year (TIMELINES_V2.md §2). */
 export const ALTERNATE_PRESETS: RuleSet[] = [
   SOVEREIGNS_TRIUMPH,
-  COLLECTORS_HARVEST,
   INDOCTRINATED_COUNCIL,
   LEVIATHANS_BARGAIN,
   VIGILS_WARNING,
+  COLLECTORS_HARVEST,
   GETH_QUARIAN_CONCORD,
   ASARI_DISCLOSURE,
   TURIAN_TOTAL_WAR,
@@ -338,7 +339,8 @@ export const ALTERNATE_META: Record<string, AlternateMeta> = {
     divergence: { year: 2185, event: 'The assault on the Collector base fails beyond the Omega 4 relay.' },
     canonBasis: 'In 2185 Shepard, rebuilt by Cerberus, took the Normandy SR-2 through the Omega 4 relay to the Collector base near the galactic core and destroyed the human Reaper the Collectors were building from abducted colonists. Later that year Shepard destroyed the Alpha relay in the Bahak system, delaying the Reaper arrival by months.',
     provenance: 'AU_MODIFIED',
-    declaredTier: 2,
+    // Declared 2 until 5 November; re-measured at 27.9 with its lever unable to reach tier 2 (§1.8 rule 3, TIMELINES_V2.md §2.2).
+    declaredTier: 3,
     lever: { key: 'fleetStrength.reaper', min: 1.1, max: 1.2, step: 'count' },
     worldState: {
       rannoch: { value: 'war', why: 'No one brokers peace at Rannoch.' },
