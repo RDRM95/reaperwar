@@ -56,7 +56,8 @@ test.describe('Reaper War Simulator', () => {
     // Select a ship from the list, then order the fleet to attack a Reaper destroyer.
     await page.locator('.ship-list .ship-row').first().click();
     await expect(page.locator('.target-panel')).toContainText('SSV');
-    const destroyerRow = page.locator('.ship-row', { hasText: 'Reaper destroyer' }).first();
+    // Unnamed Reapers carry tracking designations (brief §12): RD-nn for destroyers, RC-nn for capitals.
+    const destroyerRow = page.locator('.ship-row', { hasText: /RD-\d+/ }).first();
     await destroyerRow.click({ button: 'right' });
     await expect(page.locator('.toast')).toContainText('ATTACK');
 

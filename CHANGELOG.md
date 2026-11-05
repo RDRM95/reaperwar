@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.12.2 — Named fleets, the Black Fleet's drive attack, the distant battle
+
+- **Every ship has a name.** Organic hulls carry faction-fitting names from original lists (Alliance, turian, asari, salarian, quarian, geth and Cerberus conventions; Roman numerals when a list runs out; canon names such as the Normandy stay unique). Unnamed Reapers carry tracking designations, RC-nn for capitals and RD-nn for destroyers, in the fleet lists, labels and logs.
+- **Black Fleet drive attack (Apex timelines).** Cerberus dreadnoughts can commit to a drive run against a Reaper capital; it is rare, takes a long commitment and can be intercepted.
+- **The distant battle.** A statistical model of the fighting beyond the simulated hulls, kept separate from the battle's own result.
+- **Fix:** an intercepted or missed HADES penetrator no longer arms its nuclear warhead.
+- Release gate: typecheck clean; 423 unit tests in 38 files; build clean; 10/10 end-to-end tests (one test updated to select a Reaper destroyer by its new RD designation); screenshots inspected, no page errors.
+
+Known limitations: new hull classes still use placeholder models; 8× playback still lags on large battles (the fix is in progress); the combat-scale and pacing change is planned and lands with the next simulation pass.
+
 ## 0.12.1 — Local Edition, ten new timelines, Oculus drones and the Reaper AI
 
 ### Local Edition

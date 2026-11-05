@@ -17,6 +17,7 @@ import {
   type Vec3,
 } from '@/core/vec3';
 import { FACTIONS, type CommsEvent } from '@/data/factions';
+import { NameRegistry } from '@/data/names';
 import { getShipClass } from '@/data/ships';
 import { HADES_GATE, NAMED_FLAGSHIPS, isCapitalRole, type DamageType, type FactionId, type WarheadDef } from '@/data/types';
 import { WEAPONS, getWeapon } from '@/data/weapons';
@@ -223,6 +224,8 @@ export class BattleSimulation implements AiContext {
   private arrivals = 0;
   /** Arrival states whose `ship_arrival_flash` has been emitted. */
   private readonly flashed = new WeakSet<ArrivalState>();
+  /** The battle's vessel names and Reaper designations (brief §12; `src/data/names.ts`). */
+  private readonly names: NameRegistry;
   /** The statistical distant engagement layer's state (present when `config.distant?.enabled`; AP §13.3). */
   readonly distant?: DistantState;
   /** Its runtime: a child generator forked once here, advanced after `checkEnd`, read by nothing in the battle. */
@@ -232,6 +235,8 @@ export class BattleSimulation implements AiContext {
     this.config = config;
     this.rules = config.rules;
     this.rng = new Rng(config.seed);
+    // Vessel names come from their own seeded registry (brief §12), so naming never touches the battle's draws.
+    this.names = new NameRegistry(config.seed);
     // The distant layer draws from its own child generator, forked before anything else (forking draws nothing), so
     // the real battle is bit-identical with the layer on or off (AP §13.3).
     if (config.distant?.enabled) {
@@ -326,8 +331,7 @@ export class BattleSimulation implements AiContext {
     const created: ShipState[] = [];
     for (const group of spec.ships) {
       for (let i = 0; i < group.count; i++) {
-        const name = group.names?.[i];
-        const ship = this.createShip(group.classId, spec, name);
+        const ship = this.createShip(group.classId, spec, group.names?.[i], undefined, 1, group.names);
         created.push(ship);
       }
     }
@@ -432,7 +436,13 @@ export class BattleSimulation implements AiContext {
     return r;
   }
 
-  private createShip(classId: string, spec: FleetSpec, name?: string, carrierId?: string, craft = 1): ShipState {
+  /**
+   * Builds a hull. `name` is its preferred name (a scenario's canonical list entry or a scripted name) and `list` its
+   * class's canonical list: the battle's name registry (brief §12) honours the preferred name when it is free, else
+   * continues down the list and then the class's naming convention, so every organic hull is named and no name repeats
+   * in a battle; unnamed Reapers get tracking designations (RC-07, RD-23). Small craft keep their squadron labels.
+   */
+  private createShip(classId: string, spec: FleetSpec, name?: string, carrierId?: string, craft = 1, list?: readonly string[]): ShipState {
     const cls = getShipClass(classId);
     const rules = this.rulesFor(spec);
     const stats = applyRulesToShip(cls, rules);
@@ -470,8 +480,12 @@ export class BattleSimulation implements AiContext {
       }
     });
     const lengthKm = cls.lengthM.value / 1000;
-    // A flight is one squadron object named for its craft ("Trident flight 07"; AP §21.3).
-    const shipName = name ?? `${cls.shortName ?? cls.name}${craft > 1 ? ' flight' : ''} ${String(n).padStart(2, '0')}`;
+    // A flight is one squadron object named for its craft ("Trident flight 07"; AP §21.3); every hull gets a vessel
+    // name or a Reaper tracking designation from the battle's registry (brief §12).
+    const shipName =
+      cls.role === 'fighter' || craft > 1
+        ? (name ?? `${cls.shortName ?? cls.name}${craft > 1 ? ' flight' : ''} ${String(n).padStart(2, '0')}`)
+        : this.names.next(cls, name, list);
     const ship: ShipState = {
       id,
       name: shipName,

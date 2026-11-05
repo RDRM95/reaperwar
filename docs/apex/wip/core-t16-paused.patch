@@ -1,0 +1,2427 @@
+diff --git a/src/scenarios/distantGroups.ts b/src/scenarios/distantGroups.ts
+index a9707c3..71f4a8b 100644
+--- a/src/scenarios/distantGroups.ts
++++ b/src/scenarios/distantGroups.ts
+@@ -123,12 +123,14 @@ export function apexDistantGroups(simulated: SimulatedBySide): DistantGroup[] {
+ 
+ /**
+  * The non-Apex layer: one extrapolated echelon per real fleet, `factor ×` its simulated hulls (default 12), behind
+- * that fleet's side. Shown as percentages only. Static fleets (platforms) have no distant echelon.
++ * that fleet's side. Shown as percentages only. Static fleets (platforms) and rogue groups have no distant echelon.
+  */
+ export function canonDistantGroups(fleets: readonly FleetSpec[], factor = CANON_DISTANT_FACTOR): DistantGroup[] {
+   const groups: DistantGroup[] = [];
+   for (const side of ['A', 'B'] as const) {
+-    const own = fleets.filter((f) => f.side === side && !f.static && hullsOf(f) > 0 && !f.ships.every((s) => SHIP_CLASSES[s.classId]?.role === 'fixed_platform'));
++    // Platforms have no distant echelon, and neither has a rogue group (hostile to both sides, AP §4.1: it is no
++    // vanguard of a larger force on either side).
++    const own = fleets.filter((f) => f.side === side && !f.static && !f.rogue && hullsOf(f) > 0 && !f.ships.every((s) => SHIP_CLASSES[s.classId]?.role === 'fixed_platform'));
+     own.forEach((f, i) => {
+       const count = Math.max(0, Math.round(factor * hullsOf(f)));
+       const counts = Object.fromEntries(f.ships.map((s) => [s.classId, s.count]));
+diff --git a/src/scenarios/finalBattle.ts b/src/scenarios/finalBattle.ts
+new file mode 100644
+index 0000000..6ab150b
+--- /dev/null
++++ b/src/scenarios/finalBattle.ts
+@@ -0,0 +1,284 @@
++import { v3, type Vec3 } from '@/core/vec3';
++import { isAuClass, type FactionId } from '@/data/types';
++import { clampBeatScale } from '@/simulation/beats';
++import type { BattleConfig, FleetOrders, FleetSpec, FormationType, Readiness } from '@/simulation/types';
++import { isApexRules, type RuleSet } from '@/timelines/rules';
++import { distantLayerFor } from './distantGroups';
++import { FINAL_BATTLE_FLEET_IDS as ID, finalBattleScript } from './finalBattleBeats';
++import { base, fleet, reaperFleet, type FleetOpts } from './fleets';
++import { FINAL_BATTLE_WORLD_STATE, campaignForces, resolveWorldState, type CampaignAlliedFleet } from './worldState';
++
++/**
++ * The Final Battle of Earth builder (ADOPTION_PLAN.md §4; WORK_BREAKDOWN.md T16). The world state is resolved here
++ * (`resolveWorldState`), so a briefing, a test or a campaign that calls the builder directly gets the same battle as
++ * `buildScenario`. Composition: the default combined fleet — the Sword Alliance line with the Kilimanjaro-class pair
++ * (SSV Kilimanjaro, SSV Orizaba) and four Everest-class dreadnoughts so the volley anchor exists, two SR-2-pattern
++ * stealth frigates under canon (three under the Apex mechanics, built in numbers), the Normandy when the world state
++ * says so; under the Apex flags the Valkyrie, one Olympus-class (SSV Omaha) and one Praetor-class heavy dreadnought —,
++ * the Sol platforms (two standard; two heavy more under `heavyPlatforms`), the Cerberus world state (allied by beat,
++ * hostile as a rogue strike group at 150 s, or absent) and the distant layer; or the saved campaign's fleets. With the
++ * cinematic opening the fleets take the AP §4.2 geometry and the beat table runs; without it today's geometry and
++ * orders stand (with the platforms and the K-class pair).
++ */
++
++/** The Sword fleets' nominal anchors and formations in the cinematic opening (AP §4.2). */
++const CINEMATIC: Record<'alliance' | 'turian' | 'asari' | 'salarian' | 'quarian' | 'geth' | 'cerberus', { pos: Vec3; formation: FormationType }> = {
++  alliance: { pos: v3(-18, 0, -26), formation: 'layered_line' },
++  turian: { pos: v3(20, 0, -28), formation: 'layered_line' },
++  asari: { pos: v3(0, 4, -36), formation: 'defensive_screen' },
++  salarian: { pos: v3(0, -6, -42), formation: 'line_abreast' },
++  quarian: { pos: v3(-38, 0, -34), formation: 'defensive_screen' },
++  geth: { pos: v3(38, 0, -32), formation: 'stacked_wedge' },
++  // Arriving last (12 s), the Black Fleet takes its place in the gap between the Alliance and the Hierarchy a little
++  // ahead of AP §4.2's (2, 0, −30), so its guns reach the Reaper line by the volley like everyone else's.
++  cerberus: { pos: v3(2, 0, -24), formation: 'strike_wedge' },
++};
++
++/**
++ * The Apex heavy line (AU): the Valkyrie and SSV Omaha sail as their own group behind and above the Sword line, so
++ * their slower drives and longer guns set their own pace and standoff (the owner's Omaha doctrine: long range, bow
++ * solution) instead of holding the whole Alliance line out of its cruisers' reach.
++ */
++const HEAVY_CINEMATIC = v3(-16, 4, -34);
++const HEAVY_STANDARD = v3(-18, 4, -42);
++
++/** Today's anchors (the opening off). */
++const STANDARD: Record<'alliance' | 'turian' | 'asari' | 'salarian' | 'quarian' | 'geth' | 'cerberus', { pos: Vec3; formation: FormationType }> = {
++  alliance: { pos: v3(-20, 0, -34), formation: 'line_abreast' },
++  turian: { pos: v3(18, 0, -38), formation: 'line_abreast' },
++  asari: { pos: v3(0, 4, -48), formation: 'defensive_screen' },
++  salarian: { pos: v3(0, -6, -56), formation: 'line_abreast' },
++  quarian: { pos: v3(-40, 0, -46), formation: 'defensive_screen' },
++  geth: { pos: v3(40, 0, -44), formation: 'strike_wedge' },
++  cerberus: { pos: v3(2, 0, -42), formation: 'strike_wedge' },
++};
++
++/** The Reaper blockade starts below the coalition's plane and climbs into it (AP §4.2). */
++const BLOCKADE_CINEMATIC = v3(0, -12, 28);
++const BLOCKADE_STANDARD = v3(0, 0, 46);
++/** Platforms sit on an arc 8–14 km ahead of the defending line (AP §4.2; the static formation alternates y ±2 km). */
++const PLATFORMS_CINEMATIC = v3(1, 0, -16);
++const PLATFORMS_STANDARD = v3(-1, 0, -25);
++/** The Reaper reserve and the hostile Cerberus flank group (CINEMATIC_DESIGN.md §1.4). */
++const RESERVE_POS = v3(-50, 0, 76);
++const RESERVE_HEADING = v3(0.4, 0, -1);
++const HOSTILE_CERBERUS_POS = v3(-60, 0, 20);
++const HOSTILE_CERBERUS_HEADING = v3(0.8, 0, -0.3);
++
++/**
++ * The opening's z scaling (AP §4.2's purpose: "so the volley always has solutions"): a faster pace leaves the lines
++ * less time to close before the volley, so they start nearer; a slower one, farther. `clamp(beatScale, 0.85, 1.25)`.
++ */
++export const openingDepthScale = (beatScale: number): number => Math.min(1.25, Math.max(0.7, beatScale));
++
++/**
++ * The coalition's orders in the opening (AP §4.2): hold formation, no small craft yet, and every anti-ship mount held
++ * (point defence always fires) — the plan's spinal hold extended to the screens, because the 3D formations put the
++ * coalition's frigate dome and the swarm's destroyer shell within each other's reach from the first second; the
++ * volley opens the battle and the hold lifts when its window closes (AP §20: the volley, then the first losses).
++ */
++const OPENING_ORDERS: Partial<FleetOrders> = { order: 'hold_formation', holdFire: 'all', fightersDeployed: false };
++
++/** Readiness tiers of the named Apex compositions (AP §1.6); canon never sets one. */
++const APEX_READINESS: Partial<Record<FactionId | 'platforms', Readiness>> = { alliance: 'veteran', turian: 'veteran', geth: 'veteran', cerberus: 'veteran', platforms: 'veteran', asari: 'regular', salarian: 'regular', quarian: 'regular' };
++
++/** Whether any fleet fields an alternate-universe hull (the HUD's `ALTERNATE UNIVERSE CONTENT`). */
++export const fieldsAuContent = (fleets: readonly FleetSpec[]): boolean => fleets.some((f) => f.ships.some((s) => s.count > 0 && isAuClass(s.classId)));
++
++/** The default combined fleet's compositions (AP §4.2, §22.1; CINEMATIC_DESIGN.md §7.9). */
++function swordCounts(rules: RuleSet, ws: Record<string, string>): Record<'alliance' | 'turian' | 'asari' | 'salarian' | 'quarian' | 'geth', Record<string, number>> {
++  const sp = rules.special;
++  return {
++    alliance: {
++      alliance_dreadnought_k: 2,
++      alliance_dreadnought: 4,
++      alliance_carrier: 2,
++      alliance_cruiser: 16,
++      alliance_frigate: 24,
++      alliance_frigate_thanix: isApexRules(rules) ? 3 : 2,
++      normandy_sr2: ws.normandy === 'no' ? 0 : 1,
++    },
++    turian: { turian_super_dreadnought: sp.superDreadnoughts ? 1 : 0, turian_dreadnought: 5, turian_cruiser: 10, turian_frigate: 16 },
++    asari: { destiny_ascension: ws.ascension === 'absent' ? 0 : 1, asari_dreadnought: 2, asari_cruiser: 8 },
++    salarian: { salarian_dreadnought: 2, salarian_cruiser: 8, salarian_frigate: 12 },
++    quarian: { quarian_heavy: 3, quarian_cruiser: 10 },
++    geth: { geth_dreadnought: 1, geth_cruiser: 8, geth_frigate: 12 },
++  };
++}
++
++const SWORD_NAMES: Record<'alliance' | 'turian' | 'asari' | 'salarian' | 'quarian' | 'geth', string> = {
++  alliance: 'Sword Fleet (Alliance)',
++  turian: 'Sword Fleet (Hierarchy)',
++  asari: 'Sword Fleet (Republics)',
++  salarian: 'Salarian First Fleet',
++  quarian: 'Migrant Fleet detachment',
++  geth: 'Geth fleet',
++};
++
++/** Named single hulls of the compositions never scale with fleet strength (the K-class pair, the heavy dreadnoughts, the Black Fleet's named hulls). */
++const FIXED = ['alliance_dreadnought_k', 'alliance_super_dreadnought', 'turian_super_dreadnought', 'destiny_ascension', 'geth_dreadnought', 'cerberus_dreadnought', 'cerberus_heavy_cruiser'];
++
++export function buildFinalBattle(rules: RuleSet, seed: number, input: Record<string, string>): BattleConfig {
++  const { ws, notes } = resolveWorldState({ worldState: FINAL_BATTLE_WORLD_STATE }, rules, input);
++  const cinematic = ws.cinematic_arrival === 'on';
++  const beatScale = clampBeatScale(Number(ws.beat_scale ?? '1'));
++  const depth = cinematic ? openingDepthScale(beatScale) : 1;
++  const apex = isApexRules(rules);
++  const readiness = (key: FactionId | 'platforms'): Readiness | undefined => (apex ? APEX_READINESS[key] : undefined);
++  const campaign = ws.forces === 'campaign' ? campaignForces(ws) : undefined;
++  const layout = cinematic ? CINEMATIC : STANDARD;
++  const at = (p: Vec3): Vec3 => v3(p.x, p.y, p.z * depth);
++  const opening = (extra?: Partial<FleetOrders>): Partial<FleetOrders> | undefined => (cinematic ? { ...OPENING_ORDERS, ...(extra ?? {}) } : extra);
++  const fleets: FleetSpec[] = [];
++
++  if (campaign) {
++    // The saved war's surviving allied fleets: wave n is the n-th by faction order (AP §4.3), today's layout otherwise.
++    const perFaction = new Map<FactionId, number>();
++    campaign.allied.forEach((f: CampaignAlliedFleet, i) => {
++      const k = perFaction.get(f.faction) ?? 0;
++      perFaction.set(f.faction, k + 1);
++      const slot = cinematic ? layout[f.faction as keyof typeof CINEMATIC] ?? CINEMATIC.cerberus : undefined;
++      const position = slot ? at(v3(slot.pos.x + (k % 2 ? 1 : -1) * Math.ceil(k / 2) * 10, slot.pos.y, slot.pos.z - Math.ceil(k / 2) * 6)) : v3(-24 + (i % 4) * 16, 0, -34 - Math.floor(i / 4) * 8);
++      const opts: FleetOpts = {
++        counts: f.counts,
++        name: f.name,
++        position,
++        formation: slot ? slot.formation : i === 0 ? 'line_abreast' : 'defensive_screen',
++        mult: 1,
++        initialOrder: opening(),
++        ...(cinematic ? { arrivalMode: 'beat' as const } : {}),
++      };
++      fleets.push(fleet(`sword-${i}`, f.faction, rules, opts));
++    });
++  } else {
++    const counts = swordCounts(rules, ws);
++    const sword = (faction: 'alliance' | 'turian' | 'asari' | 'salarian' | 'quarian' | 'geth'): FleetSpec =>
++      fleet(ID[faction], faction, rules, {
++        counts: counts[faction],
++        fixedClasses: FIXED,
++        name: SWORD_NAMES[faction],
++        position: at(layout[faction].pos),
++        formation: layout[faction].formation,
++        ws,
++        initialOrder: opening(),
++        readiness: readiness(faction),
++        ...(cinematic ? { arrivalMode: 'beat' as const } : {}),
++      });
++    fleets.push(sword('alliance'));
++    // The Apex heavy line (AU): the Valkyrie (`valkyrieAvailable`) and one Olympus-class heavy dreadnought, SSV Omaha
++    // (`superDreadnoughts`; the owner's lead ship of the line), arriving with the Alliance wave.
++    const heavy = { normandy_valkyrie: rules.special.valkyrieAvailable ? 1 : 0, alliance_super_dreadnought: rules.special.superDreadnoughts ? 1 : 0 };
++    if (heavy.normandy_valkyrie + heavy.alliance_super_dreadnought > 0) {
++      fleets.push(
++        fleet(ID.heavy, 'alliance', rules, {
++          counts: heavy,
++          fixedClasses: FIXED,
++          name: 'Sword heavy line (AU)',
++          position: at(cinematic ? HEAVY_CINEMATIC : HEAVY_STANDARD),
++          formation: 'line_abreast',
++          ws,
++          initialOrder: opening(),
++          readiness: readiness('alliance'),
++          ...(cinematic ? { arrivalMode: 'beat' as const } : {}),
++        }),
++      );
++    }
++    fleets.push(sword('turian'), sword('asari'));
++    if (ws.genophage === 'sabotaged') fleets.push(sword('salarian'));
++    fleets.push(sword('quarian'), sword('geth'));
++    // Cerberus allied (AU): the Black Fleet under the Apex mechanics, canon Cerberus hulls otherwise; by beat in the
++    // opening, at 12 s without it (AP §4.1).
++    if (ws.cerberus === 'allied') {
++      fleets.push(
++        fleet(ID.cerberus, 'cerberus', rules, {
++          counts: apex ? { cerberus_dreadnought: 2, cerberus_heavy_cruiser: 2, cerberus_cruiser: 6, cerberus_frigate: 10 } : { cerberus_cruiser: 6, cerberus_frigate: 10 },
++          fixedClasses: FIXED,
++          name: apex ? 'Cerberus Black Fleet' : 'Cerberus expeditionary fleet',
++          position: at(layout.cerberus.pos),
++          formation: layout.cerberus.formation,
++          ws,
++          initialOrder: opening(),
++          readiness: readiness('cerberus'),
++          ...(cinematic ? { arrivalMode: 'beat' as const } : { arrivalTime: 12 }),
++        }),
++      );
++    }
++  }
++
++  // The Sol platforms: two dreadnought-grade stations under every preset (SIMULATION_ESTIMATE), two heavy
++  // super-accelerator stations more under `heavyPlatforms` (AU); static, defending their positions.
++  fleets.push(
++    fleet(ID.platforms, 'alliance', rules, {
++      counts: { sol_defence_platform: 2, sol_platform_heavy: rules.special.heavyPlatforms ? 2 : 0 },
++      name: 'Sol defence platforms',
++      position: at(cinematic ? PLATFORMS_CINEMATIC : PLATFORMS_STANDARD),
++      formation: 'static',
++      mult: 1,
++      static: true,
++      initialOrder: { order: 'defend_position', ...(cinematic ? { holdFire: 'all' as const } : {}) },
++      readiness: readiness('platforms'),
++    }),
++  );
++
++  // The Reaper blockade (Harbinger commands it in person) and the reserve.
++  // In the opening the blockade holds its formation and its beams (the plan's `reapers_advance` hold, from the start:
++  // the swarm's forward destroyers and Harbinger's beams reach the coalition's screen long before the volley).
++  const blockadeOrders: Partial<FleetOrders> | undefined = cinematic ? { order: 'hold_formation', holdFire: 'beams', fightersDeployed: false } : undefined;
++  if (campaign) {
++    fleets.push(
++      fleet(ID.blockade, 'reaper', rules, {
++        counts: campaign.reaper,
++        fixedClasses: ['harbinger'],
++        name: 'Reaper blockade',
++        side: 'B',
++        position: cinematic ? at(BLOCKADE_CINEMATIC) : BLOCKADE_STANDARD,
++        heading: v3(0, 0, -1),
++        formation: cinematic ? 'swarm_descent' : 'strike_wedge',
++        mult: 1,
++        initialOrder: blockadeOrders,
++      }),
++    );
++  } else {
++    fleets.push(
++      reaperFleet(ID.blockade, rules, {
++        capitals: 6,
++        destroyers: 14,
++        harbinger: true,
++        name: 'Reaper blockade',
++        position: cinematic ? at(BLOCKADE_CINEMATIC) : BLOCKADE_STANDARD,
++        formation: cinematic ? 'swarm_descent' : undefined,
++        ws,
++        initialOrder: blockadeOrders,
++      }),
++    );
++    fleets.push(reaperFleet(ID.reserve, rules, { capitals: 3, destroyers: 8, name: 'Reaper reserve', position: RESERVE_POS, heading: RESERVE_HEADING, arrivalTime: cinematic ? 110 : 90, ws, ...(cinematic ? { arrivalFlash: true } : {}) }));
++  }
++
++  // Cerberus hostile (extrapolation): a strike group on side B for the bookkeeping, hostile to both sides in battle.
++  if (ws.cerberus === 'hostile') {
++    fleets.push(
++      fleet(ID.hostileCerberus, 'cerberus', rules, {
++        counts: { cerberus_cruiser: 8, cerberus_frigate: 12 },
++        name: 'Cerberus strike group (hostile)',
++        side: 'B',
++        position: HOSTILE_CERBERUS_POS,
++        heading: HOSTILE_CERBERUS_HEADING,
++        formation: 'strike_wedge',
++        ws,
++        arrivalTime: 150,
++        playerControlled: false,
++        rogue: true,
++        initialOrder: { priority: 'capitals' },
++        ...(cinematic ? { arrivalFlash: true } : {}),
++      }),
++    );
++    notes.push('CERBERUS (HOSTILE): the strike group fires at both sides; for the result it counts with the Reapers (the simulation keeps two sides).');
++  }
++
++  const config = base('final_battle_of_earth', 'Final Battle of Earth', 'final_battle_of_earth', seed, rules, 'earth_orbit', 540, 'Break the Reaper blockade of Earth.', ws, fleets);
++  if (cinematic) config.beats = finalBattleScript(rules, ws, { fleets, campaignWaves: campaign !== undefined });
++  if (ws.distant_layer === 'on') config.distant = distantLayerFor(rules, fleets);
++  if (fieldsAuContent(fleets)) config.auContent = true;
++  if (notes.length > 0) config.notes = notes;
++  return config;
++}
+diff --git a/src/scenarios/finalBattleBeats.ts b/src/scenarios/finalBattleBeats.ts
+new file mode 100644
+index 0000000..802e921
+--- /dev/null
++++ b/src/scenarios/finalBattleBeats.ts
+@@ -0,0 +1,174 @@
++import { apexCaption } from '@/data/apexScale';
++import { SHIP_CLASSES } from '@/data/ships';
++import { FACTIONS } from '@/data/factions';
++import type { FactionId } from '@/data/types';
++import { beatPreview, clampBeatScale } from '@/simulation/beats';
++import type { Beat, BeatEvent, BeatScript, FleetSpec } from '@/simulation/types';
++import { isApexScenario, type RuleSet } from '@/timelines/rules';
++
++/**
++ * The Final Battle of Earth's cinematic opening (ADOPTION_PLAN.md §4.3; CINEMATIC_DESIGN.md §1.4; WORK_BREAKDOWN.md
++ * §1.3.12): the default beat table in scene seconds at `beatScale 1`, and the script a battle runs — filtered by the
++ * world state (`Beat.when`) and the rule set (the Apex-figure captions only under `isApexScenario`), paced by
++ * `ws.beat_scale`, with the player locked out until 80 s × pace. Nothing in a playable battle is forced: the beats
++ * order, hold, mark and release; the outcomes come from the simulation.
++ */
++
++/** Fleet ids of the default combined fleet, the Reaper blockade and the platform fleet (the builder uses them). */
++export const FINAL_BATTLE_FLEET_IDS = {
++  alliance: 'sword-alliance',
++  /** The Apex heavy line (AU: the Valkyrie and SSV Omaha), arriving with the Alliance wave. */
++  heavy: 'sword-heavy',
++  turian: 'sword-turian',
++  asari: 'sword-asari',
++  salarian: 'sword-salarian',
++  quarian: 'sword-quarian',
++  geth: 'sword-geth',
++  cerberus: 'sword-cerberus',
++  blockade: 'reaper-blockade',
++  reserve: 'reaper-blockade-2',
++  platforms: 'sol-platforms',
++  hostileCerberus: 'cerberus-hostile',
++} as const;
++
++/** The arrival waves of the table in faction order: beat id, faction, scene time, stagger (AP §4.3). */
++export const FINAL_BATTLE_ARRIVALS: readonly { id: string; faction: FactionId; at: number; stagger: number }[] = [
++  { id: 'arrive_alliance', faction: 'alliance', at: 0.0, stagger: 3.0 },
++  { id: 'arrive_turian', faction: 'turian', at: 3.0, stagger: 2.5 },
++  { id: 'arrive_asari', faction: 'asari', at: 5.5, stagger: 2.0 },
++  { id: 'arrive_salarian', faction: 'salarian', at: 7.0, stagger: 2.0 },
++  { id: 'arrive_quarian', faction: 'quarian', at: 8.0, stagger: 2.5 },
++  { id: 'arrive_geth', faction: 'geth', at: 9.5, stagger: 2.0 },
++  { id: 'arrive_cerberus', faction: 'cerberus', at: 12.0, stagger: 1.5 },
++];
++
++/** Beats that carry an Apex figure: kept only under the Apex scenarios (`isApexScenario`, AP §4.3 `*`). */
++export const APEX_ONLY_BEATS: readonly string[] = ['scale_caption', 'platforms'];
++
++/** The mark (scene seconds): after the last arrival flash (the last wave at 12 s with its 1.5–3 s stagger). */
++export const MARK_AT = 15;
++
++/** When the player gets the battle (scene seconds; × pace). */
++export const FINAL_BATTLE_LOCK_UNTIL = 80;
++
++/** The Reaper answer's per-ship target: the nearest line hull of side A — never a platform (AP §4.2, §4.3). */
++const LINE_TARGET = { query: 'nearest', side: 'A', roles: ['cruiser', 'dreadnought', 'super_dreadnought'] } as const;
++
++const blockade = { fleetIds: [FINAL_BATTLE_FLEET_IDS.blockade] };
++const sideA = { side: 'A' } as const;
++
++/**
++ * The default table (AP §4.3; ids fixed). Where the plan puts two events on one row, the second is its own beat at the
++ * same time, right after the first (`mark_priority`, `fighters_drones`, `free_play_hades`). The arrival waves name
++ * the default fleets; with campaign forces `finalBattleScript` rewrites them to wave selectors.
++ */
++export const FINAL_BATTLE_BEATS: Beat[] = [
++  { id: 'title', at: 0.5, label: 'Title', event: { kind: 'caption', text: 'SOL · 2186', duration: 3.5, style: 'title' } },
++  ...FINAL_BATTLE_ARRIVALS.map(
++    (a): Beat => ({
++      id: a.id,
++      at: a.at,
++      label: `Arrival: ${FACTIONS[a.faction].shortName}`,
++      event:
++        a.faction === 'alliance'
++          ? { kind: 'spawn_wave', fleets: { fleetIds: [FINAL_BATTLE_FLEET_IDS.alliance, FINAL_BATTLE_FLEET_IDS.heavy] }, stagger: a.stagger }
++          : { kind: 'spawn_wave', fleetId: FINAL_BATTLE_FLEET_IDS[a.faction as keyof typeof FINAL_BATTLE_FLEET_IDS], stagger: a.stagger },
++      ...(a.faction === 'salarian' ? { when: { genophage: ['sabotaged'] } } : {}),
++      ...(a.faction === 'cerberus' ? { when: { cerberus: ['allied'] } } : {}),
++    }),
++  ),
++  // HADES penetrators are held for the player until free play (a no-op without Titan guns); every anti-ship mount
++  // stays held until the volley (the opening hold, `finalBattle.ts`).
++  { id: 'form_up', at: 12.0, label: 'Form up', event: { kind: 'set_fleet_order', fleets: sideA, patch: { order: 'advance', holdFire: 'all', holdSpecialAmmo: true } } },
++  // The blockade climbs 12 km into the coalition's plane while it advances (AP §4.2).
++  { id: 'reapers_advance', at: 20.0, label: 'Reapers advance', event: { kind: 'set_fleet_order', fleets: blockade, patch: { order: 'advance', holdFire: 'beams', anchorGoal: { y: 0 } } } },
++  { id: 'oculus_launch', at: 24.0, label: 'Oculus launch', event: { kind: 'launch_drones', fleets: blockade, burst: 8 } },
++  { id: 'scale_caption', at: 26.0, label: 'Scale caption (AU)', event: { kind: 'caption', text: apexCaption('warships', 0), duration: 4, style: 'tactical', au: true } },
++  { id: 'platforms', at: 28.0, label: 'Platform caption (AU)', event: { kind: 'caption', text: apexCaption('platforms', 4), duration: 4, style: 'tactical', au: true } },
++  // The mark: every coalition hull tracks its nearest Reaper capital, so the held spinal mounts' solutions mature (AP
++  // §19 8.7). Given once the last wave has flashed in (15 s) and held through the answer (48 s): at the opening's
++  // 15–20 km a solution builds ≈ 0.03 per second (solutions.ts), so the plan's "q ≥ 0.6 at release" needs ≈ 20 s
++  // of tracking, not the 10 s a mark at 28 s would leave.
++  { id: 'mark_priority', at: MARK_AT, label: 'Mark Reaper capitals', event: { kind: 'set_fleet_order', fleets: sideA, patch: { priority: 'reaper_capitals' } } },
++  { id: 'mark', at: MARK_AT, label: 'Mark Reaper capitals', event: { kind: 'force_target', fleets: sideA, target: { query: 'nearest', side: 'B', roles: ['reaper_capital'] }, seconds: 48 - MARK_AT } },
++  { id: 'line_holds', at: 34.0, label: 'Line holds', event: { kind: 'set_fleet_order', fleets: sideA, patch: { order: 'attack' } } },
++  { id: 'volley', at: 36.0, label: 'Fleet volley', event: { kind: 'fleet_volley', fleets: sideA, lead: 2.0, window: 1.5, mounts: 'spinal', anchor: { name: 'SSV Kilimanjaro' } } },
++  // The answer: the beams spread over the nearest line hulls (per ship, weighted by how many Reapers already chose a
++  // hull), so cruisers and the dreadnoughts just behind them take beams — the platforms are excluded (AP §4.2).
++  { id: 'reaper_answer', at: 42.0, label: 'Reaper answer', event: { kind: 'fleet_volley', fleets: blockade, lead: 2.0, window: 2.0, mounts: 'beams', target: { ...LINE_TARGET, roles: [...LINE_TARGET.roles] }, spread: true } },
++  { id: 'fighters', at: 48.0, label: 'Fighter screen', event: { kind: 'set_fleet_order', fleets: sideA, patch: { fightersDeployed: true } } },
++  { id: 'fighters_drones', at: 48.0, label: 'Fighter screen', event: { kind: 'launch_drones', fleets: blockade, burst: 6 } },
++  { id: 'free_play', at: FINAL_BATTLE_LOCK_UNTIL, label: 'Orders unlock', event: { kind: 'player_control', locked: false } },
++  { id: 'free_play_hades', at: FINAL_BATTLE_LOCK_UNTIL, label: 'Orders unlock', event: { kind: 'set_fleet_order', fleets: sideA, patch: { holdSpecialAmmo: false } } },
++];
++
++/** What the builder knows that the table cannot: the simulated counts for the AU captions and the campaign's waves. */
++export interface FinalBattleScriptOptions {
++  /** The battle's fleets: side-A hull and platform counts fill the Apex captions; campaign waves are read from them. */
++  fleets?: readonly FleetSpec[];
++  /** The side-A beat fleets are campaign fleets: the arrival beats address waves by faction order (AP §4.3). */
++  campaignWaves?: boolean;
++}
++
++/** Live hulls a fleet spec fields (small craft excluded). */
++const hullsOf = (f: FleetSpec): number => f.ships.reduce((a, s) => (SHIP_CLASSES[s.classId]?.role === 'fighter' ? a : a + s.count), 0);
++const platformsOf = (f: FleetSpec): number => f.ships.reduce((a, s) => (SHIP_CLASSES[s.classId]?.role === 'fixed_platform' ? a + s.count : a), 0);
++
++/** Faction order of the arrival waves (the table's order: Alliance, turian, asari, salarian, quarian, geth, Cerberus). */
++const FACTION_ORDER: readonly FactionId[] = Object.keys(FACTIONS) as FactionId[];
++
++/**
++ * The campaign arrival beats: the side-A beat fleets in wave order (faction order, then authoring order — exactly
++ * `FleetSel { side, wave }`), each at its faction's arrival time (a second fleet of a faction 1 s after the first,
++ * never after 12 s, so the form-up catches every wave).
++ */
++function campaignArrivals(fleets: readonly FleetSpec[]): Beat[] {
++  const waves = fleets
++    .filter((f) => f.side === 'A' && f.arrivalMode === 'beat')
++    .map((f, i) => ({ f, i, r: FACTION_ORDER.indexOf(f.faction) }))
++    .sort((a, b) => a.r - b.r || a.i - b.i)
++    .map((x) => x.f);
++  const seen = new Map<FactionId, number>();
++  return waves.map((f, wave) => {
++    const k = seen.get(f.faction) ?? 0;
++    seen.set(f.faction, k + 1);
++    const slot = FINAL_BATTLE_ARRIVALS.find((a) => a.faction === f.faction) ?? FINAL_BATTLE_ARRIVALS[FINAL_BATTLE_ARRIVALS.length - 1];
++    const event: BeatEvent = { kind: 'spawn_wave', fleets: { side: 'A', wave }, stagger: slot.stagger };
++    return { id: k === 0 ? slot.id : `${slot.id}_${k + 1}`, at: Math.min(12, slot.at + k), label: `Arrival: ${f.name}`, event };
++  });
++}
++
++/**
++ * The script the battle runs (AP §4.3): the table filtered by the rules (the `*` captions only under the Apex
++ * scenarios; the AU tag caption under every non-canon preset), the Apex captions filled with the simulated counts,
++ * campaign waves when the side-A fleets come from a campaign, pace from `ws.beat_scale` (0.5–2), player lock until
++ * 80 s. `Beat.when` conditions stay on the beats; the simulation and the briefing's `beatPreview` filter them by the
++ * resolved world state.
++ */
++export function finalBattleScript(rules: RuleSet, ws: Record<string, string>, opts: FinalBattleScriptOptions = {}): BeatScript {
++  const apex = isApexScenario(rules);
++  const fleets = opts.fleets ?? [];
++  const simulatedA = fleets.filter((f) => f.side === 'A').reduce((a, f) => a + hullsOf(f), 0);
++  const platforms = fleets.reduce((a, f) => a + platformsOf(f), 0);
++  let beats: Beat[] = [];
++  for (const b of FINAL_BATTLE_BEATS) {
++    if (APEX_ONLY_BEATS.includes(b.id) && !apex) continue;
++    if (b.id === 'scale_caption' && opts.fleets) beats.push({ ...b, event: { ...(b.event as Extract<BeatEvent, { kind: 'caption' }>), text: apexCaption('warships', simulatedA) } });
++    else if (b.id === 'platforms' && opts.fleets) beats.push({ ...b, event: { ...(b.event as Extract<BeatEvent, { kind: 'caption' }>), text: apexCaption('platforms', platforms) } });
++    else beats.push(b);
++    // Under every alternate-universe preset a tag caption stays up through the opening (AP §4.3 `title`).
++    if (b.id === 'title' && rules.category !== 'canon') {
++      beats.push({ id: 'title_tag', at: b.at, label: 'AU tag', event: { kind: 'caption', text: `ALTERNATE UNIVERSE · ${rules.name.toUpperCase()}`, duration: FINAL_BATTLE_LOCK_UNTIL, style: 'tag', au: true } });
++    }
++  }
++  if (opts.campaignWaves) {
++    const arrivals = new Set(FINAL_BATTLE_ARRIVALS.map((a) => a.id));
++    const at = beats.findIndex((b) => arrivals.has(b.id));
++    beats = beats.filter((b) => !arrivals.has(b.id));
++    beats.splice(Math.max(0, at), 0, ...campaignArrivals(fleets));
++  }
++  return { version: 1, beats, beatScale: clampBeatScale(Number(ws.beat_scale ?? '1')), lockPlayerUntil: FINAL_BATTLE_LOCK_UNTIL, scripted: true };
++}
++
++/** The briefing's beat list for these rules and this world state (pace applied, `when` and the Apex captions filtered). */
++export const finalBattlePreview = (rules: RuleSet, ws: Record<string, string>): { id: string; at: number; label: string }[] => beatPreview(finalBattleScript(rules, ws).beats, ws);
+diff --git a/src/scenarios/fleets.ts b/src/scenarios/fleets.ts
+new file mode 100644
+index 0000000..e74a617
+--- /dev/null
++++ b/src/scenarios/fleets.ts
+@@ -0,0 +1,201 @@
++import { au, canon, estimate, inferred, type Sourced } from '@/core/provenance';
++import { v3, type Vec3 } from '@/core/vec3';
++import { UNIQUE_CLASS_IDS, type FactionId } from '@/data/types';
++import type { BattleConfig, Environment, FleetSpec, FormationType, Readiness, ShipSpec, Side } from '@/simulation/types';
++import type { RuleSet } from '@/timelines/rules';
++
++/**
++ * Fleet builders and the canonical vessel-name lists the scenarios share (WORK_BREAKDOWN.md §1.3.12: `fleet`,
++ * `reaperFleet`, `base`, `NAMES`; re-exported from `src/scenarios/index.ts`). `fleet()` is also what the threat
++ * table's reference engagement builds with, and its fingerprint hashes the specs (`threatReference.ts`): an option
++ * left out must leave the spec exactly as it was.
++ */
++
++/**
++ * World-state key that controls whether scenario fleets scale with the rule
++ * set's fleetStrength. Comparison mode fixes fleets so only technology and
++ * doctrine differ between the two runs.
++ */
++export const FLEET_SCALING_KEY = 'fleet_scaling';
++
++/** Everest-class dreadnoughts (ADOPTION_PLAN.md §14.2): the mountain convention, ending in SSV Ararat; no battle names. */
++const ALLIANCE_DN_NAMES = ['SSV Everest', 'SSV Fuji', 'SSV Elbrus', 'SSV Logan', 'SSV Denali', 'SSV Ararat'];
++/** Kilimanjaro-class dreadnoughts: SSV Kilimanjaro and SSV Orizaba are canon, the rest are the pack's list (verify). */
++const ALLIANCE_DN_K_NAMES = ['SSV Kilimanjaro', 'SSV Orizaba', 'SSV Tai Shan', 'SSV Shasta', 'SSV Aconcagua'];
++const ALLIANCE_CRUISER_NAMES = ['SSV Emden', 'SSV Geneva', 'SSV Warsaw', 'SSV Cairo', 'SSV Madrid', 'SSV Shanghai', 'SSV Cape Town', 'SSV Jakarta', 'SSV Hastings', 'SSV Agincourt', 'SSV Trafalgar', 'SSV Midway', 'SSV Leyte', 'SSV Jutland', 'SSV Salamis', 'SSV Lepanto'];
++const ALLIANCE_FRIGATE_NAMES = ['SSV Hong Kong', 'SSV Iwo Jima', 'SSV Cheyenne', 'SSV Agamemnon', 'SSV Achilles', 'SSV Perugia', 'SSV Hyderabad', 'SSV Trident', 'SSV Lexington', 'SSV Saratoga'];
++/** SR-2-pattern stealth frigates: original names (SIMULATION_ESTIMATE); the Normandy itself is `normandy_sr2`. */
++const ALLIANCE_PATTERN_FRIGATE_NAMES = ['SSV Thermopylae', 'SSV Austerlitz', 'SSV Sekigahara', 'SSV Adwa', 'SSV Plataea', 'SSV Carrhae', 'SSV Talas', 'SSV Lechfeld'];
++const TURIAN_DN_NAMES = ['PFS Indomitable', 'PFS Vengeance', 'PFS Cipritine', 'PFS Digeris', 'PFS Taetrus', 'PFS Invictus', 'PFS Macedyn', 'PFS Oma Ker'];
++const TURIAN_CRUISER_NAMES = ['PFS Resolute', 'PFS Steadfast', 'PFS Unyielding', 'PFS Adamant', 'PFS Vigilant', 'PFS Relentless', 'PFS Spirit of Menae', 'PFS Bastion', 'PFS Rampart', 'PFS Ardent', 'PFS Stalwart', 'PFS Tenacious'];
++const ASARI_DN_NAMES = ['Cyone', 'Serrice Guard', 'Armali', 'Lusia'];
++const ASARI_CRUISER_NAMES = ['Tevura', 'Athame', 'Lucen', 'Piares', 'Nevos', 'Dilinaga', 'Anthea', 'Illium Dawn', 'Thessia Star', 'Nos Astra', 'Sanves', 'Niacal'];
++const CERBERUS_NAMES = ['Minuteman', 'Cronos', 'Elbrus', 'Horizon', 'Sanctum', 'Covenant', 'Lazarus', 'Overlord', 'Firewalker', 'Arrival'];
++
++/** Canonical name lists by class (names are original where canon gives none). A name never appears in two lists. */
++export const NAMES: Record<string, string[]> = {
++  alliance_dreadnought: ALLIANCE_DN_NAMES,
++  alliance_dreadnought_k: ALLIANCE_DN_K_NAMES,
++  /** The owner's AU super-dreadnought line is led by SSV Omaha (docs/apex/INTEGRATION_NOTES.md). */
++  alliance_super_dreadnought: ['SSV Omaha', 'SSV Olympus Mons', 'SSV Mauna Kea'],
++  alliance_cruiser: ALLIANCE_CRUISER_NAMES,
++  alliance_frigate: ALLIANCE_FRIGATE_NAMES,
++  alliance_carrier: ['SSV Einstein', 'SSV Hawking', 'SSV Newton'],
++  alliance_frigate_thanix: ALLIANCE_PATTERN_FRIGATE_NAMES,
++  normandy_sr2: ['SSV Normandy SR-2'],
++  normandy_valkyrie: ['SSV Normandy Valkyrie'],
++  turian_dreadnought: TURIAN_DN_NAMES,
++  turian_super_dreadnought: ['PFS Praetor', 'PFS Legate'],
++  turian_cruiser: TURIAN_CRUISER_NAMES,
++  asari_dreadnought: ASARI_DN_NAMES,
++  asari_cruiser: ASARI_CRUISER_NAMES,
++  destiny_ascension: ['Destiny Ascension'],
++  salarian_dreadnought: ['Sur’Kesh', 'Mannovai', 'Jaëto', 'Erinle'],
++  salarian_cruiser: ['Talat', 'Nasurn', 'Aegohr', 'Halegeuse', 'Gorot', 'Heshtok', 'Dagnes', 'Senoquol', 'Tuchanka Watch', 'Kirrahe', 'Virmire', 'Solus'],
++  salarian_frigate: ['STG Scalpel', 'STG Needle', 'STG Lancet', 'STG Quill', 'STG Thorn', 'STG Barb', 'STG Sliver', 'STG Spine', 'STG Awl', 'STG Stylus'],
++  cerberus_cruiser: CERBERUS_NAMES,
++  cerberus_heavy_cruiser: ['Erebus', 'Nyx'],
++  cerberus_dreadnought: ['Black Fleet Flagship Prometheus', 'Eos', 'Hyperion'],
++  harbinger: ['Harbinger'],
++  quarian_liveship: ['Rayya', 'Shellen', 'Tonbay'],
++  quarian_heavy: ['Qwib-Qwib', 'Alarei', 'Neema', 'Idenna', 'Moreh', 'Iktomi'],
++  quarian_cruiser: ['Usela', 'Tesleya', 'Chayym', 'Defrahnz', 'Honorata', 'Konesh', 'Rannoch Hope', 'Tasi', 'Ulnay', 'Yaska'],
++  geth_dreadnought: ['Geth dreadnought'],
++};
++
++/**
++ * Per-name provenance for the lists ADOPTION_PLAN.md §14.2 anchors (stage D
++ * copies the CANON_INFERRED entries onto LORE_REFERENCE.md's verify list).
++ */
++export const NAME_PROVENANCE: Record<string, Sourced<string>> = {
++  'SSV Kilimanjaro': canon('Kilimanjaro-class dreadnought named in ME3 (LORE_REFERENCE.md).'),
++  'SSV Orizaba': canon('Kilimanjaro-class dreadnought named in ME3 (LORE_REFERENCE.md).'),
++  'SSV Everest': canon('The Everest-class name is canon (ME1 codex); the lead ship bears the class name.'),
++  ...Object.fromEntries(['SSV Fuji', 'SSV Elbrus', 'SSV Logan', 'SSV Denali', 'SSV Ararat', 'SSV Tai Shan', 'SSV Shasta', 'SSV Aconcagua'].map((n) => [n, inferred('pack list; verify class')])),
++  ...Object.fromEntries(ALLIANCE_PATTERN_FRIGATE_NAMES.map((n) => [n, estimate('Original name for an SR-2-pattern stealth frigate; the trilogy names only the Normandy.')])),
++  'SSV Normandy SR-2': canon('The Normandy SR-2 is canon (ME2–ME3).'),
++  'SSV Normandy Valkyrie': au('AU LOCK one-off (ADOPTION_PLAN.md §8).'),
++  ...Object.fromEntries(['SSV Omaha', 'SSV Olympus Mons', 'SSV Mauna Kea', 'PFS Praetor', 'PFS Legate', 'Erebus', 'Nyx', 'Black Fleet Flagship Prometheus', 'Eos', 'Hyperion'].map((n) => [n, au('Original name for an alternate-universe hull.')])),
++};
++
++/** Scale a ship count by a fleet strength multiplier, never below 1 if the base was >= 1. */
++export const scaleCount = (base: number, mult: number): number => (base <= 0 ? 0 : Math.max(1, Math.round(base * mult)));
++
++const fleetMult = (rules: RuleSet, faction: FactionId, ws: Record<string, string>): number =>
++  ws[FLEET_SCALING_KEY] === 'fixed' ? 1 : rules.fleetStrength[faction];
++
++export interface FleetOpts {
++  /** Ship counts by class id (before scaling). */
++  counts: Record<string, number>;
++  /** Classes that do not scale with fleet strength (named single ships). */
++  fixedClasses?: string[];
++  name: string;
++  side?: Side;
++  formation?: FormationType;
++  position?: Vec3;
++  heading?: Vec3;
++  mult?: number;
++  arrivalTime?: number;
++  playerControlled?: boolean;
++  ws?: Record<string, string>;
++  initialOrder?: FleetSpec['initialOrder'];
++  /** Start each class's canonical name list this many entries in (a second fleet of a class names its hulls further down). */
++  nameOffsets?: Record<string, number>;
++  /** Readiness tier (AP §1.6): only the named Apex compositions set it; canon scenarios never do. */
++  readiness?: Readiness;
++  /** A fixed-platform fleet: never moves, move orders are rejected. */
++  static?: boolean;
++  /** Hostile to both sides for targeting (AP §4.1); bookkeeping stays with `side`. */
++  rogue?: boolean;
++  /** `'beat'`: deployed only by a `spawn_wave` beat (the Final Battle's arrival waves). */
++  arrivalMode?: 'time' | 'beat';
++  /** The fleet arrives with the FTL flash and run-in. */
++  arrivalFlash?: boolean;
++}
++
++/** Generic fleet builder for any faction. */
++export function fleet(id: string, faction: FactionId, rules: RuleSet, opts: FleetOpts): FleetSpec {
++  const m = opts.mult ?? fleetMult(rules, faction, opts.ws ?? {});
++  const ships: ShipSpec[] = [];
++  for (const [classId, baseCount] of Object.entries(opts.counts)) {
++    if (baseCount <= 0) continue;
++    // Unique hulls (Harbinger, the Ascension, the Normandy, the Valkyrie) exist once per battle and never scale (AP §22.1).
++    const unique = UNIQUE_CLASS_IDS.includes(classId);
++    const fixed = unique || opts.fixedClasses?.includes(classId);
++    // Carriers scale more conservatively than the line.
++    const mult = fixed ? 1 : classId.endsWith('carrier') ? Math.min(m, 1.5) : m;
++    const count = unique ? Math.min(1, baseCount) : scaleCount(baseCount, mult);
++    const offset = opts.nameOffsets?.[classId] ?? 0;
++    const list = NAMES[classId];
++    ships.push({ classId, count, names: offset > 0 && list ? list.slice(offset) : list });
++  }
++  const side = opts.side ?? (faction === 'reaper' ? 'B' : 'A');
++  return {
++    id,
++    name: opts.name,
++    faction,
++    side,
++    ships,
++    formation: opts.formation ?? (faction === 'reaper' ? 'strike_wedge' : 'defensive_screen'),
++    position: opts.position ?? (side === 'A' ? v3(0, 0, -36) : v3(0, 0, 40)),
++    heading: opts.heading ?? (side === 'A' ? v3(0, 0, 1) : v3(0, 0, -1)),
++    playerControlled: opts.playerControlled ?? side === 'A',
++    arrivalTime: opts.arrivalTime,
++    initialOrder: opts.initialOrder,
++    // Optional V2 fields only when set, so a spec built without them is exactly the v0.11 spec.
++    ...(opts.readiness !== undefined ? { readiness: opts.readiness } : {}),
++    ...(opts.static !== undefined ? { static: opts.static } : {}),
++    ...(opts.rogue !== undefined ? { rogue: opts.rogue } : {}),
++    ...(opts.arrivalMode !== undefined ? { arrivalMode: opts.arrivalMode } : {}),
++    ...(opts.arrivalFlash !== undefined ? { arrivalFlash: opts.arrivalFlash } : {}),
++  };
++}
++
++export interface ReaperFleetOpts {
++  capitals: number;
++  destroyers: number;
++  harbinger?: boolean;
++  name?: string;
++  side?: Side;
++  position?: Vec3;
++  heading?: Vec3;
++  arrivalTime?: number;
++  mult?: number;
++  ws?: Record<string, string>;
++  formation?: FormationType;
++  initialOrder?: FleetSpec['initialOrder'];
++  arrivalFlash?: boolean;
++}
++
++/** A Reaper fleet: Harbinger (fixed, unique) when asked, capitals and destroyers scaled with the Reaper fleet strength. */
++export const reaperFleet = (id: string, rules: RuleSet, opts: ReaperFleetOpts): FleetSpec =>
++  fleet(id, 'reaper', rules, {
++    counts: { ...(opts.harbinger ? { harbinger: 1 } : {}), reaper_capital: opts.capitals, reaper_destroyer: opts.destroyers },
++    fixedClasses: ['harbinger'],
++    name: opts.name ?? 'Reaper harvest group',
++    side: opts.side,
++    position: opts.position,
++    heading: opts.heading,
++    arrivalTime: opts.arrivalTime,
++    mult: opts.mult,
++    ws: opts.ws,
++    formation: opts.formation,
++    playerControlled: opts.side === 'A',
++    initialOrder: opts.initialOrder,
++    arrivalFlash: opts.arrivalFlash,
++  });
++
++/** The common shell of a scenario's battle config. */
++export const base = (id: string, name: string, scenarioId: string, seed: number, rules: RuleSet, environment: Environment, maxDuration: number, objective: string, ws: Record<string, string>, fleets: FleetSpec[]): BattleConfig => ({
++  id: `${id}-${rules.id}-${seed}`,
++  name,
++  scenarioId,
++  seed,
++  rules,
++  environment,
++  maxDuration,
++  perspectiveSide: 'A',
++  objective,
++  worldState: ws,
++  fleets,
++});
+diff --git a/src/scenarios/index.ts b/src/scenarios/index.ts
+index bffa495..3a4ccb9 100644
+--- a/src/scenarios/index.ts
++++ b/src/scenarios/index.ts
+@@ -1,27 +1,45 @@
+-import { au, canon, estimate, inferred, type Sourced } from '@/core/provenance';
+-import { v3, type Vec3 } from '@/core/vec3';
++import { v3 } from '@/core/vec3';
+ import { getPreset } from '@/timelines/presets';
+ import { isApexRules, type RuleSet } from '@/timelines/rules';
+-import { UNIQUE_CLASS_IDS, type FactionId } from '@/data/types';
+-import type { BattleConfig, Environment, FleetSpec, FormationType, ShipSpec, Side } from '@/simulation/types';
++import type { FactionId } from '@/data/types';
++import type { BattleConfig, Environment, FleetSpec, FormationType, Side } from '@/simulation/types';
+ import { SHIP_CLASSES } from '@/data/ships';
+ import { FACTIONS } from '@/data/factions';
++import { distantLayerFor } from './distantGroups';
++import { buildFinalBattle, fieldsAuContent } from './finalBattle';
++import { FLEET_SCALING_KEY, base, fleet, reaperFleet, type FleetOpts } from './fleets';
++import { DISTANT_LAYER_OPTION, FINAL_BATTLE_WORLD_STATE, SHEPARD_WORLD_STATE, resolveWorldState, type WorldStateOption } from './worldState';
+ 
+ /**
+  * Battle scenarios. Each scenario builds a BattleConfig from a rule set and a
+  * seed. Fleet sizes marked SIMULATION_ESTIMATE are compressed representations
+- * of much larger canon engagements so that the battle is watchable.
++ * of much larger canon engagements so that the battle is watchable. The fleet
++ * builders and the vessel-name lists live in `fleets.ts`, the declared world
++ * state in `worldState.ts`, the Final Battle of Earth in `finalBattle.ts` and
++ * `finalBattleBeats.ts`; everything is re-exported here.
+  */
+ 
+-export interface WorldStateOption {
+-  id: string;
+-  label: string;
+-  /** Provenance category for the UI. */
+-  kind: 'player_dependent' | 'extrapolation' | 'au';
+-  description: string;
+-  choices: { id: string; label: string; description: string }[];
+-  default: string;
+-}
++export { FLEET_SCALING_KEY, NAMES, NAME_PROVENANCE, base, fleet, reaperFleet, scaleCount, type FleetOpts, type ReaperFleetOpts } from './fleets';
++export {
++  AUTO,
++  BEAT_SCALE_CHOICES,
++  CERBERUS_HOSTILE_TEXT,
++  DISTANT_LAYER_APEX_TEXT,
++  DISTANT_LAYER_CANON_TEXT,
++  DISTANT_LAYER_OPTION,
++  FINAL_BATTLE_WORLD_STATE,
++  SHEPARD_WORLD_STATE,
++  campaignForces,
++  describeOption,
++  resolveWorldState,
++  type CampaignAlliedFleet,
++  type WorldStateChoice,
++  type WorldStateHost,
++  type WorldStateOption,
++} from './worldState';
++export { APEX_ONLY_BEATS, FINAL_BATTLE_ARRIVALS, FINAL_BATTLE_BEATS, FINAL_BATTLE_FLEET_IDS, FINAL_BATTLE_LOCK_UNTIL, finalBattlePreview, finalBattleScript, type FinalBattleScriptOptions } from './finalBattleBeats';
++export { buildFinalBattle, fieldsAuContent, openingDepthScale } from './finalBattle';
++export { UNIQUE_CLASS_IDS } from '@/data/types';
+ 
+ export interface ScenarioDef {
+   id: string;
+@@ -41,166 +59,53 @@ export interface ScenarioDef {
+   briefing: string[];
+ }
+ 
+-/**
+- * World-state key that controls whether scenario fleets scale with the rule
+- * set's fleetStrength. Comparison mode fixes fleets so only technology and
+- * doctrine differ between the two runs.
+- */
+-export const FLEET_SCALING_KEY = 'fleet_scaling';
+-
+-/** Everest-class dreadnoughts (ADOPTION_PLAN.md §14.2): the mountain convention, ending in SSV Ararat; no battle names. */
+-const ALLIANCE_DN_NAMES = ['SSV Everest', 'SSV Fuji', 'SSV Elbrus', 'SSV Logan', 'SSV Denali', 'SSV Ararat'];
+-/** Kilimanjaro-class dreadnoughts: SSV Kilimanjaro and SSV Orizaba are canon, the rest are the pack's list (verify). */
+-const ALLIANCE_DN_K_NAMES = ['SSV Kilimanjaro', 'SSV Orizaba', 'SSV Tai Shan', 'SSV Shasta', 'SSV Aconcagua'];
+-const ALLIANCE_CRUISER_NAMES = ['SSV Emden', 'SSV Geneva', 'SSV Warsaw', 'SSV Cairo', 'SSV Madrid', 'SSV Shanghai', 'SSV Cape Town', 'SSV Jakarta', 'SSV Hastings', 'SSV Agincourt', 'SSV Trafalgar', 'SSV Midway', 'SSV Leyte', 'SSV Jutland', 'SSV Salamis', 'SSV Lepanto'];
+-const ALLIANCE_FRIGATE_NAMES = ['SSV Hong Kong', 'SSV Iwo Jima', 'SSV Cheyenne', 'SSV Agamemnon', 'SSV Achilles', 'SSV Perugia', 'SSV Hyderabad', 'SSV Trident', 'SSV Lexington', 'SSV Saratoga'];
+-/** SR-2-pattern stealth frigates: original names (SIMULATION_ESTIMATE); the Normandy itself is `normandy_sr2`. */
+-const ALLIANCE_PATTERN_FRIGATE_NAMES = ['SSV Thermopylae', 'SSV Austerlitz', 'SSV Sekigahara', 'SSV Adwa', 'SSV Plataea', 'SSV Carrhae', 'SSV Talas', 'SSV Lechfeld'];
+-const TURIAN_DN_NAMES = ['PFS Indomitable', 'PFS Vengeance', 'PFS Cipritine', 'PFS Digeris', 'PFS Taetrus', 'PFS Invictus', 'PFS Macedyn', 'PFS Oma Ker'];
+-const TURIAN_CRUISER_NAMES = ['PFS Resolute', 'PFS Steadfast', 'PFS Unyielding', 'PFS Adamant', 'PFS Vigilant', 'PFS Relentless', 'PFS Spirit of Menae', 'PFS Bastion', 'PFS Rampart', 'PFS Ardent', 'PFS Stalwart', 'PFS Tenacious'];
+-const ASARI_DN_NAMES = ['Cyone', 'Serrice Guard', 'Armali', 'Lusia'];
+-const ASARI_CRUISER_NAMES = ['Tevura', 'Athame', 'Lucen', 'Piares', 'Nevos', 'Dilinaga', 'Anthea', 'Illium Dawn', 'Thessia Star', 'Nos Astra', 'Sanves', 'Niacal'];
+-const CERBERUS_NAMES = ['Minuteman', 'Cronos', 'Elbrus', 'Horizon', 'Sanctum', 'Covenant', 'Lazarus', 'Overlord', 'Firewalker', 'Arrival'];
++// ------------------------------------------------------------ the Sol scenarios' shared parts
+ 
+-/** Canonical name lists by class (names are original where canon gives none). A name never appears in two lists. */
+-export const NAMES: Record<string, string[]> = {
+-  alliance_dreadnought: ALLIANCE_DN_NAMES,
+-  alliance_dreadnought_k: ALLIANCE_DN_K_NAMES,
+-  /** The owner's AU super-dreadnought line is led by SSV Omaha (docs/apex/INTEGRATION_NOTES.md). */
+-  alliance_super_dreadnought: ['SSV Omaha', 'SSV Olympus Mons', 'SSV Mauna Kea'],
+-  alliance_cruiser: ALLIANCE_CRUISER_NAMES,
+-  alliance_frigate: ALLIANCE_FRIGATE_NAMES,
+-  alliance_carrier: ['SSV Einstein', 'SSV Hawking', 'SSV Newton'],
+-  alliance_frigate_thanix: ALLIANCE_PATTERN_FRIGATE_NAMES,
+-  normandy_sr2: ['SSV Normandy SR-2'],
+-  normandy_valkyrie: ['SSV Normandy Valkyrie'],
+-  turian_dreadnought: TURIAN_DN_NAMES,
+-  turian_super_dreadnought: ['PFS Praetor', 'PFS Legate'],
+-  turian_cruiser: TURIAN_CRUISER_NAMES,
+-  asari_dreadnought: ASARI_DN_NAMES,
+-  asari_cruiser: ASARI_CRUISER_NAMES,
+-  destiny_ascension: ['Destiny Ascension'],
+-  salarian_dreadnought: ['Sur’Kesh', 'Mannovai', 'Jaëto', 'Erinle'],
+-  salarian_cruiser: ['Talat', 'Nasurn', 'Aegohr', 'Halegeuse', 'Gorot', 'Heshtok', 'Dagnes', 'Senoquol', 'Tuchanka Watch', 'Kirrahe', 'Virmire', 'Solus'],
+-  salarian_frigate: ['STG Scalpel', 'STG Needle', 'STG Lancet', 'STG Quill', 'STG Thorn', 'STG Barb', 'STG Sliver', 'STG Spine', 'STG Awl', 'STG Stylus'],
+-  cerberus_cruiser: CERBERUS_NAMES,
+-  cerberus_heavy_cruiser: ['Erebus', 'Nyx'],
+-  cerberus_dreadnought: ['Black Fleet Flagship Prometheus', 'Eos', 'Hyperion'],
+-  harbinger: ['Harbinger'],
+-  quarian_liveship: ['Rayya', 'Shellen', 'Tonbay'],
+-  quarian_heavy: ['Qwib-Qwib', 'Alarei', 'Neema', 'Idenna', 'Moreh', 'Iktomi'],
+-  quarian_cruiser: ['Usela', 'Tesleya', 'Chayym', 'Defrahnz', 'Honorata', 'Konesh', 'Rannoch Hope', 'Tasi', 'Ulnay', 'Yaska'],
+-  geth_dreadnought: ['Geth dreadnought'],
+-};
++/** Named single hulls of the Sol fleets that never scale with fleet strength (the K-class pair, SSV Omaha). */
++const SOL_FIXED = ['alliance_dreadnought_k', 'alliance_super_dreadnought'];
+ 
+ /**
+- * Per-name provenance for the lists ADOPTION_PLAN.md §14.2 anchors (stage D
+- * copies the CANON_INFERRED entries onto LORE_REFERENCE.md's verify list).
++ * What the Apex Sol scenarios add to the Alliance line under the Apex mechanics (AP §22.1, CINEMATIC_DESIGN.md §7.9;
++ * the owner's SSV Omaha, INTEGRATION_NOTES.md): the Valkyrie (`valkyrieAvailable`), one Olympus-class heavy
++ * dreadnought — the first of its list, SSV Omaha — (`superDreadnoughts`) and `patternFrigates` SR-2-pattern stealth
++ * frigates, which scale with fleet strength. Nothing under any other rule set.
+  */
+-export const NAME_PROVENANCE: Record<string, Sourced<string>> = {
+-  'SSV Kilimanjaro': canon('Kilimanjaro-class dreadnought named in ME3 (LORE_REFERENCE.md).'),
+-  'SSV Orizaba': canon('Kilimanjaro-class dreadnought named in ME3 (LORE_REFERENCE.md).'),
+-  'SSV Everest': canon('The Everest-class name is canon (ME1 codex); the lead ship bears the class name.'),
+-  ...Object.fromEntries(['SSV Fuji', 'SSV Elbrus', 'SSV Logan', 'SSV Denali', 'SSV Ararat', 'SSV Tai Shan', 'SSV Shasta', 'SSV Aconcagua'].map((n) => [n, inferred('pack list; verify class')])),
+-  ...Object.fromEntries(ALLIANCE_PATTERN_FRIGATE_NAMES.map((n) => [n, estimate('Original name for an SR-2-pattern stealth frigate; the trilogy names only the Normandy.')])),
+-  'SSV Normandy SR-2': canon('The Normandy SR-2 is canon (ME2–ME3).'),
+-  'SSV Normandy Valkyrie': au('AU LOCK one-off (ADOPTION_PLAN.md §8).'),
+-  ...Object.fromEntries(['SSV Omaha', 'SSV Olympus Mons', 'SSV Mauna Kea', 'PFS Praetor', 'PFS Legate', 'Erebus', 'Nyx', 'Black Fleet Flagship Prometheus', 'Eos', 'Hyperion'].map((n) => [n, au('Original name for an alternate-universe hull.')])),
+-};
+-
+-/** Scale a ship count by a fleet strength multiplier, never below 1 if the base was >= 1. */
+-export const scaleCount = (base: number, mult: number): number => (base <= 0 ? 0 : Math.max(1, Math.round(base * mult)));
+-
+-const fleetMult = (rules: RuleSet, faction: FactionId, ws: Record<string, string>): number =>
+-  ws[FLEET_SCALING_KEY] === 'fixed' ? 1 : rules.fleetStrength[faction];
+-
+-export interface FleetOpts {
+-  /** Ship counts by class id (before scaling). */
+-  counts: Record<string, number>;
+-  /** Classes that do not scale with fleet strength (named single ships). */
+-  fixedClasses?: string[];
+-  name: string;
+-  side?: Side;
+-  formation?: FormationType;
+-  position?: Vec3;
+-  heading?: Vec3;
+-  mult?: number;
+-  arrivalTime?: number;
+-  playerControlled?: boolean;
+-  ws?: Record<string, string>;
+-  initialOrder?: FleetSpec['initialOrder'];
+-}
+-
+-/** Generic fleet builder for any faction. */
+-export function fleet(id: string, faction: FactionId, rules: RuleSet, opts: FleetOpts): FleetSpec {
+-  const m = opts.mult ?? fleetMult(rules, faction, opts.ws ?? {});
+-  const ships: ShipSpec[] = [];
+-  for (const [classId, base] of Object.entries(opts.counts)) {
+-    if (base <= 0) continue;
+-    // Unique hulls (Harbinger, the Ascension, the Normandy, the Valkyrie) exist once per battle and never scale (AP §22.1).
+-    const unique = UNIQUE_CLASS_IDS.includes(classId);
+-    const fixed = unique || opts.fixedClasses?.includes(classId);
+-    // Carriers scale more conservatively than the line.
+-    const mult = fixed ? 1 : classId.endsWith('carrier') ? Math.min(m, 1.5) : m;
+-    const count = unique ? Math.min(1, base) : scaleCount(base, mult);
+-    ships.push({ classId, count, names: NAMES[classId] });
+-  }
+-  const side = opts.side ?? (faction === 'reaper' ? 'B' : 'A');
++function apexSolAdditions(rules: RuleSet, patternFrigates: number): Record<string, number> {
++  if (!isApexRules(rules)) return {};
+   return {
+-    id,
+-    name: opts.name,
+-    faction,
+-    side,
+-    ships,
+-    formation: opts.formation ?? (faction === 'reaper' ? 'strike_wedge' : 'defensive_screen'),
+-    position: opts.position ?? (side === 'A' ? v3(0, 0, -36) : v3(0, 0, 40)),
+-    heading: opts.heading ?? (side === 'A' ? v3(0, 0, 1) : v3(0, 0, -1)),
+-    playerControlled: opts.playerControlled ?? side === 'A',
+-    arrivalTime: opts.arrivalTime,
+-    initialOrder: opts.initialOrder,
++    ...(rules.special.valkyrieAvailable ? { normandy_valkyrie: 1 } : {}),
++    ...(rules.special.superDreadnoughts ? { alliance_super_dreadnought: 1 } : {}),
++    alliance_frigate_thanix: patternFrigates,
+   };
+ }
+ 
+-const reaperFleet = (id: string, rules: RuleSet, opts: { capitals: number; destroyers: number; harbinger?: boolean; name?: string; side?: Side; position?: Vec3; heading?: Vec3; arrivalTime?: number; mult?: number; ws?: Record<string, string>; formation?: FormationType }): FleetSpec =>
+-  fleet(id, 'reaper', rules, {
+-    counts: { ...(opts.harbinger ? { harbinger: 1 } : {}), reaper_capital: opts.capitals, reaper_destroyer: opts.destroyers },
+-    fixedClasses: ['harbinger'],
+-    name: opts.name ?? 'Reaper harvest group',
+-    side: opts.side,
+-    position: opts.position,
+-    heading: opts.heading,
+-    arrivalTime: opts.arrivalTime,
+-    mult: opts.mult,
+-    ws: opts.ws,
+-    formation: opts.formation,
+-    playerControlled: opts.side === 'A',
+-  });
+-
+-const SHEPARD_WORLD_STATE: WorldStateOption = {
+-  id: 'normandy',
+-  label: 'Normandy SR-2 present',
+-  kind: 'player_dependent',
+-  description: 'Whether Shepard’s Normandy takes part in the engagement.',
+-  choices: [
+-    { id: 'yes', label: 'Normandy present', description: 'The Normandy SR-2 joins the fleet with its Thanix cannon.' },
+-    { id: 'no', label: 'Normandy absent', description: 'The Normandy is elsewhere.' },
+-  ],
+-  default: 'yes',
+-};
++/**
++ * The Sol platforms of an Apex Sol scenario (AP §19 8.10): two dreadnought-grade stations, two heavy super-accelerator
++ * stations more under `heavyPlatforms`, static on an arc ahead of the line. The Final Battle fields its own under
++ * every preset (`finalBattle.ts`); the canon Battle of Earth keeps none (AP §0.1 lists the Final Battle's platforms).
++ */
++function solPlatforms(rules: RuleSet, position: ReturnType<typeof v3>): FleetSpec[] {
++  if (!isApexRules(rules)) return [];
++  return [
++    fleet('sol-platforms', 'alliance', rules, {
++      counts: { sol_defence_platform: 2, sol_platform_heavy: rules.special.heavyPlatforms ? 2 : 0 },
++      name: 'Sol defence platforms',
++      position,
++      formation: 'static',
++      mult: 1,
++      static: true,
++      initialOrder: { order: 'defend_position' },
++    }),
++  ];
++}
+ 
+-const base = (id: string, name: string, scenarioId: string, seed: number, rules: RuleSet, environment: Environment, maxDuration: number, objective: string, ws: Record<string, string>, fleets: FleetSpec[]): BattleConfig => ({
+-  id: `${id}-${rules.id}-${seed}`,
+-  name,
+-  scenarioId,
+-  seed,
+-  rules,
+-  environment,
+-  maxDuration,
+-  perspectiveSide: 'A',
+-  objective,
+-  worldState: ws,
+-  fleets,
+-});
++/** Attaches what every scenario config may carry: the distant layer (when its option is on), the AU flag, the notes. */
++function finish(config: BattleConfig, rules: RuleSet, ws: Record<string, string>, notes: string[] = []): BattleConfig {
++  if (ws.distant_layer === 'on') config.distant = distantLayerFor(rules, config.fleets);
++  if (fieldsAuContent(config.fleets)) config.auContent = true;
++  if (notes.length > 0) config.notes = notes;
++  return config;
++}
+ 
+ export const SCENARIOS: ScenarioDef[] = [
+   {
+@@ -227,20 +132,26 @@ export const SCENARIOS: ScenarioDef[] = [
+         ],
+         default: 'standard',
+       },
++      DISTANT_LAYER_OPTION,
+     ],
+     briefing: [
+       'Reaper forces have entered Sol in strength. Arcturus Station is lost.',
+       'Fleet command intends to delay the harvest group in low Earth orbit while evacuation transports clear the gravity well.',
+       'Reaper capital ships cannot be engaged in the open on equal terms. Concentrate fire; protect the dreadnoughts.',
+     ],
+-    build: (rules, seed, ws) => {
++    build: (rules, seed, input) => {
++      const { ws, notes } = resolveWorldState(getScenario('battle_of_earth'), rules, input);
+       const commitment = ws.fleet_commitment ?? 'standard';
+-      const c = commitment === 'heavy' ? { alliance_dreadnought: 8, alliance_carrier: 2, alliance_cruiser: 18, alliance_frigate: 30 } : commitment === 'light' ? { alliance_dreadnought: 4, alliance_carrier: 1, alliance_cruiser: 10, alliance_frigate: 18 } : { alliance_dreadnought: 6, alliance_carrier: 1, alliance_cruiser: 14, alliance_frigate: 24 };
+-      return base('battle_of_earth', 'Battle of Earth', 'battle_of_earth', seed, rules, 'earth_orbit', 420, 'Hold Earth orbit against the Reaper harvest group.', ws, [
+-        fleet('alliance-5th', 'alliance', rules, { counts: { ...c, normandy_sr2: (ws.normandy ?? 'yes') === 'yes' ? 1 : 0 }, name: 'Alliance Fifth Fleet', position: v3(0, 0, -34), ws }),
++      // The dreadnought line always includes the Kilimanjaro-class pair (SSV Kilimanjaro, SSV Orizaba; AP §4.2, §0.1): the
++      // commitment's dreadnought count is unchanged, two of them are the K-class (identical combat values).
++      const c = commitment === 'heavy' ? { alliance_dreadnought: 6, alliance_carrier: 2, alliance_cruiser: 18, alliance_frigate: 30 } : commitment === 'light' ? { alliance_dreadnought: 2, alliance_carrier: 1, alliance_cruiser: 10, alliance_frigate: 18 } : { alliance_dreadnought: 4, alliance_carrier: 1, alliance_cruiser: 14, alliance_frigate: 24 };
++      const fleets = [
++        fleet('alliance-5th', 'alliance', rules, { counts: { alliance_dreadnought_k: 2, ...c, ...apexSolAdditions(rules, 3), normandy_sr2: ws.normandy === 'no' ? 0 : 1 }, fixedClasses: SOL_FIXED, name: 'Alliance Fifth Fleet', position: v3(0, 0, -34), ws }),
++        ...solPlatforms(rules, v3(0, 0, -25)),
+         reaperFleet('reaper-sol', rules, { capitals: 3, destroyers: 7, position: v3(6, 2, 46), heading: v3(-0.12, 0, -1), ws }),
+         reaperFleet('reaper-sol-2', rules, { capitals: 1, destroyers: 3, position: v3(-40, -3, 70), heading: v3(0.4, 0, -1), arrivalTime: 55, name: 'Reaper second wave', ws }),
+-      ]);
++      ];
++      return finish(base('battle_of_earth', 'Battle of Earth', 'battle_of_earth', seed, rules, 'earth_orbit', 420, 'Hold Earth orbit against the Reaper harvest group.', ws, fleets), rules, ws, notes);
+     },
+   },
+   {
+@@ -483,50 +394,14 @@ export const SCENARIOS: ScenarioDef[] = [
+     recommendedRules: ['canon_me3', 'prime_apex', 'prepared_galaxy'],
+     objective: 'Break the Reaper blockade of Earth.',
+     maxDuration: 540,
+-    worldState: [
+-      {
+-        id: 'forces',
+-        label: 'Order of battle',
+-        kind: 'extrapolation',
+-        description: 'Use the current campaign’s fleets, or the default combined fleet.',
+-        choices: [
+-          { id: 'campaign', label: 'From campaign (if one is saved)', description: 'Surviving allied fleets vs remaining Reaper fleets.' },
+-          { id: 'default', label: 'Default combined fleet', description: 'Alliance, Hierarchy, Republics, Migrant Fleet and geth vs Harbinger’s armada.' },
+-        ],
+-        default: 'campaign',
+-      },
+-      {
+-        id: 'genophage',
+-        label: 'Genophage cure',
+-        kind: 'player_dependent',
+-        description: 'In canon the Dalatrass commits the Salarian First Fleet only if Shepard sabotages the cure.',
+-        choices: [
+-          { id: 'cured', label: 'Cure deployed', description: 'No salarian fleet joins Sword (krogan ground forces instead, not modelled here).' },
+-          { id: 'sabotaged', label: 'Cure sabotaged', description: 'The Salarian First Fleet joins the default combined fleet.' },
+-        ],
+-        default: 'cured',
+-      },
++    worldState: FINAL_BATTLE_WORLD_STATE,
++    briefing: [
++      'Sword fleet engages the Reapers in orbit while Hammer lands.',
++      'Harbinger commands the blockade in person.',
++      'Campaign-linked: fleet strengths follow the saved war when one exists.',
++      'Cinematic opening: the fleets arrive in waves and open with a coordinated volley; orders unlock at 01:20 (K skips the opening).',
+     ],
+-    briefing: ['Sword fleet engages the Reapers in orbit while Hammer lands.', 'Harbinger commands the blockade in person.', 'Campaign-linked: fleet strengths follow the saved war when one exists.'],
+-    build: (rules, seed, ws) => {
+-      const fleets: FleetSpec[] = [];
+-      const campaignCounts = ws.campaignAllied ? (JSON.parse(ws.campaignAllied) as { name: string; faction: FactionId; counts: Record<string, number> }[]) : undefined;
+-      const reaperCounts = ws.campaignReaper ? (JSON.parse(ws.campaignReaper) as Record<string, number>) : undefined;
+-      if ((ws.forces ?? 'campaign') === 'campaign' && campaignCounts && campaignCounts.length > 0 && reaperCounts) {
+-        campaignCounts.forEach((f, i) => fleets.push(fleet(`sword-${i}`, f.faction, rules, { counts: f.counts, name: f.name, position: v3(-24 + (i % 4) * 16, 0, -34 - Math.floor(i / 4) * 8), formation: i === 0 ? 'line_abreast' : 'defensive_screen', mult: 1 })));
+-        fleets.push(fleet('reaper-blockade', 'reaper', rules, { counts: reaperCounts, fixedClasses: ['harbinger'], name: 'Reaper blockade', side: 'B', position: v3(0, 0, 46), heading: v3(0, 0, -1), formation: 'strike_wedge', mult: 1 }));
+-      } else {
+-        fleets.push(fleet('sword-alliance', 'alliance', rules, { counts: { alliance_dreadnought: 6, alliance_carrier: 2, alliance_cruiser: 16, alliance_frigate: 24, normandy_sr2: (ws.normandy ?? 'yes') === 'yes' ? 1 : 0 }, name: 'Sword Fleet (Alliance)', position: v3(-20, 0, -34), formation: 'line_abreast', ws }));
+-        fleets.push(fleet('sword-turian', 'turian', rules, { counts: { turian_dreadnought: 5, turian_cruiser: 10, turian_frigate: 16 }, name: 'Sword Fleet (Hierarchy)', position: v3(18, 0, -38), formation: 'line_abreast', ws }));
+-        fleets.push(fleet('sword-asari', 'asari', rules, { counts: { destiny_ascension: ws.ascension === 'absent' ? 0 : 1, asari_dreadnought: 2, asari_cruiser: 8 }, fixedClasses: ['destiny_ascension'], name: 'Sword Fleet (Republics)', position: v3(0, 4, -48), formation: 'defensive_screen', ws }));
+-        fleets.push(fleet('sword-quarian', 'quarian', rules, { counts: { quarian_heavy: 3, quarian_cruiser: 10 }, name: 'Migrant Fleet detachment', position: v3(-40, 0, -46), formation: 'defensive_screen', ws }));
+-        fleets.push(fleet('sword-geth', 'geth', rules, { counts: { geth_dreadnought: 1, geth_cruiser: 8, geth_frigate: 12 }, fixedClasses: ['geth_dreadnought'], name: 'Geth fleet', position: v3(40, 0, -44), formation: 'strike_wedge', ws }));
+-        if (ws.genophage === 'sabotaged') fleets.push(fleet('sword-salarian', 'salarian', rules, { counts: { salarian_dreadnought: 2, salarian_cruiser: 8, salarian_frigate: 12 }, name: 'Salarian First Fleet', position: v3(0, -6, -56), formation: 'line_abreast', ws }));
+-        fleets.push(reaperFleet('reaper-blockade', rules, { capitals: 6, destroyers: 14, harbinger: true, name: 'Reaper blockade', position: v3(0, 0, 46), ws }));
+-        fleets.push(reaperFleet('reaper-blockade-2', rules, { capitals: 3, destroyers: 8, name: 'Reaper reserve', position: v3(-50, 0, 76), heading: v3(0.4, 0, -1), arrivalTime: 90, ws }));
+-      }
+-      return base('final_battle_of_earth', 'Final Battle of Earth', 'final_battle_of_earth', seed, rules, 'earth_orbit', 540, 'Break the Reaper blockade of Earth.', ws, fleets);
+-    },
++    build: (rules, seed, ws) => buildFinalBattle(rules, seed, ws),
+   },
+   {
+     id: 'alliance_fleet_engagement',
+@@ -560,12 +435,23 @@ export const SCENARIOS: ScenarioDef[] = [
+       'The Alliance Home Fleet is at full war strength. No allied fleets are available.',
+       'Expect the Reapers to adapt. Their numbers and weapons are unchanged.',
+     ],
+-    build: (rules, seed, ws) =>
+-      base('prime_apex_sol_defence', 'Prime/Apex — Sol Defence', 'prime_apex_sol_defence', seed, rules, 'earth_orbit', 480, 'Defeat the Reaper invasion force in Sol without allied assistance.', ws, [
+-        fleet('alliance-home', 'alliance', rules, { counts: { alliance_dreadnought: 8, alliance_carrier: 2, alliance_cruiser: 18, alliance_frigate: 30, normandy_sr2: 1 }, name: 'Alliance Home Fleet', formation: 'line_abreast', position: v3(0, 0, -36), mult: 1 }),
+-        reaperFleet('reaper-sol', rules, { capitals: 4, destroyers: 8, position: v3(0, 0, 44), mult: 1 }),
+-        reaperFleet('reaper-sol-2', rules, { capitals: 2, destroyers: 4, position: v3(-45, 0, 70), heading: v3(0.4, 0, -1), arrivalTime: 70, name: 'Reaper second wave', mult: 1 }),
+-      ]),
++    worldState: [SHEPARD_WORLD_STATE],
++    build: (rules, seed, input) => {
++      const { ws, notes } = resolveWorldState(getScenario('prime_apex_sol_defence'), rules, input);
++      // The Home Fleet at full war strength: the K-class pair in its dreadnought line, and under the Apex mechanics the
++      // Valkyrie, SSV Omaha, four SR-2-pattern stealth frigates and the Sol platforms (AP §22.1, §19 8.10).
++      return finish(
++        base('prime_apex_sol_defence', 'Prime/Apex — Sol Defence', 'prime_apex_sol_defence', seed, rules, 'earth_orbit', 480, 'Defeat the Reaper invasion force in Sol without allied assistance.', ws, [
++          fleet('alliance-home', 'alliance', rules, { counts: { alliance_dreadnought_k: 2, alliance_dreadnought: 6, alliance_carrier: 2, alliance_cruiser: 18, alliance_frigate: 30, ...apexSolAdditions(rules, 4), normandy_sr2: ws.normandy === 'no' ? 0 : 1 }, fixedClasses: SOL_FIXED, name: 'Alliance Home Fleet', formation: 'line_abreast', position: v3(0, 0, -36), mult: 1 }),
++          ...solPlatforms(rules, v3(0, 0, -26)),
++          reaperFleet('reaper-sol', rules, { capitals: 4, destroyers: 8, position: v3(0, 0, 44), mult: 1 }),
++          reaperFleet('reaper-sol-2', rules, { capitals: 2, destroyers: 4, position: v3(-45, 0, 70), heading: v3(0.4, 0, -1), arrivalTime: 70, name: 'Reaper second wave', mult: 1 }),
++        ]),
++        rules,
++        ws,
++        notes,
++      );
++    },
+   },
+   {
+     id: 'prime_apex_palaven_defence',
+@@ -633,11 +519,20 @@ export const defaultWorldState = (s: ScenarioDef): Record<string, string> => {
+   return ws;
+ };
+ 
+-/** Convenience: build a config for a scenario + preset id. */
++/**
++ * Convenience: build a config for a scenario + preset id. The world state is resolved against the rules first
++ * (`resolveWorldState`: defaults, `'auto'`, unavailable or disabled choices), so headless runs, tests and the briefing
++ * build the same battle.
++ */
+ export function buildScenario(scenarioId: string, rulesId: string, seed: number, worldState?: Record<string, string>): BattleConfig {
+   const s = getScenario(scenarioId);
+   const rules = getPreset(rulesId);
+-  return s.build(rules, seed, { ...defaultWorldState(s), ...(worldState ?? {}) });
++  const resolved = resolveWorldState(s, rules, { ...defaultWorldState(s), ...(worldState ?? {}) });
++  const config = s.build(rules, seed, resolved.ws);
++  // The builder sees the resolved record, so the coercion notes come from this resolution.
++  const notes = [...resolved.notes, ...(config.notes ?? []).filter((n) => !resolved.notes.includes(n))];
++  if (notes.length > 0) config.notes = notes;
++  return config;
+ }
+ 
+ // ------------------------------------------------------------ custom battles
+diff --git a/src/scenarios/worldState.ts b/src/scenarios/worldState.ts
+new file mode 100644
+index 0000000..be3ed44
+--- /dev/null
++++ b/src/scenarios/worldState.ts
+@@ -0,0 +1,260 @@
++import type { FactionId } from '@/data/types';
++import { isApexScenario, type RuleSet } from '@/timelines/rules';
++
++/**
++ * Declared world state (CUSTOM_BATTLE_DESIGN.md §3.2, ADOPTION_PLAN.md §4.1, WORK_BREAKDOWN.md §1.3.12): the options a
++ * scenario offers, how a stored or hand-made record resolves against a rule set (`resolveWorldState`), and the options
++ * the Final Battle of Earth and the Sol scenarios share. A builder always receives a resolved record: no missing key,
++ * no `'auto'`, no choice the rules cannot field; every coercion leaves a note for the briefing.
++ */
++
++export interface WorldStateChoice {
++  id: string;
++  label: string;
++  description: string;
++  /** The choice exists only under these rules; otherwise it resolves to the option's default, with a note. */
++  availableWhen?: (rules: RuleSet) => boolean;
++  /** What the choice needs, for that note ("a timeline in which Cerberus cooperates"). */
++  requires?: string;
++  /** Alternate-universe content (the briefing badges it). */
++  au?: boolean;
++}
++
++export interface WorldStateOption {
++  id: string;
++  label: string;
++  /** Provenance category for the UI. */
++  kind: 'player_dependent' | 'extrapolation' | 'au';
++  description: string;
++  choices: WorldStateChoice[];
++  /** The default choice id. `'auto'` (offered as a choice) resolves through `defaultFor`. */
++  default: string;
++  /**
++   * Resolves `'auto'` and a missing key from the rules and the options resolved before this one (the second
++   * argument; options resolve in declaration order). Callers that pass the rules alone get the rules-only answer.
++   */
++  defaultFor?: (rules: RuleSet, ws?: Record<string, string>) => string;
++  /** Hide the option entirely under these rules (its key is dropped from the resolved record). */
++  showWhen?: (rules: RuleSet) => boolean;
++  /** Only meaningful under a condition: the reason it is disabled; the value then resolves to `disabledChoice`. */
++  disabledWhen?: (rules: RuleSet, ws: Record<string, string>) => string | undefined;
++  /** The choice a disabled option resolves to (default: its resolved default). */
++  disabledChoice?: string;
++  /** The description under these rules (the distant layer's canon line versus the Apex line, AP §4.1). */
++  descriptionFor?: (rules: RuleSet) => string;
++}
++
++/** The `'auto'` choice id: resolved by the option's `defaultFor`. */
++export const AUTO = 'auto';
++
++/** Anything that declares world state (a `ScenarioDef`). */
++export interface WorldStateHost {
++  worldState?: WorldStateOption[];
++}
++
++/** The option's description under these rules. */
++export const describeOption = (o: WorldStateOption, rules: RuleSet): string => o.descriptionFor?.(rules) ?? o.description;
++
++/**
++ * Resolves a world-state record for a scenario under a rule set (pure, total, idempotent). In declaration order, each
++ * option: hidden (`showWhen` false) → its key is dropped; missing or `'auto'` → `defaultFor(rules, resolved so far)`
++ * or `default`; an unknown choice or one whose `availableWhen` fails → the resolved default, with a note; disabled
++ * (`disabledWhen` gives a reason) → `disabledChoice` (or the resolved default), with the reason as a note when that
++ * changes the value. Keys no option declares (campaign forces, `fleet_scaling`) pass through untouched.
++ */
++export function resolveWorldState(s: WorldStateHost, rules: RuleSet, ws: Record<string, string>): { ws: Record<string, string>; notes: string[] } {
++  const out: Record<string, string> = { ...ws };
++  const notes: string[] = [];
++  for (const o of s.worldState ?? []) {
++    if (o.showWhen && !o.showWhen(rules)) {
++      delete out[o.id];
++      continue;
++    }
++    const find = (id: string | undefined): WorldStateChoice | undefined => (id === undefined ? undefined : o.choices.find((c) => c.id === id));
++    const available = (c: WorldStateChoice | undefined): boolean => c !== undefined && c.id !== AUTO && (!c.availableWhen || c.availableWhen(rules));
++    const label = (id: string): string => find(id)?.label ?? id;
++    // The resolved default: defaultFor (or default), never 'auto', always a choice these rules can field.
++    let def = o.defaultFor ? o.defaultFor(rules, out) : o.default;
++    if (!available(find(def))) def = o.choices.find((c) => available(c))?.id ?? def;
++    let v = out[o.id];
++    if (v === undefined || v === AUTO) v = def;
++    else {
++      const c = find(v);
++      if (c === undefined) {
++        notes.push(`${o.label}: unknown choice “${v}”; resolved to “${label(def)}”.`);
++        v = def;
++      } else if (!available(c)) {
++        notes.push(`${o.label}: “${c.label}” needs ${c.requires ?? 'another timeline'}; resolved to “${label(def)}” under ${rules.name}.`);
++        v = def;
++      }
++    }
++    const disabled = o.disabledWhen?.(rules, out);
++    if (disabled !== undefined) {
++      const forced = o.disabledChoice ?? def;
++      if (v !== forced) notes.push(disabled);
++      v = forced;
++    }
++    out[o.id] = v;
++  }
++  return { ws: out, notes };
++}
++
++// ------------------------------------------------------------ shared options
++
++/** Shepard's Normandy (AP §22.1: exactly one `normandy_sr2` where the world state says so). */
++export const SHEPARD_WORLD_STATE: WorldStateOption = {
++  id: 'normandy',
++  label: 'Normandy SR-2 present',
++  kind: 'player_dependent',
++  description: 'Whether Shepard’s Normandy takes part in the engagement.',
++  choices: [
++    { id: 'yes', label: 'Normandy present', description: 'The Normandy SR-2 joins the fleet with its Thanix cannon.' },
++    { id: 'no', label: 'Normandy absent', description: 'The Normandy is elsewhere.' },
++  ],
++  default: 'yes',
++};
++
++/** The distant engagement layer's canon description (AP §4.1). */
++export const DISTANT_LAYER_CANON_TEXT = 'Distant engagement layer: a visual extrapolation of the unknown remainder of the fleets; canon gives no hull count; it never changes the result';
++/** The sentence the Apex scenarios add (AP §4.1, §13.2). */
++export const DISTANT_LAYER_APEX_TEXT = '38,420 is an AU scenario value';
++
++/**
++ * The distant engagement layer (AP §4.1, §4.4, §13.3): an extrapolation, on by default and switchable under every
++ * preset; under the Apex scenarios (`isApexScenario`, never the Apex flags) its description names the AU figure.
++ */
++export const DISTANT_LAYER_OPTION: WorldStateOption = {
++  id: 'distant_layer',
++  label: 'Distant engagement layer',
++  kind: 'extrapolation',
++  description: DISTANT_LAYER_CANON_TEXT,
++  descriptionFor: (rules) => (isApexScenario(rules) ? `${DISTANT_LAYER_CANON_TEXT}; ${DISTANT_LAYER_APEX_TEXT}` : DISTANT_LAYER_CANON_TEXT),
++  choices: [
++    { id: 'on', label: 'On (statistical)', description: 'Distant echelons fight statistically beyond the simulated fleets; the result is never affected.' },
++    { id: 'off', label: 'Off', description: 'Only the simulated fleets.' },
++  ],
++  default: 'on',
++};
++
++// ------------------------------------------------------------ campaign forces
++
++/** One allied campaign fleet as the briefing passes it (`ws.campaignAllied`, JSON). */
++export interface CampaignAlliedFleet {
++  name: string;
++  faction: FactionId;
++  counts: Record<string, number>;
++}
++
++/** The saved campaign's forces carried in the world state (`campaignAllied` / `campaignReaper`), or undefined. */
++export function campaignForces(ws: Record<string, string>): { allied: CampaignAlliedFleet[]; reaper: Record<string, number> } | undefined {
++  if (!ws.campaignAllied || !ws.campaignReaper) return undefined;
++  try {
++    const allied = JSON.parse(ws.campaignAllied) as unknown;
++    const reaper = JSON.parse(ws.campaignReaper) as unknown;
++    if (!Array.isArray(allied) || allied.length === 0 || reaper === null || typeof reaper !== 'object' || Array.isArray(reaper)) return undefined;
++    const fleets = (allied as CampaignAlliedFleet[]).filter((f) => f && typeof f.name === 'string' && typeof f.faction === 'string' && f.counts && typeof f.counts === 'object');
++    return fleets.length > 0 ? { allied: fleets, reaper: reaper as Record<string, number> } : undefined;
++  } catch {
++    return undefined;
++  }
++}
++
++// ------------------------------------------------------------ the Final Battle of Earth
++
++const cerberusCooperates = (rules: RuleSet): boolean => rules.strategic.cerberusStance === 'cooperative' || rules.strategic.cerberusStance === 'controls_reapers';
++
++/** The Cerberus option's hostile line (AP §4.1): shown in the briefing whenever the hostile group is chosen. */
++export const CERBERUS_HOSTILE_TEXT = 'Extrapolation: Cerberus forces were not at the Battle of Earth in ME3';
++
++/** The pace knob's choices (AP §4.1). */
++export const BEAT_SCALE_CHOICES = ['0.5', '0.75', '1', '1.25', '1.5', '2'] as const;
++
++/**
++ * The Final Battle of Earth's options in display order (AP §4.1; CUSTOM_BATTLE_DESIGN.md §3.2): `normandy`,
++ * `ascension`, `forces`, `genophage`, `cerberus`, `cinematic_arrival`, `beat_scale`, `distant_layer`.
++ */
++export const FINAL_BATTLE_WORLD_STATE: WorldStateOption[] = [
++  SHEPARD_WORLD_STATE,
++  {
++    id: 'ascension',
++    label: 'Destiny Ascension',
++    kind: 'player_dependent',
++    description: 'Whether the Destiny Ascension survived the Battle of the Citadel (2183) and sails with Sword.',
++    choices: [
++      { id: 'present', label: 'Ascension present', description: 'The asari flagship anchors the Republics’ line.' },
++      { id: 'absent', label: 'Ascension lost or elsewhere', description: 'No asari flagship.' },
++    ],
++    default: 'present',
++  },
++  {
++    id: 'forces',
++    label: 'Order of battle',
++    kind: 'extrapolation',
++    description: 'Use the current campaign’s fleets, or the default combined fleet.',
++    choices: [
++      { id: 'campaign', label: 'From campaign (if one is saved)', description: 'Surviving allied fleets vs remaining Reaper fleets.' },
++      { id: 'default', label: 'Default combined fleet', description: 'Alliance, Hierarchy, Republics, Migrant Fleet and geth vs Harbinger’s armada.' },
++    ],
++    default: 'campaign',
++    disabledWhen: (_rules, ws) => (campaignForces(ws) ? undefined : 'No saved campaign: the default combined fleet is used.'),
++    disabledChoice: 'default',
++  },
++  {
++    id: 'genophage',
++    label: 'Genophage cure',
++    kind: 'player_dependent',
++    description: 'In canon the Dalatrass commits the Salarian First Fleet only if Shepard sabotages the cure.',
++    choices: [
++      { id: 'cured', label: 'Cure deployed', description: 'No salarian fleet joins Sword (krogan ground forces instead, not modelled here).' },
++      { id: 'sabotaged', label: 'Cure sabotaged', description: 'The Salarian First Fleet joins the default combined fleet.' },
++    ],
++    default: 'cured',
++  },
++  {
++    id: 'cerberus',
++    label: 'Cerberus at Sol',
++    kind: 'extrapolation',
++    description: 'Whether a Cerberus fleet takes part in the battle for Earth, and on whose side.',
++    choices: [
++      { id: AUTO, label: 'By timeline', description: 'Allied when the timeline’s Cerberus cooperates, hostile otherwise.' },
++      {
++        id: 'allied',
++        label: 'Allied (AU)',
++        description: 'Alternate universe: a Cerberus fleet arrives beside Sword (Black Fleet hulls under the Apex timelines).',
++        availableWhen: cerberusCooperates,
++        requires: 'a timeline in which Cerberus cooperates',
++        au: true,
++      },
++      { id: 'hostile', label: 'Hostile', description: `${CERBERUS_HOSTILE_TEXT}. A strike group arrives at 150 s, hostile to both sides; it counts with the Reapers for the result.` },
++      { id: 'absent', label: 'Absent', description: 'No Cerberus fleet at Sol.' },
++    ],
++    default: AUTO,
++    defaultFor: (rules) => (cerberusCooperates(rules) ? 'allied' : 'hostile'),
++    disabledWhen: (_rules, ws) => (ws.forces === 'campaign' ? 'The campaign’s fleets decide; Cerberus campaign fleets at Sol are not modelled (absent).' : undefined),
++    disabledChoice: 'absent',
++  },
++  {
++    id: 'cinematic_arrival',
++    label: 'Cinematic opening',
++    kind: 'extrapolation',
++    description: 'Stage the first 80 seconds on a fixed beat table (arrival waves, form-up, the Reaper advance, a simultaneous volley); player orders unlock at 01:20.',
++    choices: [
++      { id: AUTO, label: 'By order of battle', description: 'On with the default combined fleet, off with the campaign’s fleets.' },
++      { id: 'on', label: 'On', description: 'The fleets arrive in waves and open with a coordinated volley; orders unlock when the opening ends.' },
++      { id: 'off', label: 'Off', description: 'The fleets start in position and the battle is yours from the first second.' },
++    ],
++    default: AUTO,
++    defaultFor: (_rules, ws) => (ws?.forces === 'campaign' ? 'off' : 'on'),
++  },
++  {
++    id: 'beat_scale',
++    label: 'Opening pace',
++    kind: 'extrapolation',
++    description: 'Stretches or compresses the cinematic opening’s beat table (times and captions; the physics do not scale).',
++    choices: BEAT_SCALE_CHOICES.map((id) => ({ id, label: `× ${id}`, description: id === '1' ? 'The default pace.' : Number(id) < 1 ? 'A faster opening.' : 'A slower opening.' })),
++    default: '1',
++    disabledWhen: (_rules, ws) => (ws.cinematic_arrival === 'off' ? 'Opening pace applies only with the cinematic opening.' : undefined),
++    disabledChoice: '1',
++  },
++  DISTANT_LAYER_OPTION,
++];
+diff --git a/src/simulation/ai.ts b/src/simulation/ai.ts
+index 80ba77d..3cb556b 100644
+--- a/src/simulation/ai.ts
++++ b/src/simulation/ai.ts
+@@ -56,6 +56,8 @@ export interface AiContext {
+   candidates(ship: ShipState, radius: number): ShipState[];
+   /** The visible enemy combatant with the highest recent damage — the Reapers' "active gun platform" (AP §10; cached per tick). */
+   activeGunPlatform(side: 'A' | 'B'): ShipState | undefined;
++  /** A scripted opening holds the player's orders (`BattleSimulation.playerLocked`); undefined outside a simulation. */
++  readonly playerLocked?: boolean;
+ }
+ 
+ /** The expensive part of a fleet decision (member lists, centroids, ranges) is refreshed on this timer (AP §21.5 stagger). */
+@@ -75,6 +77,8 @@ export interface MovementGoal {
+   repel?: Vec3;
+   /** Drive overload: multiplies the top speed and the acceleration (a Black Fleet drive run ramps it 1 → 4, AP §9). */
+   boost?: number;
++  /** A stealth hunter's leg out of the enemy's reach: a reversal is flown in the sense that unwinds its path (`REVERSAL_RAD`, movement.ts). */
++  unwind?: boolean;
+ }
+ 
+ export const doctrineOf = (ship: ShipState): FactionDoctrine => FACTIONS[ship.faction].doctrine;
+@@ -476,8 +480,10 @@ export function movementGoal(ctx: AiContext, ship: ShipState, fleet: FleetState)
+   if (target && target.alive && frigateRuns(ship, fleet)) return frigateRunGoal(ctx, ship, fleet, target);
+   ship.manoeuvre = undefined;
+   if (ship.role === 'carrier') return carrierGoal(ctx, ship, fleet, slotPos, slotVel, target);
+-  // Reapers never idle: with no target in range and the anchor stopped, close on the nearest enemy group.
+-  if (ship.faction === 'reaper') {
++  // Reapers never idle: with no target in range and the anchor stopped, close on the nearest enemy group — except a
++  // fleet a scripted opening holds (the player locked out and the fleet ordered to hold: the Final Battle's blockade
++  // waits below the coalition's plane for its advance beat, AP §4.2).
++  if (ship.faction === 'reaper' && !(ctx.playerLocked === true && fleet.orders.order === 'hold_formation')) {
+     const advance = reaperAdvanceGoal(ctx, ship, fleet, target);
+     if (advance) return advance;
+   }
+diff --git a/src/simulation/battle.ts b/src/simulation/battle.ts
+index 8685fcf..427be7a 100644
+--- a/src/simulation/battle.ts
++++ b/src/simulation/battle.ts
+@@ -37,6 +37,7 @@ import { ARC_VERTICAL_REACH, BATTLESPACE_SCALE as S, SIM_DT } from './constants'
+ import { DEFAULT_ARRIVAL_STAGGER, arrivalPending, arrivalPos, arrivalProfileFor } from './arrival';
+ import { applyBeat, beatApplies, clampBeatScale, resolveFleetSel as resolveFleetSelIn, resolveShipRef as resolveShipRefIn, scheduleBeats, waveSpawnPending, type ScheduledBeat } from './beats';
+ import { DistantLayer, type DistantHost } from './distant';
++import { readinessCrewQuality } from './readiness';
+ import { considerDriveRun, tickDriveRun, type DriveHost } from './driveAttack';
+ import { flagshipDestroyedEvent } from './flagships';
+ import type { SimKernel } from './kernel';
+@@ -425,12 +426,20 @@ export class BattleSimulation implements AiContext {
+     return v3(fleet.anchor.x + rx * slot.x + h.x * slot.z, fleet.anchor.y + slot.y, fleet.anchor.z + rz * slot.x + h.z * slot.z);
+   }
+ 
++  /**
++   * The rules a fleet's hulls are built with: the battle's, plus the fleet's `techOverride` and its readiness tier
++   * (AP §1.6: crew quality × the tier weight × `special.readinessScale`, on top of the override or the faction's value;
++   * Reapers never take a tier).
++   */
+   private rulesFor(spec: FleetSpec): RuleSet {
+-    if (!spec.techOverride) return this.rules;
++    const tier = spec.readiness !== undefined && spec.faction !== 'reaper' ? spec.readiness : undefined;
++    if (!spec.techOverride && !tier) return this.rules;
+     let r = this.fleetRules.get(spec.id);
+     if (!r) {
+       r = cloneRules(this.rules);
+-      r.factionOverrides[spec.faction] = { ...(r.factionOverrides[spec.faction] ?? {}), ...spec.techOverride };
++      const over = { ...(r.factionOverrides[spec.faction] ?? {}), ...(spec.techOverride ?? {}) };
++      if (tier) over.crewQuality = readinessCrewQuality(over.crewQuality ?? r.organic.crewQuality, tier, r.special.readinessScale);
++      r.factionOverrides[spec.faction] = over;
+       this.fleetRules.set(spec.id, r);
+     }
+     return r;
+@@ -751,9 +760,10 @@ export class BattleSimulation implements AiContext {
+ 
+   /**
+    * Applies an order patch to a fleet. `'player'` (through `issueOrders`): a static fleet refuses the whole patch when
+-   * it would move; a new order clears every forced target of the fleet. `'beat'` (scripted, passes the player lock): a
+-   * static fleet keeps the parts it can follow (a hold, a priority, a target) and refuses only the movement; a new
+-   * order spares the scripted forced targets (`forcedTargetUntil` set), which lapse on their own.
++   * it would move (`order_rejected`); a new order clears every forced target of the fleet. `'beat'` (scripted, passes
++   * the player lock): a static fleet keeps the parts it can follow (a hold, a priority, a target) and drops only the
++   * movement, quietly (a side-wide beat reaches the platforms too); a new order spares the scripted forced targets
++   * (`forcedTargetUntil` set), which lapse on their own.
+    */
+   private applyOrders(fleetId: string, input: Partial<FleetOrders>, source: 'beat' | 'player'): 'issued' | 'rejected' {
+     const fleet = this.fleets.get(fleetId);
+@@ -769,8 +779,11 @@ export class BattleSimulation implements AiContext {
+     }
+     const label = orderLabel(patch);
+     if (fleet.static && movesFleet(patch, fleet.orders)) {
+-      this.emit({ t: this.time, type: 'order_rejected', fleetId, order: label, reason: 'static_fleet' });
+-      if (source === 'player') return 'rejected';
++      // The rejection is the player's feedback (the HUD toast); a scripted order drops the movement quietly.
++      if (source === 'player') {
++        this.emit({ t: this.time, type: 'order_rejected', fleetId, order: label, reason: 'static_fleet' });
++        return 'rejected';
++      }
+       const kept: Partial<FleetOrders> = { ...patch };
+       if (kept.order !== undefined && MOVE_ORDERS.has(kept.order)) delete kept.order;
+       delete kept.formation;
+diff --git a/src/simulation/beats.ts b/src/simulation/beats.ts
+index 0dd7add..52fc8fd 100644
+--- a/src/simulation/beats.ts
++++ b/src/simulation/beats.ts
+@@ -1,5 +1,5 @@
+ import { FACTIONS } from '@/data/factions';
+-import type { FactionId, ShipRole } from '@/data/types';
++import { isCapitalRole, type FactionId, type ShipRole } from '@/data/types';
+ import { DEFAULT_ARRIVAL_STAGGER } from './arrival';
+ import type { BattleSimulation } from './battle';
+ import { SIM_DT } from './constants';
+@@ -7,7 +7,7 @@ import { FORCE_TARGET_SECONDS } from './specials';
+ import { gridFilterPasses } from './spatial';
+ import { silentHull } from './stealth';
+ import { volleyMount } from './volley';
+-import type { Beat, BeatEvent, BeatScript, FleetOrders, FleetSel, FleetSpec, FleetState, ShipRef, ShipState, Side, SpecialTrigger } from './types';
++import type { Beat, BeatEvent, BeatScript, FleetOrders, FleetSel, FleetSpec, FleetState, ShipRef, ShipState, Side, SpecialTrigger, VolleyMounts } from './types';
+ 
+ export type { ArrivalProfile, Beat, BeatEvent, BeatScript, CaptionStyle, FleetSel, ShipRef, SpecialTrigger, VolleyMounts } from './types';
+ 
+@@ -201,6 +201,59 @@ export function waveSpawnPending(sim: BattleSimulation, side: Side): boolean {
+   return false;
+ }
+ 
++/** A spread's weight: a hull already chosen by n ships counts as `1 + SPREAD_LOAD × n` times as far… */
++export const SPREAD_LOAD = 0.5;
++/** …and a hull whose class (capital-class or not) n ships already chose as `1 + SPREAD_CLASS_LOAD × n` times as far. */
++export const SPREAD_CLASS_LOAD = 0.15;
++/** Candidates within this × the shooter's reach (its longest mount of the class) come first; none within reach, all count. */
++export const SPREAD_REACH = 1.1;
++
++/**
++ * A spread's per-ship targets (AP §4.3: "resolved per mount, so the beams spread over the nearest line hulls"; the mark,
++ * "barriers ripple in a wall"): in ship order, each shooter takes, among the hulls its `nearest` query qualifies (side,
++ * role filters; present, visible, hostile) — those within its reach first —, the one that minimises distance × (1 +
++ * SPREAD_LOAD × the shooters that already chose that hull) × (1 + SPREAD_CLASS_LOAD × the shooters that already chose
++ * its class), so the fire spreads over the nearest hulls and over the classes the query names (the answer's cruisers
++ * and the dreadnoughts behind them). Deterministic (ties by ship id). Any other reference resolves per ship as before.
++ */
++export function spreadTargets(sim: BattleSimulation, shooters: readonly ShipState[], ref: ShipRef, mounts?: VolleyMounts): Map<string, string> {
++  const out = new Map<string, string>();
++  const load = new Map<string, number>();
++  const classLoad = new Map<boolean, number>();
++  const host: RefHost = { ships: sim.ships, fleets: sim.fleets, config: sim.config, getShip: (id) => sim.getShip(id), pending: (x) => sim.isPending(x) };
++  const nearest = 'query' in ref && ref.query === 'nearest' && ref.to === undefined ? ref : undefined;
++  const cands = nearest ? [...queryCands(host, nearest.side, nearest.role, nearest.roles)] : [];
++  for (const s of shooters) {
++    let t: ShipState | undefined;
++    if (nearest) {
++      let reach = 0;
++      for (const w of s.weapons) if ((mounts ? volleyMount(w, mounts) : !w.def.antiSmall) && w.def.range > reach) reach = w.def.range;
++      const pick = (inReach: boolean): ShipState | undefined => {
++        let found: ShipState | undefined;
++        let bestScore = Infinity;
++        for (const c of cands) {
++          if (c === s || !gridFilterPasses(s, c)) continue;
++          const d = Math.hypot(c.pos.x - s.pos.x, c.pos.y - s.pos.y, c.pos.z - s.pos.z);
++          if (inReach && d > reach * SPREAD_REACH) continue;
++          const score = d * (1 + SPREAD_LOAD * (load.get(c.id) ?? 0)) * (1 + SPREAD_CLASS_LOAD * (classLoad.get(isCapitalRole(c.role)) ?? 0));
++          if (score < bestScore || (score === bestScore && found !== undefined && c.id < found.id)) {
++            bestScore = score;
++            found = c;
++          }
++        }
++        return found;
++      };
++      t = pick(true) ?? pick(false);
++    } else t = sim.resolveShipRef(ref, s);
++    if (!t) continue;
++    out.set(s.id, t.id);
++    load.set(t.id, (load.get(t.id) ?? 0) + 1);
++    const cls = isCapitalRole(t.role);
++    classLoad.set(cls, (classLoad.get(cls) ?? 0) + 1);
++  }
++  return out;
++}
++
+ /** The fleet's representative for references resolved per fleet: its largest live, present hull. */
+ const representative = (sim: BattleSimulation, fleet: FleetState): ShipState | undefined =>
+   best(
+@@ -284,9 +337,12 @@ function runBeat(sim: BattleSimulation, beat: Beat): BeatOutcome {
+       }
+       // Strict references (`requireAlive: true`): an unresolved anchor or target skips the beat instead.
+       if (note !== undefined && beat.requireAlive === true) return SKIPPED;
++      const mounts = ev.mounts ?? 'spinal';
++      const shooters = targetRef && ev.spread ? fleets.flatMap((f) => sim.membersOf(f.spec.id).filter((s) => s.role !== 'fighter' && !s.stealth && s.weapons.some((w) => volleyMount(w, mounts)))) : [];
++      const targets = targetRef && ev.spread ? spreadTargets(sim, shooters, targetRef, mounts) : undefined;
+       sim.orderVolley(
+         fleets.map((f) => f.spec.id),
+-        { lead: ev.lead, window: ev.window, mounts: ev.mounts, targetRef, anchorShipId, syncArrival: ev.syncArrival },
++        { lead: ev.lead, window: ev.window, mounts: ev.mounts, targetRef, targets, anchorShipId, syncArrival: ev.syncArrival },
+       );
+       return { outcome: 'fired', note };
+     }
+@@ -298,14 +354,28 @@ function runBeat(sim: BattleSimulation, beat: Beat): BeatOutcome {
+         if (s && !ships.includes(s)) ships.push(s);
+       }
+       const fleets = ev.fleets !== undefined ? sim.resolveFleetSel(ev.fleets) : [];
+-      for (const f of fleets) for (const s of sim.membersOf(f.spec.id)) if (s.role !== 'fighter' && !ships.includes(s)) ships.push(s);
++      // A fleet-wide mark leaves stealth hunters to their doctrine (they hold no line station and fire in no volley,
++      // brief §15.2); a scripted reference that names one (`ships`) still forces it.
++      for (const f of fleets) for (const s of sim.membersOf(f.spec.id)) if (s.role !== 'fighter' && !s.stealth && !ships.includes(s)) ships.push(s);
+       if (ships.length === 0) return SKIPPED;
+       const seconds = (ev.seconds ?? FORCE_TARGET_SECONDS) * scale;
+       // Strict references (`requireAlive: true`): a target that resolves for none of the ships skips the beat.
+       if (beat.requireAlive === true && !ships.some((s) => { const t = sim.resolveShipRef(ev.target, s); return t !== undefined && t !== s && gridFilterPasses(s, t); })) return SKIPPED;
+       let assigned = 0;
++      // A spread mark distributes the ships over the hulls the reference qualifies; a per-fleet mark resolves the
++      // reference once per fleet, from its largest hull, for every member (the Final Battle's mark, AP §4.3).
++      const pre = new Map<string, string>();
++      if (ev.spread && !ev.mounts) for (const [k, v] of spreadTargets(sim, ships, ev.target)) pre.set(k, v);
++      else if (ev.perFleet) {
++        for (const f of fleets) {
++          const rep = representative(sim, f);
++          const t = rep ? sim.resolveShipRef(ev.target, rep) : undefined;
++          if (t) for (const s of sim.membersOf(f.spec.id)) pre.set(s.id, t.id);
++        }
++      }
+       for (const s of ships) {
+-        const t = sim.resolveShipRef(ev.target, s);
++        const assignedId = pre.get(s.id);
++        const t = assignedId !== undefined ? sim.getShip(assignedId) : sim.resolveShipRef(ev.target, s);
+         if (!t || t === s || !gridFilterPasses(s, t)) continue;
+         assigned++;
+         if (ev.mounts) {
+diff --git a/src/simulation/movement.ts b/src/simulation/movement.ts
+index 0e32a7c..6120f4b 100644
+--- a/src/simulation/movement.ts
++++ b/src/simulation/movement.ts
+@@ -2,7 +2,7 @@ import { v3, type Vec3 } from '@/core/vec3';
+ import { FACTIONS } from '@/data/factions';
+ import { isCapitalRole } from '@/data/types';
+ import type { AiContext, MovementGoal } from './ai';
+-import { BATTLESPACE_SCALE as S } from './constants';
++import { ARC_VERTICAL_REACH, BATTLESPACE_SCALE as S } from './constants';
+ import type { FleetState, OrderType, ShipState } from './types';
+ 
+ /**
+@@ -54,6 +54,10 @@ const CARRIER_WEAVE_PERIOD = 40;
+ const REAPER_ADVANCE_FRACTION = 0.6;
+ /** An anchor goal is dropped once the anchor is within this distance of it (compressed km; every step stays rate-limited). */
+ export const ANCHOR_GOAL_REACHED_KM = 1e-4;
++/** The share of the fleet's anchor speed an anchor goal may take; the order's own movement keeps the rest. */
++export const ANCHOR_GOAL_SHARE = 0.9;
++/** An anchor goal glides in at this fraction of the slowest hull's acceleration (below the hard-manoeuvre threshold). */
++export const ANCHOR_GOAL_GLIDE = 0.5;
+ 
+ const ZERO: Vec3 = Object.freeze(v3()) as Vec3;
+ /** The fixed simulation step (SIM_DT, battle.ts) for rate limits computed outside the step loop. */
+@@ -301,21 +305,43 @@ export function steerFleet(ctx: AiContext, fleet: FleetState, view: FleetView, d
+     }
+   }
+   // An ordered anchor goal (`FleetOrders.anchorGoal`, the Final Battle's Reaper climb into the coalition's plane, AP
+-  // §4.2): each component it names leaves the order's movement and drifts toward the goal at the fleet's anchor speed,
+-  // never sweeping the line of sight from the aim point faster than the formation may turn (the heading-rate limit) —
+-  // the formation rises (or slides) as a whole; it never pitches or wheels. The goal is dropped once reached.
++  // §4.2): each component it names leaves the order's movement and drifts toward the goal, never sweeping the line of
++  // sight from the aim point faster than the formation may turn (the heading-rate limit) — the formation rises (or
++  // slides) as a whole; it never pitches or wheels. The goal takes at most `ANCHOR_GOAL_SHARE` of the anchor speed
++  // and the order's movement keeps what is left, so the anchor never outruns its slowest hull; it glides in at
++  // `ANCHOR_GOAL_GLIDE` of that hull's acceleration, so the formation arrives at rest instead of stopping hard (a hard
++  // stop is a manoeuvre that costs every enemy's firing solution, solutions.ts). The goal is dropped once reached.
+   const g = o.anchorGoal;
+   if (g) {
+     const cur = v3(g.x !== undefined ? ax : fleet.anchor.x, g.y !== undefined ? ay : fleet.anchor.y, g.z !== undefined ? az : fleet.anchor.z);
++    // The order's movement this tick on the components the goal leaves free (zero on the named ones).
++    let ox = cur.x - ax;
++    let oy = cur.y - ay;
++    let oz = cur.z - az;
+     const dx = g.x !== undefined ? g.x - cur.x : 0;
+     const dy = g.y !== undefined ? g.y - cur.y : 0;
+     const dz = g.z !== undefined ? g.z - cur.z : 0;
+     const d = Math.hypot(dx, dy, dz);
+-    let sp = speed;
++    let accel = Infinity;
++    for (const s of view.mine) if (s.maxSpeed > 0) accel = Math.min(accel, s.acceleration * (0.3 + 0.7 * s.subsystems.engines));
++    let sp = speed * ANCHOR_GOAL_SHARE;
+     if (aim) sp = Math.min(sp, rate * Math.hypot(aim.x - cur.x, aim.y - cur.y, aim.z - cur.z));
++    if (Number.isFinite(accel)) sp = Math.min(sp, Math.sqrt(2 * ANCHOR_GOAL_GLIDE * accel * d));
+     const step = d > 1e-9 ? Math.min(d, sp * dt) : 0;
+-    fleet.anchor = d > 1e-9 ? v3(cur.x + (dx / d) * step, cur.y + (dy / d) * step, cur.z + (dz / d) * step) : cur;
+-    if (d - step <= ANCHOR_GOAL_REACHED_KM) delete o.anchorGoal;
++    const budget = Math.sqrt(Math.max(0, (speed * dt) ** 2 - step * step));
++    const ol = Math.hypot(ox, oy, oz);
++    if (ol > budget && ol > 1e-12) {
++      ox *= budget / ol;
++      oy *= budget / ol;
++      oz *= budget / ol;
++    }
++    const k = d > 1e-9 ? step / d : 0;
++    fleet.anchor = v3(ax + ox + dx * k, ay + oy + dy * k, az + oz + dz * k);
++    if (d - step <= ANCHOR_GOAL_REACHED_KM) {
++      // Reached: the named components settle exactly on the goal.
++      fleet.anchor = v3(g.x ?? fleet.anchor.x, g.y ?? fleet.anchor.y, g.z ?? fleet.anchor.z);
++      delete o.anchorGoal;
++    }
+   }
+   // Keep the anchor from drifting too far from the actual fleet (ships lag behind).
+   const lx = fleet.anchor.x - view.myCentre.x;
+@@ -348,6 +374,14 @@ export interface ShipMotion {
+   reengagedAt: number;
+   /** Carriers: the current keep-out push-back behind the slot (km), smoothed. */
+   keepOut: number;
++  /**
++   * Stealth hunters: the one-way turning of the hull's own path so far (rad, signed by yaw), counted while it flies at
++   * `WIND_SPEED_FRACTION` of its top speed or more; `windYaw` is the last counted course (NaN when slower).
++   */
++  winding: number;
++  windYaw: number;
++  /** Stealth hunters: the sense (±1) of the reversal being flown under the unwinding rule, 0 when none. */
++  turnSense: number;
+ }
+ 
+ const SHIP_MOTION = new WeakMap<ShipState, ShipMotion>();
+@@ -355,7 +389,7 @@ const SHIP_MOTION = new WeakMap<ShipState, ShipMotion>();
+ export function shipMotion(ship: ShipState): ShipMotion {
+   let m = SHIP_MOTION.get(ship);
+   if (!m) {
+-    m = { accelFrac: 0, hardFor: -1, manoeuvres: 0, hardCounted: false, side: hash01(ship.id, 7) < 0.5 ? 1 : -1, cycle: 0, withdrawnAt: -1e9, reengagedAt: -1e9, keepOut: 0 };
++    m = { accelFrac: 0, hardFor: -1, manoeuvres: 0, hardCounted: false, side: hash01(ship.id, 7) < 0.5 ? 1 : -1, cycle: 0, withdrawnAt: -1e9, reengagedAt: -1e9, keepOut: 0, winding: 0, windYaw: NaN, turnSense: 0 };
+     SHIP_MOTION.set(ship, m);
+   }
+   return m;
+@@ -365,6 +399,21 @@ export function shipMotion(ship: ShipState): ShipMotion {
+ export const HARD_MANOEUVRE_FRACTION = 0.7;
+ export const HARD_MANOEUVRE_SECONDS = 0.5;
+ 
++/**
++ * The hunters' reversal rule (brief §8.1, "lines, not wheels"; the frigate runs alternate their sides for the same
++ * reason, `frigateRunGoal`). A stealth hunter's passes repeat one geometry — in from the target's exposed flank, break
++ * away from it, back to its station — so its path winds up one way, pass after pass. A goal marked `unwind` (the
++ * hunter's legs out of the enemy's reach: the approach, the return, the vent and the shadow station; never the run or
++ * the break-away under the guns) that asks for a reversal — more than `REVERSAL_RAD` between the course and the wanted
++ * one — once the path has wound `UNWIND_FROM_RAD` one way is flown in the other sense, square to the course until the
++ * wanted course is within `REVERSAL_RAD`: the passes become figure-eights instead of loops. A smaller turn takes the
++ * short way, and a path wound less than `UNWIND_FROM_RAD` reverses as before.
++ */
++export const REVERSAL_RAD = (2 * Math.PI) / 3;
++export const UNWIND_FROM_RAD = Math.PI / 2;
++/** A course counts toward the winding at this fraction of the hull's top speed or more (slower, a turn is a pivot). */
++export const WIND_SPEED_FRACTION = 0.25;
++
+ /**
+  * Integrate one step of a mobile hull toward its goal. `transit` goals fly at the goal's speed fraction straight at
+  * the point (runs and passes). Station goals use damped station keeping on the goal (CINEMATIC_DESIGN.md §7.1):
+@@ -413,6 +462,20 @@ export function steerShip(ship: ShipState, goal: MovementGoal, dt: number): void
+     dvy *= top / dl;
+     dvz *= top / dl;
+   }
++  // The hunters' reversal rule: a reversal flown in the sense that unwinds the path.
++  if (goal.unwind) {
++    const m = shipMotion(ship);
++    const vh = Math.hypot(ship.vel.x, ship.vel.z);
++    const dh = Math.hypot(dvx, dvz);
++    const floor = WIND_SPEED_FRACTION * ship.maxSpeed;
++    if (vh >= floor && dh >= floor && (ship.vel.x * dvx + ship.vel.z * dvz) / (vh * dh) < Math.cos(REVERSAL_RAD)) {
++      if (m.turnSense === 0 && Math.abs(m.winding) >= UNWIND_FROM_RAD) m.turnSense = m.winding > 0 ? -1 : 1;
++      if (m.turnSense !== 0) {
++        dvx = ((m.turnSense * ship.vel.z) / vh) * dh;
++        dvz = ((-m.turnSense * ship.vel.x) / vh) * dh;
++      }
++    } else m.turnSense = 0;
++  }
+   let ax = dvx - ship.vel.x;
+   let ay = dvy - ship.vel.y;
+   let az = dvz - ship.vel.z;
+@@ -434,6 +497,19 @@ export function steerShip(ship: ShipState, goal: MovementGoal, dt: number): void
+   const m = shipMotion(ship);
+   m.accelFrac = accel > 1e-9 ? Math.min(1, Math.hypot(ax, ay, az) / dt / accel) : 0;
+   noteManoeuvre(m, dt);
++  if (ship.stealth) noteWinding(m, ship);
++}
++
++/** The hunters' path winding: the signed course change while the hull flies at `WIND_SPEED_FRACTION` or faster. */
++function noteWinding(m: ShipMotion, ship: ShipState): void {
++  if (Math.hypot(ship.vel.x, ship.vel.z) < WIND_SPEED_FRACTION * ship.maxSpeed) {
++    m.windYaw = Number.NaN;
++    m.turnSense = 0;
++    return;
++  }
++  const yaw = Math.atan2(ship.vel.x, ship.vel.z);
++  if (!Number.isNaN(m.windYaw)) m.winding += Math.atan2(Math.sin(yaw - m.windYaw), Math.cos(yaw - m.windYaw));
++  m.windYaw = yaw;
+ }
+ 
+ /** Hard-manoeuvre bookkeeping: the duration accumulates through `dt`, so the module needs no clock. */
+@@ -560,7 +636,8 @@ export function faceIfBearing(ship: ShipState, target: ShipState | undefined): V
+ /**
+  * The default station: hold the slot (moving with the anchor), face the target when a forward mount bears, and —
+  * every unit with a weapon fires or moves for a solution — close on a target that is out of range by up to the
+- * 2 km slot leash at half speed under an attack order.
++ * 2 km slot leash at half speed under an attack order, or climb (dive) toward a target in range that sits too steeply
++ * above (below) for the hull's arc-limited mounts.
+  */
+ export function stationGoal(ship: ShipState, fleet: FleetState, slotPos: Vec3, slotVel: Vec3, target: ShipState | undefined): MovementGoal {
+   const face = fleet.doctrineFacing === 'broadside' ? undefined : faceIfBearing(ship, target);
+@@ -579,10 +656,21 @@ export function stationGoal(ship: ShipState, fleet: FleetState, slotPos: Vec3, s
+       const k = Math.min(leash, d - close) / d;
+       return { position: v3(slotPos.x + dx * k, slotPos.y + dy * k, slotPos.z + dz * k), speedFraction: 0.5, velocity: slotVel, face: face ?? target.pos };
+     }
++    // In range but too steep for every arc-limited anti-ship mount (they bear only below `ARC_VERTICAL_REACH`, world
++    // frame) and no turret to cover it: the hull changes altitude within its leash until the line of fire flattens —
++    // it moves for a solution instead of sitting under (or over) its target (brief §8.6).
++    if (range > 0 && d > 1e-6 && Math.abs(dy) >= ARC_VERTICAL_REACH * d && !ship.weapons.some((w) => !w.def.antiSmall && w.def.arc >= 360)) {
++      const flat = Math.hypot(dx, dz);
++      const shift = Math.sign(dy) * Math.min(leash, Math.abs(dy) - STEEP_FLATTEN * flat);
++      return { position: v3(slotPos.x, slotPos.y + shift, slotPos.z), speedFraction: 0.5, velocity: slotVel, face: face ?? target.pos };
++    }
+   }
+   return { position: slotPos, speedFraction: 1, velocity: slotVel, face };
+ }
+ 
++/** A hull climbing for a solution stops once the target is at most this × the flat distance above or below it (≈ 27°). */
++export const STEEP_FLATTEN = 0.5;
++
+ /** Reapers never idle (AP §10): with no target in range and the anchor stopped, close on the nearest enemy group at 0.6. */
+ export function reaperAdvanceGoal(ctx: AiContext, ship: ShipState, fleet: FleetState, target: ShipState | undefined): MovementGoal | undefined {
+   const range = mainRange(ship);
+diff --git a/src/simulation/readiness.ts b/src/simulation/readiness.ts
+new file mode 100644
+index 0000000..7059418
+--- /dev/null
++++ b/src/simulation/readiness.ts
+@@ -0,0 +1,15 @@
++import type { Readiness } from './types';
++
++/**
++ * Readiness tiers (ADOPTION_PLAN.md §1.6; the reference pack's operational readiness): a fleet's tier multiplies its
++ * crew quality — which enters hit probability and decision quality, never weapon yields — by these weights times the
++ * rule set's `special.readinessScale`. SIMULATION_ESTIMATE. Only the named Apex compositions set a tier; canon
++ * scenarios and the reference engagement never do, and campaign fleets keep their own readiness override.
++ */
++export const READINESS_WEIGHT: Readonly<Record<Readiness, number>> = { veteran: 1.0, regular: 0.85, reserve: 0.6 };
++
++/** The tiered crew quality: `base × weight × readinessScale` (a missing or non-finite scale counts as 1). */
++export function readinessCrewQuality(base: number, tier: Readiness, readinessScale: number | undefined): number {
++  const scale = readinessScale !== undefined && Number.isFinite(readinessScale) ? readinessScale : 1;
++  return base * READINESS_WEIGHT[tier] * scale;
++}
+diff --git a/src/simulation/stealth.ts b/src/simulation/stealth.ts
+index 3b5bddf..f99344a 100644
+--- a/src/simulation/stealth.ts
++++ b/src/simulation/stealth.ts
+@@ -157,8 +157,19 @@ export function hunterTarget(ctx: AiContext, ship: ShipState, fleet: FleetState)
+   return best;
+ }
+ 
+-/** The hunter's movement: approach → run → extend (break-away) → turn (re-stealth, vent) → approach. */
++/**
++ * The hunter's movement: approach → run → extend (break-away) → turn (re-stealth, vent) → approach. Every leg out of
++ * the enemy's reach (the approach, the return, the vent, the shadow station) is marked `unwind`, so a reversal there is
++ * flown in the sense that unwinds the hunter's path (movement.ts, `REVERSAL_RAD`); the run and the break-away under
++ * the guns always take the short way.
++ */
+ export function hunterGoal(ctx: AiContext, ship: ShipState, fleet: FleetState, target: ShipState | undefined): MovementGoal {
++  const goal = hunterLeg(ctx, ship, fleet, target);
++  const phase = ship.manoeuvre?.phase;
++  return phase === 'run' || phase === 'extend' ? goal : { ...goal, unwind: true };
++}
++
++function hunterLeg(ctx: AiContext, ship: ShipState, fleet: FleetState, target: ShipState | undefined): MovementGoal {
+   const now = ctx.time;
+   const st = ship.stealth!;
+   // Disengage keeps the hunter silent and with the fleet.
+diff --git a/src/simulation/types.ts b/src/simulation/types.ts
+index 735183f..7194f89 100644
+--- a/src/simulation/types.ts
++++ b/src/simulation/types.ts
+@@ -102,9 +102,15 @@ export type BeatEvent =
+   /** Deploys `arrivalMode: 'beat'` fleets: by id, or by selector (`{ side, wave }` picks the n-th wave by faction order). */
+   | { kind: 'spawn_wave'; fleetId?: string; fleets?: FleetSel; stagger?: number; run?: Partial<ArrivalProfile> }
+   | { kind: 'set_fleet_order'; fleets: FleetSel; patch: Partial<FleetOrders> }
+-  | { kind: 'fleet_volley'; fleets: FleetSel; window?: number; lead?: number; mounts?: VolleyMounts; target?: ShipRef; anchor?: ShipRef; syncArrival?: boolean }
++  /** `spread` (with a `nearest` target): each ship takes the nearest qualifying hull, weighted by how many ships already chose it (AP §4.3: the answer's beams spread over the nearest line hulls). */
++  | { kind: 'fleet_volley'; fleets: FleetSel; window?: number; lead?: number; mounts?: VolleyMounts; target?: ShipRef; anchor?: ShipRef; syncArrival?: boolean; spread?: boolean }
+   /** `seconds` (scene seconds, × beatScale; default `FORCE_TARGET_SECONDS`) is how long the scripted target holds. */
+-  | { kind: 'force_target'; ships?: ShipRef[]; fleets?: FleetSel; target: ShipRef; forceNextShot?: 'hit' | 'hit_penetrating'; mounts?: VolleyMounts; seconds?: number }
++  /**
++   * `spread` (ship-level, with a `nearest` target): the ships spread over the qualifying hulls like a spread volley
++   * (`beats.ts` `spreadTargets`); `perFleet`: the target is resolved once per fleet, from its largest hull, for all its
++   * members (AP §4.3's mark: each coalition fleet on the Reaper capital nearest to it).
++   */
++  | { kind: 'force_target'; ships?: ShipRef[]; fleets?: FleetSel; target: ShipRef; forceNextShot?: 'hit' | 'hit_penetrating'; mounts?: VolleyMounts; seconds?: number; spread?: boolean; perFleet?: boolean }
+   | { kind: 'launch_drones'; fleets?: FleetSel; ships?: ShipRef[]; burst?: number }
+   | { kind: 'trigger_special'; special: SpecialTrigger }
+   | { kind: 'caption'; text: string; duration: number; style: CaptionStyle; speaker?: string; au?: boolean }
+diff --git a/src/simulation/volley.ts b/src/simulation/volley.ts
+index 6c30d72..04f3c45 100644
+--- a/src/simulation/volley.ts
++++ b/src/simulation/volley.ts
+@@ -69,6 +69,8 @@ export interface VolleyOptions {
+   targetId?: string;
+   /** A target resolved for each ship of the volley (so the beams spread over the nearest line hulls, AP §4.3); overrides `targetId`. */
+   targetRef?: ShipRef;
++  /** An explicit target per ship id (a spread volley, `beats.ts`); overrides `targetRef` and `targetId` for the ships it names. */
++  targets?: ReadonlyMap<string, string>;
+   /** This ship's mounts get offset 0 (the camera is on its bow at `at`); an absent or dead anchor falls back to the largest capital. */
+   anchorShipId?: string;
+   /** Offsets subtract each round's flight time so the impacts, not the departures, cluster (min 0, max ≤ window). */
+@@ -168,7 +170,9 @@ export function orderVolley(host: VolleyHost, fleetIds: readonly string[], opts:
+       if (s.fleetId !== fleet.spec.id || !takesPart(host, s)) continue;
+       // A per-ship target (resolved for this ship) or the volley's one target.
+       let target: ShipState | undefined;
+-      if (opts.targetRef) target = host.resolveShipRef(opts.targetRef, s);
++      const assigned = opts.targets?.get(s.id);
++      if (assigned !== undefined) target = host.getShip(assigned);
++      else if (opts.targetRef) target = host.resolveShipRef(opts.targetRef, s);
+       else if (opts.targetId) target = host.getShip(opts.targetId);
+       // Only a live, hostile hull can be a volley's target (a mis-aimed reference falls back to the hull's own choice).
+       if (target && (!target.alive || target.escaped || !gridFilterPasses(s, target))) target = undefined;
+@@ -200,11 +204,13 @@ export function orderVolley(host: VolleyHost, fleetIds: readonly string[], opts:
+       }
+       for (const [k, o] of offsets) offsets.set(k, Math.min(window - 0.1, Math.max(0, o - min)));
+     }
+-    const focus = opts.targetId && !opts.targetRef ? host.getShip(opts.targetId) : undefined;
++    const focus = opts.targetId && !opts.targetRef && !opts.targets ? host.getShip(opts.targetId) : undefined;
+     if (focus && focus.alive && (focus.side !== fleet.spec.side || focus.rogue !== (fleet.spec.rogue ?? false))) fleet.focusTargetId = focus.id;
+-    const v: VolleyState = { at, window, mounts, targetId: opts.targetRef ? undefined : opts.targetId, syncArrival: opts.syncArrival ?? false, offsets, fired: 0, held: 0, silent: 0 };
++    const v: VolleyState = { at, window, mounts, targetId: opts.targetRef || opts.targets ? undefined : opts.targetId, syncArrival: opts.syncArrival ?? false, offsets, fired: 0, held: 0, silent: 0 };
+     // The standing hold shows the class the volley holds (HUD: HOLDING FIRE); the volley gate itself holds the mounts.
+-    if (mounts === 'spinal' || mounts === 'beams') fleet.orders.holdFire = mounts;
++    // A standing hold of every anti-ship mount ('all') stays until the window closes, so nothing but the volley speaks
++    // first (the Final Battle's opening, AP §20: the volley, then the first losses).
++    if ((mounts === 'spinal' || mounts === 'beams') && fleet.orders.holdFire !== 'all') fleet.orders.holdFire = mounts;
+     fleet.volley = v;
+     host.emit({ t: host.time, type: 'fleet_volley_ordered', fleetId: fleet.spec.id, at, window, mounts, mountsOrdered: offsets.size, ...(anchor ? { anchorShipId: anchor.id } : {}) });
+     out.push(v);
+diff --git a/tests/finalBattle.test.ts b/tests/finalBattle.test.ts
+new file mode 100644
+index 0000000..44311fb
+--- /dev/null
++++ b/tests/finalBattle.test.ts
+@@ -0,0 +1,365 @@
++import { describe, expect, it } from 'vitest';
++import { BATTLESPACE_SCALE as S } from '@/simulation/constants';
++import { BattleSimulation } from '@/simulation/battle';
++import { distantCaptions } from '@/simulation/distant';
++import type { ShipRole } from '@/data/types';
++import type { BattleConfig, BattleEvent } from '@/simulation/types';
++import { FINAL_BATTLE_BEATS, FINAL_BATTLE_FLEET_IDS, buildScenario, finalBattlePreview, openingDepthScale, scaleCount } from '@/scenarios';
++import { getPreset } from '@/timelines/presets';
++import { yieldToLoop } from './support/async';
++
++/**
++ * The Final Battle of Earth (ADOPTION_PLAN.md §4; WORK_BREAKDOWN.md §1.6.3 `tests/finalBattle.test.ts`): the cinematic
++ * opening's order of events and its volley (fired, landed — rounds and Thanix beams that hit a Reaper hull), the
++ * Reaper answer on the line, a dreadnought that takes a beam and holds, the Reaper line's climb, the volley anchor;
++ * the pace variants; the Cerberus world state; campaign waves; the preview; platforms and the Apex composition.
++ */
++
++const BIG: ReadonlySet<ShipRole> = new Set(['cruiser', 'carrier', 'dreadnought', 'super_dreadnought', 'fixed_platform', 'reaper_capital']);
++const HEAVY: ReadonlySet<ShipRole> = new Set(['dreadnought', 'super_dreadnought']);
++
++interface Opening {
++  sim: BattleSimulation;
++  events: BattleEvent[];
++  /** Volley rounds and beams that hit a Reaper hull by `at + window + 3`. */
++  landed: number;
++  /** Side-A heavy hulls a Reaper beam hit before 60 s × pace. */
++  beamHitHeavy: Set<string>;
++  yAt20: number;
++  yAt36: number;
++}
++
++/** Runs the opening, sampling what the events do not carry (beam hits, the Reaper line's height). */
++async function runOpening(config: BattleConfig, until: number): Promise<Opening> {
++  const sim = new BattleSimulation(config);
++  const pace = config.beats?.beatScale ?? 1;
++  const events: BattleEvent[] = [];
++  const pendingBeams: { shipId: string; idx: number; t: number }[] = [];
++  const volleyRounds = new Set<number>();
++  const beamHitHeavy = new Set<string>();
++  let beamLanded = 0;
++  let yAt20 = NaN;
++  let yAt36 = NaN;
++  sim.onEvent = (e) => {
++    events.push(e);
++    if (e.type === 'weapon_fired' && e.volley && sim.getShip(e.shipId)?.side === 'A') {
++      if (e.projectileId !== undefined) for (let k = 0; k < (e.shots ?? 1); k++) volleyRounds.add(e.projectileId + k);
++      else pendingBeams.push({ shipId: e.shipId, idx: e.weaponIndex, t: e.t });
++    }
++  };
++  const reaperY = (): number => {
++    const r = sim.ships.filter((s) => s.alive && s.fleetId === FINAL_BATTLE_FLEET_IDS.blockade && s.role !== 'fighter');
++    return r.reduce((a, s) => a + s.pos.y, 0) / Math.max(1, r.length);
++  };
++  let windowEnd = Infinity;
++  while (!sim.finished && sim.time < until) {
++    sim.step();
++    const ordered = events.find((e) => e.type === 'fleet_volley_ordered' && sim.fleets.get(e.fleetId)?.spec.side === 'A');
++    if (ordered && ordered.type === 'fleet_volley_ordered') windowEnd = ordered.at + ordered.window + 3;
++    for (const b of pendingBeams.splice(0)) {
++      const w = sim.getShip(b.shipId)!.weapons[b.idx];
++      const t = w.beamTargetId ? sim.getShip(w.beamTargetId) : undefined;
++      if (w.beamHit && t?.faction === 'reaper' && b.t <= windowEnd) beamLanded++;
++    }
++    if (Math.abs(sim.time - 20 * pace) < 0.026) yAt20 = reaperY();
++    if (Math.abs(sim.time - 36 * pace) < 0.026) yAt36 = reaperY();
++    if (sim.time < 60 * pace) {
++      for (const s of sim.ships) {
++        if (s.faction !== 'reaper' || !s.alive) continue;
++        for (const w of s.weapons) {
++          if (w.def.kind !== 'reaper_beam' || !w.beamHit || w.beamRemaining <= 0 || !w.beamTargetId) continue;
++          const t = sim.getShip(w.beamTargetId);
++          if (t && t.side === 'A' && HEAVY.has(t.role)) beamHitHeavy.add(t.id);
++        }
++      }
++    }
++    if (sim.tick % 200 === 0) await yieldToLoop();
++  }
++  const roundsLanded = events.filter((e) => e.type === 'projectile_impact' && e.projectileId !== undefined && volleyRounds.has(e.projectileId) && sim.getShip(e.targetId)?.faction === 'reaper' && e.t <= windowEnd).length;
++  return { sim, events, landed: roundsLanded + beamLanded, beamHitHeavy, yAt20, yAt36 };
++}
++
++const of = <T extends BattleEvent['type']>(events: BattleEvent[], type: T): Extract<BattleEvent, { type: T }>[] => events.filter((e): e is Extract<BattleEvent, { type: T }> => e.type === type);
++const sideAFleet = (sim: BattleSimulation, fleetId: string): boolean => sim.fleets.get(fleetId)?.spec.side === 'A';
++type BeatLogged = Extract<BattleEvent, { beatId: string; kind: string }>;
++const beatsFired = (events: BattleEvent[]): BeatLogged[] => events.filter((e): e is BeatLogged => e.type === 'beat_fired');
++
++/** The volley rows: fired ≥ 0.7 × ordered, landed ≥ 0.3 × fired (AP §4.3; Thanix beams of the Apex cruisers count as landing). */
++function volleyRows(o: Opening): { ordered: number; fired: number } {
++  const ordered = of(o.events, 'fleet_volley_ordered').filter((e) => sideAFleet(o.sim, e.fleetId));
++  const fired = of(o.events, 'fleet_volley_fired').filter((e) => sideAFleet(o.sim, e.fleetId));
++  const mounts = ordered.reduce((a, e) => a + e.mountsOrdered, 0);
++  const shots = fired.reduce((a, e) => a + e.fired, 0);
++  expect(mounts).toBeGreaterThan(0);
++  expect(shots, `fired ${shots} of ${mounts}`).toBeGreaterThanOrEqual(0.7 * mounts);
++  expect(o.landed, `landed ${o.landed} of ${shots}`).toBeGreaterThanOrEqual(0.3 * shots);
++  return { ordered: mounts, fired: shots };
++}
++
++/** Per preset: did a side-A dreadnought take a Reaper beam before 60 s and live to 70 s (AP §4.3, "≥ 2 of 3 seeds")? */
++const heldBeam = new Map<string, boolean[]>();
++
++describe.each([1, 2, 3])('the cinematic opening, seed %i', (seed) => {
++  it.each(['canon_me3', 'prime_apex'])('%s: arrivals, the Reaper advance, the marked volley, the answer, then the first losses — in that order', async (rulesId) => {
++    const config = buildScenario('final_battle_of_earth', rulesId, seed, { forces: 'default' });
++    expect(config.worldState?.cinematic_arrival).toBe('on');
++    expect(config.beats?.lockPlayerUntil).toBe(80);
++    const o = await runOpening(config, 70);
++    const { sim, events } = o;
++    // Event order, all before 70 s.
++    const firstFlash = of(events, 'ship_arrival_flash')[0].t;
++    const openingWaves = of(events, 'fleet_arrived').filter((e) => sim.fleets.get(e.fleetId)?.spec.arrivalMode === 'beat');
++    const lastArrived = Math.max(...openingWaves.map((e) => e.t));
++    const reaperAdvance = of(events, 'order_issued').find((e) => e.fleetId === FINAL_BATTLE_FLEET_IDS.blockade && e.order.includes('order=advance'))!.t;
++    const volleyOrdered = of(events, 'fleet_volley_ordered').find((e) => sideAFleet(sim, e.fleetId))!;
++    const volleyFired = of(events, 'fleet_volley_fired').find((e) => sideAFleet(sim, e.fleetId))!;
++    const firstBig = of(events, 'ship_destroyed').find((e) => BIG.has(e.role))!;
++    expect(firstBig, 'a cruiser or larger is destroyed before 70 s').toBeDefined();
++    expect(firstFlash).toBeLessThan(lastArrived);
++    expect(lastArrived).toBeLessThan(reaperAdvance);
++    expect(reaperAdvance).toBeLessThan(volleyOrdered.t);
++    expect(volleyOrdered.t).toBeLessThan(volleyFired.t);
++    expect(volleyFired.t).toBeLessThan(firstBig.t);
++    expect(firstBig.t).toBeLessThan(70);
++    // The volley fires and lands; it is anchored on SSV Kilimanjaro (the K-class pair is in the Sword line).
++    volleyRows(o);
++    expect(sim.ships.filter((s) => s.classId === 'alliance_dreadnought_k').map((s) => s.name).sort()).toEqual(['SSV Kilimanjaro', 'SSV Orizaba']);
++    expect(sim.getShip(volleyOrdered.anchorShipId!)!.name).toBe('SSV Kilimanjaro');
++    // The Reaper answer lands on the line, not on the platforms.
++    const answer = of(events, 'weapon_fired').filter((e) => e.volley && sim.getShip(e.shipId)?.faction === 'reaper' && e.kind === 'reaper_beam');
++    expect(answer.length).toBeGreaterThan(0);
++    expect(answer.filter((e) => sim.getShip(e.targetId)?.role !== 'fixed_platform').length).toBeGreaterThanOrEqual(0.5 * answer.length);
++    // The first side-A loss of cruiser size or larger is a line hull, not a platform.
++    const firstBigA = of(events, 'ship_destroyed').find((e) => e.side === 'A' && BIG.has(e.role));
++    if (firstBigA) expect(firstBigA.role).not.toBe('fixed_platform');
++    // A dreadnought takes a beam and holds (asserted over the seeds below).
++    const holds = [...o.beamHitHeavy].some((id) => sim.getShip(id)?.alive);
++    heldBeam.set(rulesId, [...(heldBeam.get(rulesId) ?? []), holds]);
++    // The Reaper line climbs at least 8 km (nominal) between 20 s and 36 s.
++    expect((o.yAt36 - o.yAt20) / S).toBeGreaterThanOrEqual(8);
++    // The Oculi are out before 30 s.
++    const drones = of(events, 'ship_deployed').filter((e) => e.classId === 'reaper_oculus');
++    expect(drones.length).toBeGreaterThan(0);
++    expect(drones[0].t).toBeLessThan(30);
++    // Nothing anti-ship speaks before the volley: no hull is lost before its release.
++    expect(of(events, 'ship_destroyed').filter((e) => e.role !== 'fighter' && e.t < volleyOrdered.at)).toEqual([]);
++  }, 120_000);
++});
++
++describe('a dreadnought takes a beam and holds (AP §4.3)', () => {
++  it.each(['canon_me3', 'prime_apex'])('%s: in at least two of the three seeds', (rulesId) => {
++    const seeds = heldBeam.get(rulesId) ?? [];
++    expect(seeds).toHaveLength(3);
++    expect(seeds.filter(Boolean).length).toBeGreaterThanOrEqual(2);
++  });
++});
++
++describe('the pace knob (beatScale; AP §4.2)', () => {
++  it.each(['0.5', '2'])('beat_scale %s, canon seed 1: the volley fires and lands', async (beatScale) => {
++    const config = buildScenario('final_battle_of_earth', 'canon_me3', 1, { forces: 'default', beat_scale: beatScale });
++    expect(config.beats?.beatScale).toBe(Number(beatScale));
++    const o = await runOpening(config, 46 * Number(beatScale));
++    const ordered = of(o.events, 'fleet_volley_ordered').find((e) => sideAFleet(o.sim, e.fleetId))!;
++    expect(ordered.t).toBeCloseTo(36 * Number(beatScale), 6);
++    volleyRows(o);
++  }, 120_000);
++
++  it('the opening starts the lines nearer for a faster pace and farther for a slower one', () => {
++    expect([0.5, 0.75, 1, 1.25, 1.5, 2].map(openingDepthScale)).toEqual([0.7, 0.75, 1, 1.25, 1.25, 1.25]);
++    const z = (bs: string): number => buildScenario('final_battle_of_earth', 'canon_me3', 1, { forces: 'default', beat_scale: bs }).fleets.find((f) => f.id === FINAL_BATTLE_FLEET_IDS.blockade)!.position.z;
++    expect(z('0.5')).toBeCloseTo(0.7 * z('1'), 9);
++    expect(z('2')).toBeCloseTo(1.25 * z('1'), 9);
++  });
++});
++
++describe('the Cerberus world state (AP §4.1)', () => {
++  it('allied: a side-A fleet by beat — Black Fleet dreadnoughts under the Apex mechanics, canon Cerberus hulls otherwise; at 12 s without the opening', () => {
++    const apex = buildScenario('final_battle_of_earth', 'prime_apex', 1, { forces: 'default', cerberus: 'allied' });
++    const black = apex.fleets.find((f) => f.id === FINAL_BATTLE_FLEET_IDS.cerberus)!;
++    expect(black.side).toBe('A');
++    expect(black.arrivalMode).toBe('beat');
++    expect(black.ships.find((s) => s.classId === 'cerberus_dreadnought')?.count).toBe(2);
++    expect(apex.beats!.beats.find((b) => b.id === 'arrive_cerberus')?.when).toEqual({ cerberus: ['allied'] });
++    const reformed = buildScenario('final_battle_of_earth', 'cerberus_reformed', 1, { forces: 'default' });
++    expect(reformed.worldState?.cerberus).toBe('allied');
++    const exp = reformed.fleets.find((f) => f.id === FINAL_BATTLE_FLEET_IDS.cerberus)!;
++    expect(exp.side).toBe('A');
++    expect(exp.ships.some((s) => s.classId === 'cerberus_dreadnought' || s.classId === 'cerberus_heavy_cruiser')).toBe(false);
++    const off = buildScenario('final_battle_of_earth', 'prime_apex', 1, { forces: 'default', cinematic_arrival: 'off' });
++    expect(off.fleets.find((f) => f.id === FINAL_BATTLE_FLEET_IDS.cerberus)?.arrivalTime).toBe(12);
++  });
++
++  it('hostile: a rogue strike group on side B at 150 s with priority capitals; absent: none', () => {
++    const canon = buildScenario('final_battle_of_earth', 'canon_me3', 1, { forces: 'default' });
++    expect(canon.worldState?.cerberus).toBe('hostile');
++    const g = canon.fleets.find((f) => f.faction === 'cerberus')!;
++    expect(g).toMatchObject({ side: 'B', arrivalTime: 150, rogue: true });
++    expect(g.initialOrder?.priority).toBe('capitals');
++    expect(g.ships.map((s) => [s.classId, s.count])).toEqual([['cerberus_cruiser', 8], ['cerberus_frigate', 12]]);
++    expect(canon.notes!.some((n) => n.startsWith('CERBERUS (HOSTILE)'))).toBe(true);
++    // A rogue group is no vanguard of either side: it has no distant echelon.
++    expect(canon.distant!.groups.some((d) => d.id === `echelon-${g.id}`)).toBe(false);
++    const absent = buildScenario('final_battle_of_earth', 'canon_me3', 1, { forces: 'default', cerberus: 'absent' });
++    expect(absent.fleets.some((f) => f.faction === 'cerberus')).toBe(false);
++  });
++
++  it('hostile in battle: after it arrives the Reapers fire on it and it fires at both sides', async () => {
++    const config = buildScenario('final_battle_of_earth', 'prime_apex', 1, { forces: 'default', cerberus: 'hostile' });
++    const sim = new BattleSimulation(config);
++    const g = config.fleets.find((f) => f.rogue)!;
++    let reaperOnCerberus = 0;
++    const cerberusOn = { A: 0, B: 0 };
++    sim.onEvent = (e) => {
++      if (e.type !== 'weapon_fired') return;
++      const s = sim.getShip(e.shipId);
++      const t = sim.getShip(e.targetId);
++      if (!s || !t) return;
++      if (s.faction === 'reaper' && t.fleetId === g.id) reaperOnCerberus++;
++      if (s.fleetId === g.id) cerberusOn[t.side]++;
++    };
++    while (!sim.finished && sim.time < 200) {
++      sim.step();
++      if (sim.tick % 200 === 0) await yieldToLoop();
++    }
++    expect(of(sim.events, 'reinforcement_arrival').some((e) => e.fleetId === g.id && e.t >= 150)).toBe(true);
++    expect(reaperOnCerberus).toBeGreaterThan(0);
++    expect(cerberusOn.A).toBeGreaterThan(0);
++    expect(cerberusOn.B).toBeGreaterThan(0);
++  }, 120_000);
++});
++
++describe('campaign forces with the opening on (AP §4.3)', () => {
++  it('the waves fill by faction order and the volley fires, anchored on the largest Alliance capital when no Kilimanjaro sails', async () => {
++    const allied = [
++      { name: 'Fifth Fleet', faction: 'alliance', counts: { alliance_dreadnought: 3, alliance_cruiser: 8, alliance_frigate: 10, normandy_sr2: 1 } },
++      { name: 'Hierarchy Seventh', faction: 'turian', counts: { turian_dreadnought: 3, turian_cruiser: 6 } },
++      { name: 'Second Fleet', faction: 'alliance', counts: { alliance_dreadnought: 2, alliance_cruiser: 6 } },
++      { name: 'Migrant Fleet', faction: 'quarian', counts: { quarian_heavy: 2, quarian_cruiser: 6 } },
++    ];
++    const config = buildScenario('final_battle_of_earth', 'canon_me3', 1, {
++      forces: 'campaign',
++      cinematic_arrival: 'on',
++      campaignAllied: JSON.stringify(allied),
++      campaignReaper: JSON.stringify({ harbinger: 1, reaper_capital: 4, reaper_destroyer: 10 }),
++    });
++    expect(config.worldState).toMatchObject({ forces: 'campaign', cinematic_arrival: 'on', cerberus: 'absent' });
++    const o = await runOpening(config, 42);
++    const { sim } = o;
++    expect([0, 1, 2, 3].map((n) => sim.resolveFleetSel({ side: 'A', wave: n })[0]?.spec.name)).toEqual(['Fifth Fleet', 'Second Fleet', 'Hierarchy Seventh', 'Migrant Fleet']);
++    const arrivals = beatsFired(o.events).filter((e) => e.kind === 'spawn_wave').map((e) => e.beatId);
++    expect(arrivals).toEqual(['arrive_alliance', 'arrive_alliance_2', 'arrive_turian', 'arrive_quarian']);
++    const ordered = of(o.events, 'fleet_volley_ordered').filter((e) => sideAFleet(sim, e.fleetId));
++    expect(ordered.length).toBeGreaterThan(0);
++    const anchor = sim.getShip(ordered[0].anchorShipId!)!;
++    expect(anchor.faction).toBe('alliance');
++    expect(anchor.role).toBe('dreadnought');
++    expect(beatsFired(o.events).find((e) => e.beatId === 'volley')?.note).toBe('anchor unresolved');
++    expect(of(o.events, 'fleet_volley_fired').filter((e) => sideAFleet(sim, e.fleetId)).reduce((a, e) => a + e.fired, 0)).toBeGreaterThan(0);
++  }, 120_000);
++});
++
++describe('the script, the preview and the order of battle', () => {
++  it('the default table keeps the plan’s ids; the Apex captions only under the Apex scenarios; the AU tag under every alternate preset', () => {
++    const ids = FINAL_BATTLE_BEATS.map((b) => b.id);
++    for (const id of ['title', 'arrive_alliance', 'arrive_turian', 'arrive_asari', 'arrive_salarian', 'arrive_quarian', 'arrive_geth', 'arrive_cerberus', 'form_up', 'reapers_advance', 'oculus_launch', 'scale_caption', 'platforms', 'mark', 'line_holds', 'volley', 'reaper_answer', 'fighters', 'free_play']) expect(ids, id).toContain(id);
++    const canon = buildScenario('final_battle_of_earth', 'canon_me3', 1, { forces: 'default' }).beats!;
++    const apex = buildScenario('final_battle_of_earth', 'prime_apex', 1, { forces: 'default' }).beats!;
++    expect(canon.beats.some((b) => b.id === 'scale_caption' || b.id === 'platforms' || b.id === 'title_tag')).toBe(false);
++    const caption = apex.beats.find((b) => b.id === 'scale_caption')!.event;
++    expect(caption.kind === 'caption' && caption.text.endsWith('· AU SCENARIO VALUE')).toBe(true);
++    expect(caption.kind === 'caption' && caption.text).toMatch(/^38,420 WARSHIPS COMMITTED TO SOL · \d+ SIMULATED/);
++    const tag = apex.beats.find((b) => b.id === 'title_tag')!.event;
++    expect(tag.kind === 'caption' && tag.text).toBe('ALTERNATE UNIVERSE · PRIME/APEX — APEX CORE');
++    const volley = apex.beats.find((b) => b.id === 'volley')!.event;
++    expect(volley).toMatchObject({ kind: 'fleet_volley', window: 1.5, lead: 2, mounts: 'spinal', anchor: { name: 'SSV Kilimanjaro' } });
++    expect(apex.beats.find((b) => b.id === 'reaper_answer')!.event).toMatchObject({ kind: 'fleet_volley', mounts: 'beams', target: { query: 'nearest', side: 'A', roles: ['cruiser', 'dreadnought', 'super_dreadnought'] }, spread: true });
++    expect(apex.beats.find((b) => b.id === 'form_up')!.event).toMatchObject({ patch: { holdSpecialAmmo: true } });
++    expect(apex.beats.find((b) => b.id === 'free_play_hades')!.event).toMatchObject({ patch: { holdSpecialAmmo: false } });
++    expect(apex.beats.find((b) => b.id === 'reapers_advance')!.event).toMatchObject({ patch: { order: 'advance', holdFire: 'beams', anchorGoal: { y: 0 } } });
++  });
++
++  it('beatPreview: beat_scale 2 doubles the times and an absent Cerberus has no arrival row', () => {
++    const rules = getPreset('canon_me3');
++    const one = finalBattlePreview(rules, { cerberus: 'absent', genophage: 'cured', beat_scale: '1' });
++    const two = finalBattlePreview(rules, { cerberus: 'absent', genophage: 'cured', beat_scale: '2' });
++    expect(two.map((r) => r.id)).toEqual(one.map((r) => r.id));
++    for (let i = 0; i < one.length; i++) expect(two[i].at).toBeCloseTo(2 * one[i].at, 9);
++    expect(one.some((r) => r.id === 'arrive_cerberus' || r.id === 'arrive_salarian')).toBe(false);
++    expect(finalBattlePreview(getPreset('prime_apex'), { cerberus: 'allied', genophage: 'sabotaged', beat_scale: '1' }).some((r) => r.id === 'arrive_cerberus')).toBe(true);
++    expect(one.find((r) => r.id === 'free_play')!.at).toBe(80);
++  });
++
++  it('platforms: two under canon, four under Apex (two heavy), static, defending their positions', () => {
++    for (const [rulesId, standard, heavy] of [['canon_me3', 2, 0], ['prime_apex', 2, 2], ['apex_legacy', 2, 2]] as const) {
++      for (const cinematic of ['on', 'off']) {
++        const cfg = buildScenario('final_battle_of_earth', rulesId, 1, { forces: 'default', cinematic_arrival: cinematic });
++        const p = cfg.fleets.find((f) => f.id === FINAL_BATTLE_FLEET_IDS.platforms)!;
++        expect(p.static, rulesId).toBe(true);
++        expect(p.formation).toBe('static');
++        expect(p.initialOrder?.order).toBe('defend_position');
++        expect(p.ships.find((s) => s.classId === 'sol_defence_platform')?.count ?? 0, `${rulesId} ${cinematic}`).toBe(standard);
++        expect(p.ships.find((s) => s.classId === 'sol_platform_heavy')?.count ?? 0, `${rulesId} ${cinematic}`).toBe(heavy);
++      }
++    }
++  });
++
++  it('the distant layer: present under canon with percentages only, switchable off; the AU figures under Apex', () => {
++    const canon = buildScenario('final_battle_of_earth', 'canon_me3', 1, { forces: 'default' });
++    expect(canon.distant?.captions).toBe('canon');
++    const captions = distantCaptions(new BattleSimulation(canon));
++    expect(captions.length).toBeGreaterThan(0);
++    for (const c of captions) expect(c).not.toMatch(/\d/);
++    expect(buildScenario('final_battle_of_earth', 'canon_me3', 1, { forces: 'default', distant_layer: 'off' }).distant).toBeUndefined();
++    expect(buildScenario('final_battle_of_earth', 'prime_apex', 1, { forces: 'default' }).distant?.captions).toBe('apex');
++  });
++
++  it('compositions: the K-class pair and the pattern frigates; under Apex the heavy line (one SSV Omaha), the Praetor, readiness tiers', () => {
++    const count = (cfg: BattleConfig, cls: string): number => cfg.fleets.reduce((a, f) => a + f.ships.filter((s) => s.classId === cls).reduce((b, s) => b + s.count, 0), 0);
++    const canon = buildScenario('final_battle_of_earth', 'canon_me3', 1, { forces: 'default' });
++    expect(count(canon, 'alliance_dreadnought_k')).toBe(2);
++    expect(count(canon, 'alliance_dreadnought')).toBe(4);
++    expect(count(canon, 'alliance_frigate_thanix')).toBe(2);
++    expect(count(canon, 'normandy_sr2')).toBe(1);
++    for (const cls of ['normandy_valkyrie', 'alliance_super_dreadnought', 'turian_super_dreadnought', 'sol_platform_heavy', 'cerberus_dreadnought']) expect(count(canon, cls), cls).toBe(0);
++    expect(canon.fleets.some((f) => f.readiness !== undefined)).toBe(false);
++    expect(canon.auContent).toBeUndefined();
++    const apex = buildScenario('final_battle_of_earth', 'prime_apex', 1, { forces: 'default' });
++    expect(count(apex, 'alliance_dreadnought_k')).toBe(2);
++    expect(count(apex, 'alliance_super_dreadnought')).toBe(1);
++    expect(count(apex, 'normandy_valkyrie')).toBe(1);
++    expect(count(apex, 'turian_super_dreadnought')).toBe(1);
++    expect(count(apex, 'normandy_sr2')).toBe(1);
++    expect(count(apex, 'alliance_frigate_thanix')).toBe(scaleCount(3, getPreset('prime_apex').fleetStrength.alliance));
++    expect(count(apex, 'alliance_frigate_thanix')).toBeGreaterThan(3);
++    expect(apex.auContent).toBe(true);
++    const heavy = apex.fleets.find((f) => f.id === FINAL_BATTLE_FLEET_IDS.heavy)!;
++    expect(heavy.ships.map((s) => s.classId).sort()).toEqual(['alliance_super_dreadnought', 'normandy_valkyrie']);
++    expect(apex.fleets.find((f) => f.id === FINAL_BATTLE_FLEET_IDS.alliance)!.readiness).toBe('veteran');
++    expect(apex.fleets.find((f) => f.id === FINAL_BATTLE_FLEET_IDS.asari)!.readiness).toBe('regular');
++    // The waves deploy by beat: every one is in by 13 s.
++    const sim = new BattleSimulation(apex);
++    sim.skipTo(13);
++    expect(sim.ships.filter((s) => s.name === 'SSV Omaha').map((s) => s.classId)).toEqual(['alliance_super_dreadnought']);
++    const names = sim.ships.filter((s) => s.role !== 'fighter').map((s) => s.name);
++    expect(new Set(names).size).toBe(names.length);
++    // A regular fleet's crews are 0.85 × the preset's (AP §1.6); a veteran fleet's are unchanged.
++    const asari = sim.ships.find((s) => s.classId === 'asari_cruiser')!;
++    const untiered = new BattleSimulation({ ...apex, fleets: apex.fleets.map((f) => ({ ...f, readiness: undefined })) });
++    untiered.skipTo(13);
++    const alone = untiered.ships.find((s) => s.classId === 'asari_cruiser')!;
++    expect(asari.crewQuality).toBeCloseTo(0.85 * alone.crewQuality, 9);
++  });
++
++  it('without the opening: today’s geometry and orders, with the platforms and the K-class pair; no beats, no lock', () => {
++    const off = buildScenario('final_battle_of_earth', 'canon_me3', 1, { forces: 'default', cinematic_arrival: 'off' });
++    expect(off.beats).toBeUndefined();
++    const sword = off.fleets.find((f) => f.id === FINAL_BATTLE_FLEET_IDS.alliance)!;
++    expect(sword.position).toEqual({ x: -20, y: 0, z: -34 });
++    expect(sword.arrivalMode).toBeUndefined();
++    expect(sword.initialOrder).toBeUndefined();
++    expect(off.fleets.find((f) => f.id === FINAL_BATTLE_FLEET_IDS.blockade)!.position).toEqual({ x: 0, y: 0, z: 46 });
++    expect(off.fleets.find((f) => f.id === FINAL_BATTLE_FLEET_IDS.reserve)!.arrivalTime).toBe(90);
++    expect(sword.ships.find((s) => s.classId === 'alliance_dreadnought_k')?.count).toBe(2);
++    expect(new BattleSimulation(off).playerLocked).toBe(false);
++  });
++});
+diff --git a/tests/worldState.test.ts b/tests/worldState.test.ts
+new file mode 100644
+index 0000000..10f066c
+--- /dev/null
++++ b/tests/worldState.test.ts
+@@ -0,0 +1,149 @@
++import { describe, expect, it } from 'vitest';
++import {
++  AUTO,
++  CERBERUS_HOSTILE_TEXT,
++  DISTANT_LAYER_APEX_TEXT,
++  DISTANT_LAYER_CANON_TEXT,
++  FINAL_BATTLE_WORLD_STATE,
++  SCENARIOS,
++  buildScenario,
++  defaultWorldState,
++  describeOption,
++  getScenario,
++  resolveWorldState,
++  type WorldStateOption,
++} from '@/scenarios';
++import { PRESETS, getPreset } from '@/timelines/presets';
++import { cloneRules } from '@/timelines/rules';
++
++/**
++ * Declared world state (WORK_BREAKDOWN.md §1.3.12, §1.6.3 `tests/worldState.test.ts`; CUSTOM_BATTLE_DESIGN.md §3.2;
++ * ADOPTION_PLAN.md §4.1): defaults filled, `'auto'` resolved, unavailable and unknown choices coerced with a note,
++ * disabled options forced, hidden options dropped, unknown keys passed through; the distant layer offered under every
++ * preset; the hostile Cerberus choice carrying its extrapolation line.
++ */
++
++const FB = { worldState: FINAL_BATTLE_WORLD_STATE };
++const canon = getPreset('canon_me3');
++const apex = getPreset('prime_apex');
++const campaignWs = {
++  campaignAllied: JSON.stringify([{ name: 'Survivors', faction: 'alliance', counts: { alliance_dreadnought: 2, alliance_cruiser: 4 } }]),
++  campaignReaper: JSON.stringify({ reaper_capital: 2, reaper_destroyer: 3 }),
++};
++
++describe('resolveWorldState', () => {
++  it('fills every default, resolves auto, keeps unknown keys, and is idempotent', () => {
++    const { ws, notes } = resolveWorldState(FB, canon, { fleet_scaling: 'fixed' });
++    for (const o of FINAL_BATTLE_WORLD_STATE) {
++      expect(ws[o.id], o.id).toBeDefined();
++      expect(ws[o.id], o.id).not.toBe(AUTO);
++      expect(o.choices.map((c) => c.id), o.id).toContain(ws[o.id]);
++    }
++    expect(ws.fleet_scaling).toBe('fixed');
++    // No campaign saved: the default fleet, with the briefing's note; the opening then defaults on.
++    expect(ws.forces).toBe('default');
++    expect(notes).toEqual(['No saved campaign: the default combined fleet is used.']);
++    expect(ws.cinematic_arrival).toBe('on');
++    expect(ws.beat_scale).toBe('1');
++    expect(ws.distant_layer).toBe('on');
++    const again = resolveWorldState(FB, canon, ws);
++    expect(again.ws).toEqual(ws);
++    expect(again.notes).toEqual([]);
++  });
++
++  it('Cerberus by timeline: hostile under canon, allied under Apex; allied under canon is coerced with a note naming the requirement', () => {
++    expect(resolveWorldState(FB, canon, {}).ws.cerberus).toBe('hostile');
++    expect(resolveWorldState(FB, apex, {}).ws.cerberus).toBe('allied');
++    expect(resolveWorldState(FB, getPreset('cerberus_reformed'), {}).ws.cerberus).toBe('allied');
++    const coerced = resolveWorldState(FB, canon, { cerberus: 'allied', forces: 'default' });
++    expect(coerced.ws.cerberus).toBe('hostile');
++    expect(coerced.notes).toHaveLength(1);
++    expect(coerced.notes[0]).toContain('a timeline in which Cerberus cooperates');
++    expect(coerced.notes[0]).toContain(canon.name);
++    // An explicit hostile or absent group is the player's choice under any preset.
++    expect(resolveWorldState(FB, apex, { cerberus: 'hostile' }).ws.cerberus).toBe('hostile');
++    expect(resolveWorldState(FB, apex, { cerberus: 'absent' }).ws.cerberus).toBe('absent');
++  });
++
++  it('coerces an unknown choice to the default with a note', () => {
++    const r = resolveWorldState(FB, canon, { genophage: 'banana', forces: 'default' });
++    expect(r.ws.genophage).toBe('cured');
++    expect(r.notes).toEqual(['Genophage cure: unknown choice “banana”; resolved to “Cure deployed”.']);
++  });
++
++  it('disabled options: pace without the opening, campaign forces without a campaign, Cerberus with campaign forces', () => {
++    // The pace knob is ignored without the opening (and says so only when a pace was asked for).
++    expect(resolveWorldState(FB, canon, { cinematic_arrival: 'off', beat_scale: '2', forces: 'default' })).toEqual({
++      ws: expect.objectContaining({ cinematic_arrival: 'off', beat_scale: '1' }),
++      notes: ['Opening pace applies only with the cinematic opening.'],
++    });
++    expect(resolveWorldState(FB, canon, { cinematic_arrival: 'off', forces: 'default' }).notes).toEqual([]);
++    // With a saved campaign the campaign's fleets are used, Cerberus is not modelled and the opening defaults off.
++    const camp = resolveWorldState(FB, canon, campaignWs);
++    expect(camp.ws.forces).toBe('campaign');
++    expect(camp.ws.cerberus).toBe('absent');
++    expect(camp.ws.cinematic_arrival).toBe('off');
++    expect(camp.notes).toEqual(['The campaign’s fleets decide; Cerberus campaign fleets at Sol are not modelled (absent).']);
++    // The player may still switch the opening on with campaign forces.
++    expect(resolveWorldState(FB, canon, { ...campaignWs, cinematic_arrival: 'on' }).ws.cinematic_arrival).toBe('on');
++    // A malformed campaign record counts as no campaign.
++    expect(resolveWorldState(FB, canon, { campaignAllied: '[not json', campaignReaper: '{}' }).ws.forces).toBe('default');
++  });
++
++  it('drops the key of an option the rules hide', () => {
++    const hidden: WorldStateOption = { id: 'alpha', label: 'Alpha', kind: 'au', description: 'x', choices: [{ id: 'a', label: 'A', description: '' }], default: 'a', showWhen: (r) => r.id !== 'canon_me3' };
++    expect(resolveWorldState({ worldState: [hidden] }, canon, { alpha: 'a' }).ws).toEqual({});
++    expect(resolveWorldState({ worldState: [hidden] }, apex, {}).ws).toEqual({ alpha: 'a' });
++  });
++
++  it('every scenario’s defaults resolve without a note under every preset (the Final Battle notes only the missing campaign)', () => {
++    for (const s of SCENARIOS) {
++      for (const p of PRESETS) {
++        const { notes } = resolveWorldState(s, p, defaultWorldState(s));
++        expect(notes, `${s.id} ${p.id}`).toEqual(s.id === 'final_battle_of_earth' ? ['No saved campaign: the default combined fleet is used.'] : []);
++      }
++    }
++  });
++});
++
++describe('the distant engagement layer and the hostile Cerberus line (AP §4.1)', () => {
++  it('is offered under every preset as an extrapolation, on by default, with the canon line; the Apex scenarios add the AU figure', () => {
++    for (const id of ['final_battle_of_earth', 'battle_of_earth']) {
++      const opt = getScenario(id).worldState!.find((o) => o.id === 'distant_layer')!;
++      expect(opt.kind, id).toBe('extrapolation');
++      expect(opt.default, id).toBe('on');
++      expect(opt.showWhen, id).toBeUndefined();
++      for (const p of PRESETS) {
++        const text = describeOption(opt, p);
++        expect(text.startsWith(DISTANT_LAYER_CANON_TEXT), `${id} ${p.id}`).toBe(true);
++        expect(text.includes(DISTANT_LAYER_APEX_TEXT), `${id} ${p.id}`).toBe(p.id === 'prime_apex' || p.id === 'apex_legacy');
++      }
++    }
++    // The figures follow the preset id, never the Apex flags.
++    const lookalike = { ...cloneRules(apex), id: 'my_apex_copy' };
++    expect(describeOption(getScenario('final_battle_of_earth').worldState!.find((o) => o.id === 'distant_layer')!, lookalike)).toBe(DISTANT_LAYER_CANON_TEXT);
++  });
++
++  it('the hostile Cerberus choice carries its extrapolation description; the allied one is AU', () => {
++    const cerb = FINAL_BATTLE_WORLD_STATE.find((o) => o.id === 'cerberus')!;
++    expect(cerb.kind).toBe('extrapolation');
++    expect(cerb.choices.find((c) => c.id === 'hostile')!.description).toContain(CERBERUS_HOSTILE_TEXT);
++    expect(CERBERUS_HOSTILE_TEXT).toBe('Extrapolation: Cerberus forces were not at the Battle of Earth in ME3');
++    expect(cerb.choices.find((c) => c.id === 'allied')!.au).toBe(true);
++  });
++
++  it('the Battle of Earth carries the layer when on (canon percentages) and none when off', () => {
++    const on = buildScenario('battle_of_earth', 'canon_me3', 42);
++    expect(on.distant?.enabled).toBe(true);
++    expect(on.distant?.captions).toBe('canon');
++    expect(buildScenario('battle_of_earth', 'canon_me3', 42, { distant_layer: 'off' }).distant).toBeUndefined();
++    expect(buildScenario('battle_of_earth', 'prime_apex', 42).distant?.captions).toBe('apex');
++  });
++
++  it('buildScenario attaches the coercion notes to the config', () => {
++    const cfg = buildScenario('final_battle_of_earth', 'canon_me3', 1, { cerberus: 'allied' });
++    expect(cfg.notes).toEqual(expect.arrayContaining(['No saved campaign: the default combined fleet is used.']));
++    expect(cfg.notes!.some((n) => n.includes('a timeline in which Cerberus cooperates'))).toBe(true);
++    expect(cfg.worldState?.cerberus).toBe('hostile');
++  });
++});
