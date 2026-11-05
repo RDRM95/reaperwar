@@ -35,6 +35,7 @@ import { FLIGHT_SIZE, formFlight, launchAsFlights, launchUnits, liveCraft, membe
 import { ARC_VERTICAL_REACH, BATTLESPACE_SCALE as S, SIM_DT } from './constants';
 import { DEFAULT_ARRIVAL_STAGGER, arrivalPending, arrivalPos, arrivalProfileFor } from './arrival';
 import { applyBeat, beatApplies, clampBeatScale, resolveFleetSel as resolveFleetSelIn, resolveShipRef as resolveShipRefIn, scheduleBeats, waveSpawnPending, type ScheduledBeat } from './beats';
+import { DistantLayer, type DistantHost } from './distant';
 import { considerDriveRun, tickDriveRun, type DriveHost } from './driveAttack';
 import { flagshipDestroyedEvent } from './flagships';
 import type { SimKernel } from './kernel';
@@ -64,6 +65,7 @@ import type {
   BattleEvent,
   BattleResult,
   DestructionCause,
+  DistantState,
   FleetOrders,
   FleetSel,
   FleetSpec,
@@ -221,11 +223,21 @@ export class BattleSimulation implements AiContext {
   private arrivals = 0;
   /** Arrival states whose `ship_arrival_flash` has been emitted. */
   private readonly flashed = new WeakSet<ArrivalState>();
+  /** The statistical distant engagement layer's state (present when `config.distant?.enabled`; AP §13.3). */
+  readonly distant?: DistantState;
+  /** Its runtime: a child generator forked once here, advanced after `checkEnd`, read by nothing in the battle. */
+  private readonly distantLayer?: DistantLayer;
 
   constructor(config: BattleConfig) {
     this.config = config;
     this.rules = config.rules;
     this.rng = new Rng(config.seed);
+    // The distant layer draws from its own child generator, forked before anything else (forking draws nothing), so
+    // the real battle is bit-identical with the layer on or off (AP §13.3).
+    if (config.distant?.enabled) {
+      this.distantLayer = new DistantLayer(config.distant, this.rng.fork('distant'));
+      this.distant = this.distantLayer.state;
+    }
     this.beatScale = clampBeatScale(config.beats?.beatScale);
     const ws = config.worldState;
     // Beats the world state excludes (`Beat.when`) never enter the queue; a config without a world state keeps them all.
@@ -901,6 +913,22 @@ export class BattleSimulation implements AiContext {
     destroyShip: (ship: ShipState, killer?: ShipState, cause?: DestructionCause): void => this.destroyShip(ship, killer, cause),
   } as DriveHost & { sim: BattleSimulation };
 
+  /** What the distant layer reads (`distant.ts`): time, hulls, the event log; it writes only `distant_*` events. */
+  private readonly distantHost: DistantHost = {
+    sim: this as BattleSimulation,
+    get time(): number {
+      return this.sim.time;
+    },
+    get ships(): readonly ShipState[] {
+      return this.sim.ships;
+    },
+    get events(): readonly BattleEvent[] {
+      return this.sim.events;
+    },
+    pending: (s: ShipState): boolean => this.isPending(s),
+    emit: (e: BattleEvent): void => this.emit(e),
+  } as DistantHost & { sim: BattleSimulation };
+
   /** Steps synchronously until `time` (or the end of the battle): the tests' and the e2e helper's fast-forward. */
   skipTo(time: number): void {
     while (!this.finished && this.time < time - 1e-9) this.step();
@@ -1038,6 +1066,8 @@ export class BattleSimulation implements AiContext {
     this.flashes = this.flashes.filter((f) => f.ttl > 0);
 
     this.checkEnd();
+    // The distant layer advances last, after the end check, so nothing it does can influence this tick or the next.
+    if (this.distantLayer) this.distantLayer.advance(this.distantHost, dt, this.finished);
     if (profiling) {
       prof.lap('end', tp);
       prof.endStep(t0);
