@@ -13,3 +13,6 @@ export const BATTLESPACE_SCALE = 0.4;
  * world frame — the hull's own pitch does not change it). Turreted mounts (arc 360) cover every bearing.
  */
 export const ARC_VERTICAL_REACH = 0.6;
+
+/** The fixed simulation step (20 Hz). Re-exported by `battle.ts`, where consumers import it from. */
+export const SIM_DT = 0.05;

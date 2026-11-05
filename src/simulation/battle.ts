@@ -30,31 +30,55 @@ import { SHARED_SOLUTION_Q, barrierFlare, missOffset, shotQuality, solutionFacto
 import { CRAFT_DETECT_RANGE, STEALTH_SAFE_RANGE, STEALTH_VENT_FRACTION, detectable, hunterHoldsFire, silentHull } from './stealth';
 import { SimProfile } from './profile';
 import { summarise } from './results';
-import { GRID_CELL_KM, SpatialGrid } from './spatial';
+import { GRID_CELL_KM, SpatialGrid, gridFilterPasses } from './spatial';
 import { FLIGHT_SIZE, formFlight, launchAsFlights, launchUnits, liveCraft, membersLeft } from './flights';
-import { ARC_VERTICAL_REACH, BATTLESPACE_SCALE as S } from './constants';
+import { ARC_VERTICAL_REACH, BATTLESPACE_SCALE as S, SIM_DT } from './constants';
+import { DEFAULT_ARRIVAL_STAGGER, arrivalPending, arrivalPos, arrivalProfileFor } from './arrival';
+import { applyBeat, beatApplies, clampBeatScale, resolveFleetSel as resolveFleetSelIn, resolveShipRef as resolveShipRefIn, scheduleBeats, waveSpawnPending, type ScheduledBeat } from './beats';
+import { flagshipDestroyedEvent } from './flagships';
+import type { SimKernel } from './kernel';
+import { tickScriptedMove } from './scriptedMoves';
+import { consumeForcedShot, createSpecials, dropForcedShot, forcedShotExtra, type Specials } from './specials';
+import {
+  finishVolley,
+  hadesSalvoOf,
+  heldBy,
+  noteSalvoShot,
+  noteVolleyShot,
+  openHadesSalvo,
+  orderVolley as orderVolleyIn,
+  salvoStep,
+  volleyEnd,
+  volleyStep,
+  type VolleyHost,
+  type VolleyOptions,
+} from './volley';
 
 /** Hangar time for a fighter to reload torpedoes alongside its carrier. */
 const REARM_SECONDS = 12;
 import type {
+  ArrivalProfile,
+  ArrivalState,
   BattleConfig,
   BattleEvent,
   BattleResult,
   DestructionCause,
   FleetOrders,
+  FleetSel,
   FleetSpec,
   FleetState,
   FormationType,
   Missile,
   OrderType,
   Projectile,
+  ShipRef,
   ShipState,
   Side,
   Subsystems,
   WeaponState,
 } from './types';
 
-export const SIM_DT = 0.05;
+export { SIM_DT };
 
 /** Heat pool of a `perMountHeat` mount (heavy Thanix channel): the mount fires only while a shot fits under this (AP §14.3). */
 export const MOUNT_HEAT_CAPACITY = 100;
@@ -84,6 +108,23 @@ export interface HitOptions {
   outage?: 'weapons' | 'engines';
   /** A forced `hit_penetrating` strike arms the warhead whatever the residual (logged by the caller). */
   forcePenetrate?: boolean;
+  /** The round's id (`Projectile.id` / `Missile.id`), carried on `projectile_impact` and `hades_detonation` (brief §20). */
+  projectileId?: number;
+}
+
+/**
+ * World position of a hull's mount (brief §20: the muzzle the gunnery cameras sit at and the rounds leave from). The
+ * mount offset is ship-local in km (forward +z, right +x, up +y) and turns with the hull's yaw — the same frame the
+ * simulation fires from, so a projectile's first position is exactly this point. Undefined for an unknown mount.
+ */
+export function mountWorldPosition(ship: ShipState, mountIndex: number): Vec3 | undefined {
+  const w = ship.weapons[mountIndex];
+  if (!w) return undefined;
+  const yaw = Math.atan2(ship.heading.x, ship.heading.z);
+  const sin = Math.sin(yaw);
+  const cos = Math.cos(yaw);
+  const o = w.offset;
+  return v3(ship.pos.x + o.x * cos + o.z * sin, ship.pos.y + o.y, ship.pos.z - o.x * sin + o.z * cos);
 }
 
 /**
@@ -105,6 +146,19 @@ const movesFleet = (patch: Partial<FleetOrders>, current: FleetOrders): boolean 
   (patch.formation !== undefined && patch.formation !== current.formation) ||
   patch.position !== undefined ||
   patch.anchorGoal !== undefined;
+
+/** An anchor goal is given in nominal km like a fleet position; the battlespace runs compressed (`× S`). */
+const scaleGoal = (g: Partial<Vec3>): Partial<Vec3> => ({
+  ...(g.x !== undefined ? { x: g.x * S } : {}),
+  ...(g.y !== undefined ? { y: g.y * S } : {}),
+  ...(g.z !== undefined ? { z: g.z * S } : {}),
+});
+
+/** The `order` text of `order_issued` / `order_rejected`: the patch's fields as `key=value`. */
+const orderLabel = (patch: Partial<FleetOrders>): string =>
+  Object.entries(patch)
+    .map(([k, v]) => `${k}=${typeof v === 'object' ? JSON.stringify(v) : String(v)}`)
+    .join(', ');
 
 const DEFAULT_ORDERS: FleetOrders = {
   order: 'attack',
@@ -150,12 +204,58 @@ export class BattleSimulation implements AiContext {
   /** Listener for events (renderer/UI). */
   onEvent?: (e: BattleEvent) => void;
 
+  /** Pace of the beat script (`BeatScript.beatScale`, 0.5–2.0; 1 without a script): multiplies beat times and caption durations. */
+  readonly beatScale: number;
+  /** Remaining scheduled beats in firing order. */
+  private beatList: ScheduledBeat[];
+  /** Player orders are refused while true: until `playerLockUntil`, or as a `player_control` beat says. */
+  playerLocked: boolean;
+  private lockUntil: number;
+  private lockReleased = false;
+  /** Scripted specials (beats, showcase scenes, tests, the player's HADES order). */
+  readonly special: Specials;
+  /** Internal plumbing for `beats.ts` and `specials.ts` (see `kernel.ts`); not for render or UI code. */
+  readonly kernel: SimKernel;
+  /** Hulls carrying an arrival run-in (pending or running in); the arrival bookkeeping runs only while any exists. */
+  private arrivals = 0;
+  /** Arrival states whose `ship_arrival_flash` has been emitted. */
+  private readonly flashed = new WeakSet<ArrivalState>();
+
   constructor(config: BattleConfig) {
     this.config = config;
     this.rules = config.rules;
     this.rng = new Rng(config.seed);
+    this.beatScale = clampBeatScale(config.beats?.beatScale);
+    const ws = config.worldState;
+    // Beats the world state excludes (`Beat.when`) never enter the queue; a config without a world state keeps them all.
+    this.beatList = config.beats ? scheduleBeats({ ...config.beats, beatScale: this.beatScale, beats: config.beats.beats.filter((b) => ws === undefined || beatApplies(b, ws)) }) : [];
+    this.lockUntil = Math.max(0, (config.beats?.lockPlayerUntil ?? 0) * this.beatScale);
+    this.playerLocked = this.lockUntil > 0;
+    this.kernel = {
+      emit: (e) => this.emit(e),
+      destroyShip: (ship, killer, cause, weaponId) => this.destroyShip(ship, killer, cause, weaponId),
+      comms: (side, kind, shipName, fleet) => this.comms(side, kind, shipName, fleet),
+      noteFlightLosses: (ship) => this.noteFlightLosses(ship),
+      pending: (ship) => this.isPending(ship),
+      withdraw: (ship) => {
+        const fleet = this.fleets.get(ship.fleetId);
+        if (!fleet) return;
+        beginWithdrawal(this, ship, fleet);
+        this.emit({ t: this.time, type: 'ship_withdrawing', shipId: ship.id });
+      },
+      spawnBeatFleet: (spec, opts) => {
+        if (this.fleets.has(spec.id)) return undefined;
+        const fleet = this.deployFleet(spec, { stagger: opts.stagger ?? DEFAULT_ARRIVAL_STAGGER, run: opts.run });
+        this.comms(spec.side, 'battle_start', undefined, fleet);
+        return fleet;
+      },
+      applyOrders: (fleetId, patch, source) => this.applyOrders(fleetId, patch, source),
+    };
+    this.special = createSpecials(this, this.kernel);
     this.emit({ t: 0, type: 'battle_start', name: config.name });
     for (const f of config.fleets) {
+      // A beat-arriving fleet is deployed only by its `spawn_wave` beat (CINEMATIC_DESIGN.md §1.1).
+      if (f.arrivalMode === 'beat') continue;
       if ((f.arrivalTime ?? 0) <= 0) this.deployFleet(f);
       else this.pendingFleets.push(f);
     }
@@ -163,12 +263,38 @@ export class BattleSimulation implements AiContext {
     this.comms(undefined, 'battle_start');
   }
 
+  /** Remaining scheduled beats (read-only view for the HUD, the briefing and the showcase). */
+  get beatQueue(): readonly ScheduledBeat[] {
+    return this.beatList;
+  }
+  /** When the opening's player lock ends (s; 0 when the battle was never locked). */
+  get playerLockUntil(): number {
+    return this.lockUntil;
+  }
+  /** Whether a hull is still waiting for its arrival flash: inert — no AI, no targeting, no collisions, no fire. */
+  isPending(ship: ShipState): boolean {
+    return arrivalPending(ship.arrival, this.time);
+  }
+
   // ------------------------------------------------------------------ setup
 
-  private deployFleet(spec: FleetSpec): void {
+  /**
+   * Deploys a fleet: its hulls on their formation slots, or — with `arrival` (a beat wave, an `arrivalFlash`
+   * reinforcement) — through the arrival kinematics (CINEMATIC_DESIGN.md §1.5): each hull appears at a seeded offset
+   * inside `stagger` (drawn from `rng` in deployment order), `runKm` behind its slot along the fleet heading, and
+   * decelerates into the slot over the role's duration; until it appears it is inert, while it runs in it can be shot
+   * but holds fire. `reinforcement_arrival` for every deployment at t > 0; `fleet_arrived` once every hull is in.
+   */
+  private deployFleet(spec: FleetSpec, arrival?: { stagger: number; run?: Partial<ArrivalProfile> }): FleetState {
     const fleet: FleetState = {
       spec,
-      orders: { ...DEFAULT_ORDERS, formation: spec.formation, ...(spec.initialOrder ?? {}), ...(spec.initialOrder?.position ? { position: scale(spec.initialOrder.position, S) } : {}) },
+      orders: {
+        ...DEFAULT_ORDERS,
+        formation: spec.formation,
+        ...(spec.initialOrder ?? {}),
+        ...(spec.initialOrder?.position ? { position: scale(spec.initialOrder.position, S) } : {}),
+        ...(spec.initialOrder?.anchorGoal ? { anchorGoal: scaleGoal(spec.initialOrder.anchorGoal) } : {}),
+      },
       anchor: scale(spec.position, S),
       heading: normalize(v3(spec.heading.x, 0, spec.heading.z)),
       decisionTimer: 0,
@@ -206,6 +332,16 @@ export class BattleSimulation implements AiContext {
       s.prevPos = clone(world);
       s.heading = clone(fleet.heading);
       s.prevHeading = clone(fleet.heading);
+      if (arrival) {
+        const prof = { ...arrivalProfileFor(s.role), ...(arrival.run ?? {}) };
+        const appearAt = this.time + this.rng.next() * Math.max(0, arrival.stagger);
+        const from = v3(world.x - fleet.heading.x * prof.runKm, world.y, world.z - fleet.heading.z * prof.runKm);
+        s.arrival = { appearAt, settleAt: appearAt + Math.max(SIM_DT, prof.duration), from, to: clone(world) };
+        s.pos = clone(from);
+        s.prevPos = clone(from);
+        for (const w of s.weapons) w.arrivalHold = true;
+        this.arrivals++;
+      }
       this.ships.push(s);
       this.shipById.set(s.id, s);
       this.emit({
@@ -219,6 +355,49 @@ export class BattleSimulation implements AiContext {
       });
     }
     if (this.time > 0) this.emit({ t: this.time, type: 'reinforcement_arrival', fleetId: spec.id, side: spec.side });
+    if (arrival && created.length > 0) fleet.arrived = false;
+    else if (this.time > 0) this.emit({ t: this.time, type: 'fleet_arrived', fleetId: spec.id });
+    return fleet;
+  }
+
+  /**
+   * The arrival bookkeeping of one step: every arriving hull's run-in follows its slot (both ends shift with the
+   * formation, so it settles at zero speed relative to the slot), the `ship_arrival_flash` at `appearAt`.
+   */
+  private updateArrivals(): void {
+    for (const s of this.ships) {
+      const a = s.arrival;
+      if (!a || !s.alive) continue;
+      const fleet = this.fleets.get(s.fleetId);
+      if (fleet) {
+        const to = this.slotWorld(fleet, s.slot);
+        a.from = v3(a.from.x + to.x - a.to.x, a.from.y + to.y - a.to.y, a.from.z + to.z - a.to.z);
+        a.to = to;
+      }
+      if (this.time >= a.appearAt - 1e-9 && !this.flashed.has(a)) {
+        this.flashed.add(a);
+        s.pos = clone(a.from);
+        s.prevPos = clone(a.from);
+        if (fleet) {
+          s.heading = clone(fleet.heading);
+          s.prevHeading = clone(fleet.heading);
+        }
+        this.emit({ t: this.time, type: 'ship_arrival_flash', shipId: s.id, pos: clone(a.from), heading: clone(s.heading), lengthKm: s.lengthKm });
+      }
+    }
+  }
+
+  /** A hull leaves its arrival state (settled, or destroyed on the way in); the fleet reports `fleet_arrived` once all are in. */
+  private endArrival(s: ShipState): void {
+    if (!s.arrival) return;
+    s.arrival = undefined;
+    for (const w of s.weapons) w.arrivalHold = undefined;
+    this.arrivals = Math.max(0, this.arrivals - 1);
+    const fleet = this.fleets.get(s.fleetId);
+    if (fleet && !fleet.arrived && !this.ships.some((o) => o.fleetId === s.fleetId && o.alive && o.arrival !== undefined)) {
+      fleet.arrived = true;
+      this.emit({ t: this.time, type: 'fleet_arrived', fleetId: fleet.spec.id });
+    }
   }
 
   private slotWorld(fleet: FleetState, slot: Vec3): Vec3 {
@@ -383,8 +562,11 @@ export class BattleSimulation implements AiContext {
     const combatantsB: ShipState[] = [];
     const members = new Map<string, ShipState[]>();
     const craft = new Map<string, ShipState[]>();
+    const arriving = this.arrivals > 0;
     for (const s of this.ships) {
       if (!s.alive || s.escaped) continue;
+      // A hull waiting for its arrival flash is not in the battle yet: no AI sees it, nothing targets it.
+      if (arriving && this.isPending(s)) continue;
       const a = s.side === 'A';
       (a ? A : B).push(s);
       if (s.rogue) (a ? rogueA : rogueB).push(s);
@@ -424,7 +606,7 @@ export class BattleSimulation implements AiContext {
       let list = c.enemiesRogue.get(key);
       if (!list) {
         list = [];
-        for (const s of this.ships) if (s.alive && !s.escaped && (s.side !== ship.side || !s.rogue)) list.push(s);
+        for (const s of this.ships) if (s.alive && !s.escaped && !this.isPending(s) && (s.side !== ship.side || !s.rogue)) list.push(s);
         c.enemiesRogue.set(key, list);
       }
       return list;
@@ -434,7 +616,7 @@ export class BattleSimulation implements AiContext {
     let list = c.enemiesRogue.get(ship.side);
     if (!list) {
       list = [];
-      for (const s of this.ships) if (s.alive && !s.escaped && (s.side !== ship.side || s.rogue)) list.push(s);
+      for (const s of this.ships) if (s.alive && !s.escaped && !this.isPending(s) && (s.side !== ship.side || s.rogue)) list.push(s);
       c.enemiesRogue.set(ship.side, list);
     }
     return list;
@@ -531,26 +713,69 @@ export class BattleSimulation implements AiContext {
    * `attack_target` is accepted because it only sets the focus the platforms slew to (CINEMATIC_DESIGN.md §7.10).
    */
   issueOrders(fleetId: string, patch: Partial<FleetOrders>): 'issued' | 'rejected' {
-    const fleet = this.fleets.get(fleetId);
-    if (!fleet) return 'rejected';
-    const label = Object.entries(patch)
-      .map(([k, v]) => `${k}=${typeof v === 'object' ? JSON.stringify(v) : String(v)}`)
-      .join(', ');
-    if (fleet.static && movesFleet(patch, fleet.orders)) {
-      this.emit({ t: this.time, type: 'order_rejected', fleetId, order: label, reason: 'static_fleet' });
+    // The cinematic opening's player lock (AP §4.3): the HUD toasts, the simulation refuses and logs it.
+    if (this.playerLocked && this.fleets.has(fleetId)) {
+      this.emit({ t: this.time, type: 'order_rejected', fleetId, order: orderLabel(patch), reason: 'player_locked' });
       return 'rejected';
     }
+    return this.applyOrders(fleetId, patch, 'player');
+  }
+
+  /**
+   * Applies an order patch to a fleet. `'player'` (through `issueOrders`): a static fleet refuses the whole patch when
+   * it would move; a new order clears every forced target of the fleet. `'beat'` (scripted, passes the player lock): a
+   * static fleet keeps the parts it can follow (a hold, a priority, a target) and refuses only the movement; a new
+   * order spares the scripted forced targets (`forcedTargetUntil` set), which lapse on their own.
+   */
+  private applyOrders(fleetId: string, input: Partial<FleetOrders>, source: 'beat' | 'player'): 'issued' | 'rejected' {
+    const fleet = this.fleets.get(fleetId);
+    if (!fleet) return 'rejected';
+    let patch: Partial<FleetOrders> = { ...input };
+    // A target reference is resolved at issue time, from the fleet's largest hull (FleetOrders.targetRef).
+    if (patch.targetRef) {
+      const from = this.membersOf(fleetId).reduce<ShipState | undefined>((a, b) => (b.role === 'fighter' ? a : !a || b.lengthKm > a.lengthKm ? b : a), undefined);
+      const t = this.resolveShipRef(patch.targetRef, from);
+      delete patch.targetRef;
+      if (t) patch.targetId = t.id;
+      else if (patch.order === 'attack_target') delete patch.order;
+    }
+    const label = orderLabel(patch);
+    if (fleet.static && movesFleet(patch, fleet.orders)) {
+      this.emit({ t: this.time, type: 'order_rejected', fleetId, order: label, reason: 'static_fleet' });
+      if (source === 'player') return 'rejected';
+      const kept: Partial<FleetOrders> = { ...patch };
+      if (kept.order !== undefined && MOVE_ORDERS.has(kept.order)) delete kept.order;
+      delete kept.formation;
+      delete kept.position;
+      delete kept.anchorGoal;
+      if (Object.keys(kept).length === 0) return 'rejected';
+      patch = kept;
+    }
     const prevFormation = fleet.orders.formation;
-    fleet.orders = { ...fleet.orders, ...patch, ...(patch.position ? { position: scale(patch.position, S) } : {}) };
+    fleet.orders = {
+      ...fleet.orders,
+      ...patch,
+      ...(patch.position ? { position: scale(patch.position, S) } : {}),
+      ...(patch.anchorGoal ? { anchorGoal: scaleGoal(patch.anchorGoal) } : {}),
+    };
     if (patch.formation && patch.formation !== prevFormation) {
       this.reassignSlots(fleet);
       fleet.doctrineFacing = doctrineFacingFor(fleet.spec.faction, patch.formation);
     }
     if (patch.order === 'attack_target' && patch.targetId) {
       fleet.focusTargetId = patch.targetId;
-      for (const s of this.ships) if (s.fleetId === fleetId && s.alive && s.role !== 'fighter') s.forcedTargetId = patch.targetId;
+      for (const s of this.ships) {
+        if (s.fleetId !== fleetId || !s.alive || s.role === 'fighter') continue;
+        s.forcedTargetId = patch.targetId;
+        s.forcedTargetUntil = undefined;
+      }
     } else if (patch.order && patch.order !== 'attack_target') {
-      for (const s of this.ships) if (s.fleetId === fleetId) s.forcedTargetId = undefined;
+      for (const s of this.ships) {
+        if (s.fleetId !== fleetId) continue;
+        if (source === 'beat' && s.forcedTargetUntil !== undefined) continue;
+        s.forcedTargetId = undefined;
+        s.forcedTargetUntil = undefined;
+      }
     }
     if (patch.order === 'escort' && patch.targetId) {
       for (const s of this.ships) if (s.fleetId === fleetId && (s.role === 'frigate' || s.role === 'cruiser')) s.escortId = patch.targetId;
@@ -576,17 +801,89 @@ export class BattleSimulation implements AiContext {
     return 'issued';
   }
 
-  /** Order a single ship (or selection) to attack a target. */
+  /** Order a single ship (or selection) to attack a target (refused during the opening's player lock). */
   orderShipsAttack(shipIds: string[], targetId: string): void {
+    if (this.playerLocked) {
+      const first = this.shipById.get(shipIds[0]);
+      if (first) this.emit({ t: this.time, type: 'order_rejected', fleetId: first.fleetId, order: `ships ${shipIds.length} attack ${targetId}`, reason: 'player_locked' });
+      return;
+    }
     for (const id of shipIds) {
       const s = this.shipById.get(id);
       if (s && s.alive) {
         s.forcedTargetId = targetId;
+        s.forcedTargetUntil = undefined;
         s.targetId = targetId;
       }
     }
     const first = this.shipById.get(shipIds[0]);
     if (first) this.emit({ t: this.time, type: 'order_issued', fleetId: first.fleetId, order: `ships ${shipIds.length} attack ${targetId}` });
+  }
+
+  /**
+   * Resolves a ship reference (beats, scenes, HUD; deterministic, ties by id). `nth` counts deployment order including
+   * dead hulls; `from` is the ship a relative query (`nearest` without `to`) is resolved for.
+   */
+  resolveShipRef(ref: ShipRef, from?: ShipState): ShipState | undefined {
+    return resolveShipRefIn(this.refHost, ref, from);
+  }
+  /** Resolves a fleet selector to deployed fleets (`{ side, wave }`: the n-th beat-arriving fleet of the side by faction order). */
+  resolveFleetSel(sel: FleetSel): FleetState[] {
+    return resolveFleetSelIn(this.refHost, sel);
+  }
+  private readonly refHost = {
+    sim: this as BattleSimulation,
+    get ships(): readonly ShipState[] {
+      return this.sim.ships;
+    },
+    get fleets(): Map<string, FleetState> {
+      return this.sim.fleets;
+    },
+    get config(): BattleConfig {
+      return this.sim.config;
+    },
+    getShip: (id: string): ShipState | undefined => this.shipById.get(id),
+    pending: (s: ShipState): boolean => this.isPending(s),
+  };
+
+  /**
+   * Orders a volley for each fleet (the one entry point for the HUD, the beats and the scenes; never refused by the
+   * player lock — the controller gates the HUD button): hold until `time + lead`, release inside the window, every
+   * mount that can bear firing on the beat (`volley.ts`).
+   */
+  orderVolley(fleetIds: string[], opts: VolleyOptions = {}): void {
+    orderVolleyIn(this.volleyHost, fleetIds, opts);
+  }
+  private readonly volleyHost: VolleyHost = {
+    sim: this as BattleSimulation,
+    get time(): number {
+      return this.sim.time;
+    },
+    get rng(): Rng {
+      return this.sim.rng;
+    },
+    get ships(): readonly ShipState[] {
+      return this.sim.ships;
+    },
+    get fleets(): Map<string, FleetState> {
+      return this.sim.fleets;
+    },
+    getShip: (id: string): ShipState | undefined => this.shipById.get(id),
+    emit: (e: BattleEvent): void => this.emit(e),
+    pending: (s: ShipState): boolean => this.isPending(s),
+    resolveShipRef: (ref: ShipRef, from?: ShipState): ShipState | undefined => this.resolveShipRef(ref, from),
+  } as VolleyHost & { sim: BattleSimulation };
+
+  /** Steps synchronously until `time` (or the end of the battle): the tests' and the e2e helper's fast-forward. */
+  skipTo(time: number): void {
+    while (!this.finished && this.time < time - 1e-9) this.step();
+  }
+
+  /** Live non-fighter hulls in the battle (for the captions and the HUD budget line); a hull still waiting to arrive does not count. */
+  simulatedHullCount(side?: Side): number {
+    let n = 0;
+    for (const s of this.ships) if (s.alive && !s.escaped && s.role !== 'fighter' && (side === undefined || s.side === side) && !this.isPending(s)) n++;
+    return n;
   }
 
   private reassignSlots(fleet: FleetState): void {
@@ -612,17 +909,29 @@ export class BattleSimulation implements AiContext {
     const t0 = prof.mark();
     let tp = t0;
 
-    // Reinforcements.
+    // The opening's player lock lifts at `playerLockUntil` (a `player_control` beat may lift or impose it as well).
+    if (this.playerLocked && this.lockUntil > 0 && !this.lockReleased && this.time >= this.lockUntil - 1e-9) {
+      this.playerLocked = false;
+      this.lockReleased = true;
+    }
+    // Reinforcements (an `arrivalFlash` fleet drops in through the arrival kinematics).
     while (this.pendingFleets.length > 0 && (this.pendingFleets[0].arrivalTime ?? 0) <= this.time) {
       const f = this.pendingFleets.shift()!;
-      this.deployFleet(f);
+      this.deployFleet(f, f.arrivalFlash ? { stagger: DEFAULT_ARRIVAL_STAGGER } : undefined);
       this.comms(f.side, 'battle_start', undefined, this.fleets.get(f.id));
     }
-    // The spatial hash indexes the hulls at their start-of-tick positions; craft launched later in the tick join it next tick.
-    this.grid.rebuild(this.ships);
+    // Beats: after the reinforcements and before the fleet decisions, so a wave spawned and an order given at the same
+    // beat act in the same tick (CINEMATIC_DESIGN.md §1.2).
+    while (this.beatList.length > 0 && this.beatList[0].t <= this.time + 1e-9 && !this.finished) applyBeat(this, this.beatList.shift()!.beat);
+    if (this.arrivals > 0) this.updateArrivals();
+    // The spatial hash indexes the hulls at their start-of-tick positions; craft launched later in the tick join it next
+    // tick; a hull still waiting for its arrival flash is not in it (nothing can hit it).
+    this.grid.rebuild(this.arrivals > 0 ? this.ships.filter((sh) => !this.isPending(sh)) : this.ships);
     if (profiling) tp = prof.lap('reinforcements', tp);
 
     for (const fleet of this.fleets.values()) {
+      // A volley's window has closed: `fleet_volley_fired`, the standing hold back to 'none'.
+      if (fleet.volley && this.time >= volleyEnd(fleet.volley, dt) - 1e-9) finishVolley(this.volleyHost, fleet);
       fleet.commsCooldown = Math.max(0, fleet.commsCooldown - dt);
       fleet.coordinationPenalty = Math.max(0, fleet.coordinationPenalty - dt / 30);
       fleetDecision(this, fleet, dt);
@@ -636,6 +945,8 @@ export class BattleSimulation implements AiContext {
 
     for (const ship of this.ships) {
       if (!ship.alive || ship.escaped) continue;
+      // A hull waiting for its arrival flash is inert.
+      if (ship.arrival && this.isPending(ship)) continue;
       // Interpolation snapshots, copied in place (the renderer reads distinct prev/current objects).
       ship.prevPos.x = ship.pos.x;
       ship.prevPos.y = ship.pos.y;
@@ -644,6 +955,11 @@ export class BattleSimulation implements AiContext {
       ship.prevHeading.y = ship.heading.y;
       ship.prevHeading.z = ship.heading.z;
       const fleet = this.fleets.get(ship.fleetId)!;
+      // A scripted forced target (a mark, a volley target, a scripted strike) lapses at its time.
+      if (ship.forcedTargetUntil !== undefined && this.time > ship.forcedTargetUntil + 1e-9) {
+        ship.forcedTargetId = undefined;
+        ship.forcedTargetUntil = undefined;
+      }
       // Locks on a hull that went silent beyond its detection range drop at once (brief §15.2: within 2 s).
       if (ship.targetId) {
         const t = this.shipById.get(ship.targetId);
@@ -660,7 +976,12 @@ export class BattleSimulation implements AiContext {
         if (ship.withdrawing && !wasWithdrawing) this.emit({ t: this.time, type: 'ship_withdrawing', shipId: ship.id });
       }
       if (profiling) tp = prof.lap('ai', tp);
-      this.updateMovement(ship, fleet, dt);
+      // An arriving hull follows its scripted run-in into the slot; everything else steers.
+      if (ship.arrival) this.runIn(ship, fleet, dt);
+      else this.updateMovement(ship, fleet, dt);
+      // A scripted move (`approach`, `strafeThrough`) reports once it is over.
+      const moved = tickScriptedMove(this.time, ship, (id) => this.shipById.get(id));
+      if (moved) this.emit({ t: this.time, type: 'scripted_event', ...(moved.beatId ? { beatId: moved.beatId } : {}), special: moved.special, shipIds: [ship.id, moved.targetId], forced: false, detail: moved.detail });
       if (profiling) tp = prof.lap('movement', tp);
       this.updateHousekeeping(ship, dt);
       // Firing solutions govern the anti-ship guns and beams of hulls only (solutions.ts `usesSolution`): small craft keep none.
@@ -695,6 +1016,16 @@ export class BattleSimulation implements AiContext {
   }
 
   // --------------------------------------------------------------- movement
+
+  /** One step of an arrival run-in: the eased position into the (moving) slot, the fleet's heading; settles at `settleAt`. */
+  private runIn(ship: ShipState, fleet: FleetState, dt: number): void {
+    const a = ship.arrival!;
+    const p = arrivalPos(a, this.time);
+    ship.vel = v3((p.x - ship.prevPos.x) / dt, (p.y - ship.prevPos.y) / dt, (p.z - ship.prevPos.z) / dt);
+    ship.pos = p;
+    ship.heading = clone(fleet.heading);
+    if (this.time >= a.settleAt - 1e-9) this.endArrival(ship);
+  }
 
   private updateMovement(ship: ShipState, fleet: FleetState, dt: number): void {
     // A fixed platform never moves: it only slews to bear on its target, bounded by its turn rate (brief §8.10).
@@ -996,6 +1327,10 @@ export class BattleSimulation implements AiContext {
     }
     const enemyNear = this.grid.anyWithin(ship.pos, longest + ship.lengthKm, ship);
     const missilesNear = hasPd && this.missiles.length > 0;
+    // Fleet fire control (volley.ts): a pending volley, an open HADES salvo, the standing hold.
+    const volley = fleet.volley;
+    const salvo = hadesSalvoOf(fleet, this.time);
+    const hold = fleet.orders.holdFire;
     for (const w of ship.weapons) {
       // Active beams deal damage over time.
       if (w.beamRemaining > 0) {
@@ -1034,6 +1369,8 @@ export class BattleSimulation implements AiContext {
         w.charging -= dt;
         if (w.charging > 0) continue;
         w.charging = undefined;
+        // The charged shot leaves at the end of its charge as an ordinary shot (a charge begun on a volley's beat
+        // releases after the window; the volley counts that mount as silent).
         this.tryFire(ship, fleet, w);
         continue;
       }
@@ -1044,13 +1381,42 @@ export class BattleSimulation implements AiContext {
         if (w.burstRecover > 0) continue;
         w.burstLeft = w.def.burst.shots;
       }
+      // A scripted forced shot left unconsumed lapses after its 6 s (CINEMATIC_DESIGN.md §1.6).
+      if (w.forcedShot && this.time > w.forcedShot.expiresAt + 1e-9) {
+        dropForcedShot(w);
+        this.emit({ t: this.time, type: 'forced_shot_expired', shipId: ship.id, weaponIndex: w.index });
+      }
+      // An arriving hull holds fire until it has settled into its slot.
+      if (w.arrivalHold) continue;
+      // Fire control (volley.ts). A scripted forced shot bypasses every hold. A volley mount holds until its release
+      // offset, then fires once inside the window — a gun that is nearly ready (reload left ≤ the window) fires on the
+      // beat (CINEMATIC_DESIGN.md §1.3); a HADES-salvo member holds until its release; the standing hold keeps the rest
+      // of its class silent. The cooldown keeps running while a mount is held.
+      let volleyShot = false;
+      let salvoShot = false;
+      if (!w.forcedShot) {
+        if (volley) {
+          const vs = volleyStep(volley, ship, w, this.time, w.cooldown <= 0);
+          if (vs === 'hold') continue;
+          if (vs === 'release' || vs === 'window') {
+            if (w.cooldown > 0 && w.cooldown <= volley.window) w.cooldown = 0;
+            volleyShot = true;
+          }
+        }
+        if (salvo) {
+          const ss = salvoStep(salvo, ship, w, this.time);
+          if (ss === 'hold') continue;
+          salvoShot = ss === 'due';
+        }
+        if (!volleyShot && !salvoShot && heldBy(hold, w)) continue;
+      }
       if (w.cooldown > 0) continue;
       if (w.ammo !== undefined && w.ammo <= 0) continue;
       // Heat: a per-mount pool fires only while the shot fits under its capacity; everything else waits on the hull.
       if (w.def.perMountHeat ? (w.heat ?? 0) + w.def.heat > MOUNT_HEAT_CAPACITY : ship.overheated && w.def.heat > 0) continue;
       // A stealth hunter fires only in its strike run (firing reveals it); every other hull fires at whatever its
       // mounts can reach — withdrawing and disengaging hulls included (brief §8.6: guns still bearing).
-      if (ship.stealth && ship.role !== 'fighter' && hunterHoldsFire(ship, fleet, w, ship.targetId ? this.shipById.get(ship.targetId) : undefined)) {
+      if (ship.stealth && ship.role !== 'fighter' && !w.forcedShot && hunterHoldsFire(ship, fleet, w, ship.targetId ? this.shipById.get(ship.targetId) : undefined)) {
         w.cooldown = IDLE_RETRY_S;
         continue;
       }
@@ -1061,15 +1427,19 @@ export class BattleSimulation implements AiContext {
       }
       if (w.def.chargeTime) {
         // The visible charge begins only with something to shoot at; the shot itself is resolved at release.
-        if (!this.acquireTarget(ship, fleet, w)) {
+        if (!(w.forcedShot ? this.acquireForced(ship, w, w.forcedShot.targetId) : this.acquireTarget(ship, fleet, w, volleyShot || salvoShot))) {
           w.cooldown = IDLE_RETRY_S;
           continue;
         }
         w.charging = w.def.chargeTime;
-        this.emit({ t: this.time, type: 'weapon_charging', shipId: ship.id, weaponIndex: w.index, seconds: w.def.chargeTime });
+        this.emit({ t: this.time, type: 'weapon_charging', shipId: ship.id, weaponIndex: w.index, weaponId: w.def.id, seconds: w.def.chargeTime });
         continue;
       }
-      if (!this.tryFire(ship, fleet, w)) w.cooldown = IDLE_RETRY_S;
+      if (!this.tryFire(ship, fleet, w, volleyShot, salvoShot)) w.cooldown = IDLE_RETRY_S;
+      else {
+        if (volleyShot && volley) noteVolleyShot(volley, ship, w);
+        if (salvoShot && salvo) noteSalvoShot(salvo, ship, w);
+      }
     }
   }
 
@@ -1108,11 +1478,30 @@ export class BattleSimulation implements AiContext {
   }
 
   /**
+   * A scripted forced shot's target (CINEMATIC_DESIGN.md §1.6): the named hull when it is alive, present, visible,
+   * hostile, within the mount's range and in its arc; otherwise undefined and the shot waits (it lapses after 6 s).
+   */
+  private acquireForced(ship: ShipState, w: WeaponState, targetId: string): { target: ShipState; origin: Vec3 } | undefined {
+    const t = this.shipById.get(targetId);
+    if (!t || !t.alive || t.escaped || this.isPending(t) || !gridFilterPasses(ship, t) || !detectable(ship, t)) return undefined;
+    const origin = this.mountOrigin(ship, w, this.originScratch);
+    const dx = t.pos.x - origin.x;
+    const dy = t.pos.y - origin.y;
+    const dz = t.pos.z - origin.z;
+    if (dx * dx + dy * dy + dz * dz > w.def.range * w.def.range) return undefined;
+    if (!this.inArc(ship, w, t.pos)) return undefined;
+    return { target: t, origin };
+  }
+
+  /**
    * What the mount would shoot at right now, or undefined. Candidates come from the spatial grid within the
    * mount's range (ship-index order, the order the old brute-force scan yielded); every distance is a squared
-   * scalar and nothing is allocated on the idle path (AP §21.5).
+   * scalar and nothing is allocated on the idle path (AP §21.5). A mount-level target (`WeaponState.assignedTargetId`:
+   * a volley target resolved per mount, `force_target.mounts`, a HADES salvo) stands in for the hull's own target
+   * while it lasts. `coordinated`: the shot is a volley's or a salvo's, so a spinal gun with any target in arc fires on
+   * the beat instead of waiting for its primary (CINEMATIC_DESIGN.md §1.3).
    */
-  private acquireTarget(ship: ShipState, fleet: FleetState, w: WeaponState): { target?: ShipState; missile?: Missile; origin: Vec3 } | undefined {
+  private acquireTarget(ship: ShipState, fleet: FleetState, w: WeaponState, coordinated = false): { target?: ShipState; missile?: Missile; origin: Vec3 } | undefined {
     const def = w.def;
     const origin = this.mountOrigin(ship, w, this.originScratch);
     const range2 = def.range * def.range;
@@ -1170,7 +1559,15 @@ export class BattleSimulation implements AiContext {
       }
       if (!missile && !target) return undefined;
     } else {
-      const primary = ship.targetId ? this.shipById.get(ship.targetId) : undefined;
+      let primary = ship.targetId ? this.shipById.get(ship.targetId) : undefined;
+      if (w.assignedTargetId !== undefined) {
+        const a = this.time <= (w.assignedUntil ?? Infinity) + 1e-9 ? this.shipById.get(w.assignedTargetId) : undefined;
+        if (a && a.alive && !a.escaped) primary = a;
+        else {
+          w.assignedTargetId = undefined;
+          w.assignedUntil = undefined;
+        }
+      }
       const arc = def.arc >= 360 ? undefined : this.arcParams(ship, w);
       const inArc = (e: ShipState): boolean => arc === undefined || this.inArcScalar(ship, w, e.pos.x, e.pos.y, e.pos.z, arc.sin, arc.cos, arc.cosLimit);
       const within = (e: ShipState): boolean => {
@@ -1197,22 +1594,40 @@ export class BattleSimulation implements AiContext {
             target = e;
           }
         }
-        // Spinal guns wait for the primary target rather than wasting a shot.
-        if (target && def.antiCapital && def.arc <= 20 && primary && primary.alive && target.id !== primary.id && this.rng.chance(0.6)) return undefined;
+        // Spinal guns wait for the primary target rather than wasting a shot — except on a volley's or salvo's beat.
+        if (target && def.antiCapital && def.arc <= 20 && primary && primary.alive && target.id !== primary.id && !coordinated && this.rng.chance(0.6)) return undefined;
       }
       if (!target) return undefined;
     }
     return { target, missile, origin };
   }
 
-  /** Fires the mount at what it can acquire; false when it found nothing (the caller sets the idle retry). */
-  private tryFire(ship: ShipState, fleet: FleetState, w: WeaponState): boolean {
-    const acquired = this.acquireTarget(ship, fleet, w);
+  /**
+   * Fires the mount at what it can acquire; false when it found nothing (the caller sets the idle retry).
+   * `volleyShot` / `salvoShot` mark a fleet volley's or a HADES salvo's shot (`weapon_fired.volley` / `.salvo`). A mount
+   * with a scripted `forcedShot` fires only at that target: with `hit` the round cannot miss (it homes onto the target
+   * and strikes nothing else), with `penetrate` a penetrator's warhead arms whatever the barrier held; the shot is
+   * consumed (a queued `hadesStrike` round re-arms the mount).
+   */
+  private tryFire(ship: ShipState, fleet: FleetState, w: WeaponState, volleyShot = false, salvoShot = false): boolean {
+    const forced = w.forcedShot;
+    const acquired: { target?: ShipState; missile?: Missile; origin: Vec3 } | undefined = forced
+      ? this.acquireForced(ship, w, forced.targetId)
+      : this.acquireTarget(ship, fleet, w, volleyShot || salvoShot);
     if (!acquired) return false;
     const { target, missile } = acquired;
     const def = w.def;
     // A spinal gun needs a bow solution: the target in arc (acquisition) and the predicted intercept in arc too (AP §19 8.7).
     if (target && def.kind === 'mass_accelerator' && def.antiCapital && def.arc <= 20 && !this.inArc(ship, w, interceptPoint(acquired.origin, target.pos, target.vel, def.projectileSpeed))) return false;
+    // Coordinated HADES batteries (owner requirement, INTEGRATION_NOTES.md; volley.ts `openHadesSalvo`): a Titan mount
+    // ready to send a penetrator at a gated Reaper capital does not fire alone — it opens a salvo for its fleet and holds
+    // with the other members until their common release; inside a salvo already open on that capital it fires at once.
+    if (!forced && !salvoShot && target && def.hadesRound && this.useSpecialAmmo(ship, w, target)) {
+      const open = hadesSalvoOf(fleet, this.time);
+      if (!open) {
+        if (openHadesSalvo(this.volleyHost, fleet, ship, w, target)) return false;
+      } else if (open.targetId === target.id) salvoShot = true;
+    }
     const origin = clone(acquired.origin);
 
     // Fire.
@@ -1241,12 +1656,40 @@ export class BattleSimulation implements AiContext {
         this.comms(ship.side, 'engage', undefined, fleet);
       }
     }
-    // A HADES penetrator leaves the gun only through the gate; it counts against the separate magazine.
-    const special = target !== undefined && this.useSpecialAmmo(ship, w, target);
+    // A HADES penetrator leaves the gun only through the gate (AP §7) and counts against the separate magazine. A
+    // scripted strike (`hadesStrike`): without `force` the gate still decides (the fleet's hold on special ammunition is
+    // lifted for the order), with `force` it bypasses gate and fuse (`penetrate`).
+    const extra = forced ? forcedShotExtra(w) : undefined;
+    let special = false;
+    if (target) {
+      if (extra?.hades) special = def.hadesRound !== undefined && (w.specialAmmo ?? 0) > 0 && (forced!.penetrate || hadesGateOpen(target));
+      else special = this.useSpecialAmmo(ship, w, target);
+    }
     if (special) w.specialAmmo = (w.specialAmmo ?? 1) - 1;
+    const forcedHit = forced?.hit === true;
+    const scripted: Projectile['forced'] = forced ? { hit: forcedHit, penetrate: special && forced.penetrate, ...(extra?.outage ? { outage: extra.outage } : {}) } : undefined;
+    if (forced) consumeForcedShot(w, this.time, w.cooldown / (0.4 + 0.6 * ship.subsystems.weapons));
     this.revealStealth(ship, 'fired');
     const targetId = target?.id ?? `missile-${missile!.id}`;
-    this.emit({ t: this.time, type: 'weapon_fired', shipId: ship.id, weaponId: def.id, targetId, weaponIndex: w.index, kind: def.kind, ...(shots > 1 ? { shots } : {}), ...(special ? { special: true } : {}) });
+    // Brief §20: the muzzle the round leaves from and the id of the first round (a volley of `shots` rounds carries
+    // consecutive ids), so the gunnery views and the audio follow the real shot.
+    const projectileId = target && (def.kind === 'mass_accelerator' || def.kind === 'missile' || def.kind === 'disruptor_torpedo') ? this.nextId : undefined;
+    this.emit({
+      t: this.time,
+      type: 'weapon_fired',
+      shipId: ship.id,
+      weaponId: def.id,
+      targetId,
+      weaponIndex: w.index,
+      kind: def.kind,
+      muzzle: clone(origin),
+      ...(projectileId !== undefined ? { projectileId } : {}),
+      ...(shots > 1 ? { shots } : {}),
+      ...(special ? { special: true } : {}),
+      ...(volleyShot ? { volley: true } : {}),
+      ...(salvoShot ? { salvo: true } : {}),
+      ...(forced ? { forced: true } : {}),
+    });
 
     const coordination = 1 - fleet.coordinationPenalty * 0.5;
 
@@ -1281,7 +1724,7 @@ export class BattleSimulation implements AiContext {
         for (let m = 0; m < members; m++) {
           const aim = interceptPoint(origin, target.pos, target.vel, def.projectileSpeed);
           let aimPoint = aim;
-          const hit = this.rng.chance(p);
+          const hit = forcedHit || this.rng.chance(p);
           let missDistance: number | undefined;
           if (!hit) {
             // Deliberate miss offset larger than the target's bounding sphere: wide for a green solution, close for a mature one.
@@ -1309,6 +1752,7 @@ export class BattleSimulation implements AiContext {
             intendedTargetId: target.id,
             special: special && m === 0,
             ...(missDistance !== undefined ? { missDistance } : {}),
+            ...(scripted && m === 0 ? { forced: scripted } : {}),
           });
         }
         break;
@@ -1317,7 +1761,7 @@ export class BattleSimulation implements AiContext {
       case 'reaper_beam': {
         // A flight's members each roll; the burst carries one beam per member that hit (`beamMembers`).
         let hits = 0;
-        for (let m = 0; m < members; m++) if (this.rng.chance(p)) hits++;
+        for (let m = 0; m < members; m++) if (forcedHit || this.rng.chance(p)) hits++;
         const hit = hits > 0;
         w.beamRemaining = def.beamDuration ?? 1.5;
         w.beamTargetId = target.id;
@@ -1346,7 +1790,7 @@ export class BattleSimulation implements AiContext {
       case 'gardian': {
         this.flashes.push({ from: origin, to: clone(target.pos), kind: ship.faction === 'reaper' ? 'reaper_pd' : 'gardian', ttl: 0.1 });
         for (let m = 0; m < members && target.alive; m++) {
-          if (this.rng.chance(p)) this.applyHit(ship, target, def, def.damage, clone(target.pos));
+          if (forcedHit || this.rng.chance(p)) this.applyHit(ship, target, def, def.damage, clone(target.pos));
         }
         break;
       }
@@ -1371,6 +1815,7 @@ export class BattleSimulation implements AiContext {
             hp: def.missileHp ?? 10,
             ttl: (def.range * 2.5) / def.projectileSpeed + 4,
             alive: true,
+            ...(forcedHit && i === 0 ? { forced: true } : {}),
           });
         }
         break;
@@ -1397,6 +1842,8 @@ export class BattleSimulation implements AiContext {
     shooter.stats.recentDamage += out.hullDamage + out.barrierDamage;
     this.noteHit(target);
     barrierFlare(target, out.barrierDamage, this.time);
+    // Brief §20: the impact carries what the barrier, the armour and the hull each took, whether the round got through
+    // the barrier, and the round's id and weapon, so effects and audio resolve against the real collision.
     this.emit({
       t: this.time,
       type: 'projectile_impact',
@@ -1406,6 +1853,11 @@ export class BattleSimulation implements AiContext {
       damageType: weapon.damageType,
       barrierDamage: out.barrierDamage,
       hullDamage: out.hullDamage,
+      armourDamage: Math.max(0, out.residual - out.hullDamage),
+      penetrated: out.residual > 0,
+      weaponId: weapon.id,
+      ...(opts.projectileId !== undefined ? { projectileId: opts.projectileId } : {}),
+      ...(hr ? { special: true } : {}),
       pos,
     });
     if (out.barriersCollapsed) this.emit({ t: this.time, type: 'barriers_down', shipId: target.id });
@@ -1416,11 +1868,11 @@ export class BattleSimulation implements AiContext {
     }
     // The fuse: the warhead arms only when at least `residualFraction` of the round passed the barrier
     // (a collapsed or nearly collapsed field at the impact point); otherwise the penetrator was an expensive slug.
-    if (hr && (opts.forcePenetrate || out.residual >= hr.fuse.residualFraction * raw)) this.detonateWarhead(shooter, target, weapon, hr.warhead, pos, opts.outage);
+    if (hr && (opts.forcePenetrate || out.residual >= hr.fuse.residualFraction * raw)) this.detonateWarhead(shooter, target, weapon, hr.warhead, pos, opts.outage, opts.projectileId);
   }
 
   /** The HADES burst inside the hull: barriers and armour ignored, one subsystem outage, barrier recovery suppressed. */
-  private detonateWarhead(shooter: ShipState, target: ShipState, weapon: EffectiveWeapon, warhead: WarheadDef, pos: Vec3, forcedOutage?: 'weapons' | 'engines'): void {
+  private detonateWarhead(shooter: ShipState, target: ShipState, weapon: EffectiveWeapon, warhead: WarheadDef, pos: Vec3, forcedOutage?: 'weapons' | 'engines', projectileId?: number): void {
     const burst: EffectiveWeapon = { ...weapon, damageType: warhead.damageType, damage: warhead.damage, barrierEfficiencyMultiplier: warhead.barrierEfficiencyMultiplier, armourBypass: warhead.armourBypass };
     const out = applyDamage(target, warhead.damage, burst, this.rng, this.time, { subsystemRoll: false });
     this.noteFlightLosses(target);
@@ -1429,7 +1881,7 @@ export class BattleSimulation implements AiContext {
     const outage = forcedOutage ?? this.rng.pick(['weapons', 'engines'] as const);
     this.applyOutage(target, outage, warhead.subsystemOutage.drop, warhead.subsystemOutage.seconds);
     target.regenSuppressedUntil = Math.max(target.regenSuppressedUntil, this.time + warhead.regenSuppressSeconds);
-    this.emit({ t: this.time, type: 'hades_detonation', shipId: shooter.id, targetId: target.id, pos: clone(pos), damage: warhead.damage, outage });
+    this.emit({ t: this.time, type: 'hades_detonation', shipId: shooter.id, targetId: target.id, pos: clone(pos), damage: warhead.damage, outage, ...(projectileId !== undefined ? { projectileId } : {}) });
     if (out.destroyed) this.destroyShip(target, shooter, 'warhead', weapon.id);
   }
 
@@ -1457,6 +1909,21 @@ export class BattleSimulation implements AiContext {
     // The swept segment is padded with the largest hit sphere in play (fighters count at 2.5 × their radius).
     const pad = this.grid.maxRadiusKm * 2.5 + 0.1;
     for (const p of this.projectiles) {
+      // A scripted forced hit (`forcedShot.hit`) steers onto its intended target at its own speed (CINEMATIC_DESIGN.md
+      // §1.6: the mount fires "with hit = true"), and strikes nothing else on the way.
+      const homing = p.forced?.hit ? this.shipById.get(p.intendedTargetId) : undefined;
+      if (homing && homing.alive && !homing.escaped) {
+        const dx = homing.pos.x - p.pos.x;
+        const dy = homing.pos.y - p.pos.y;
+        const dz = homing.pos.z - p.pos.z;
+        const d = Math.hypot(dx, dy, dz);
+        if (d > 1e-9) {
+          const speed = Math.hypot(p.vel.x, p.vel.y, p.vel.z);
+          p.vel.x = (dx / d) * speed;
+          p.vel.y = (dy / d) * speed;
+          p.vel.z = (dz / d) * speed;
+        }
+      }
       p.prevPos.x = p.pos.x;
       p.prevPos.y = p.pos.y;
       p.prevPos.z = p.pos.z;
@@ -1469,18 +1936,35 @@ export class BattleSimulation implements AiContext {
       // A round can hit whatever its shooter may target (enemiesOfShip semantics, AP §4.1): a rogue hull's rounds hit
       // both sides and rounds aimed at a rogue hull hit it. Without a rogue hull this is exactly the shooter's enemy side.
       const shooterState = this.shipById.get(p.shooterId);
-      for (const s of this.grid.querySegment(p.prevPos, p.pos, pad, shooterState ?? p.side)) {
-        if (s.role === 'fighter' && !p.weapon.antiSmall) continue;
-        const r = s.radiusKm * (s.role === 'fighter' ? 2.5 : 1);
-        const t = segmentSphere(p.prevPos, p.pos, s.pos, r);
-        if (t !== undefined && t < bestT) {
-          bestT = t;
-          hitShip = s;
+      if (p.forced?.hit) {
+        if (homing && homing.alive && !homing.escaped) {
+          const t = segmentSphere(p.prevPos, p.pos, homing.pos, homing.radiusKm * (homing.role === 'fighter' ? 2.5 : 1));
+          if (t !== undefined) {
+            bestT = t;
+            hitShip = homing;
+          }
+        }
+      } else {
+        for (const s of this.grid.querySegment(p.prevPos, p.pos, pad, shooterState ?? p.side)) {
+          if (s.role === 'fighter' && !p.weapon.antiSmall) continue;
+          const r = s.radiusKm * (s.role === 'fighter' ? 2.5 : 1);
+          const t = segmentSphere(p.prevPos, p.pos, s.pos, r);
+          if (t !== undefined && t < bestT) {
+            bestT = t;
+            hitShip = s;
+          }
         }
       }
       if (hitShip) {
         const hitPoint = addScaled(p.prevPos, sub(p.pos, p.prevPos), bestT);
-        if (shooterState) this.applyHit(shooterState, hitShip, p.weapon, p.weapon.damage, hitPoint, p.special ? { special: true } : undefined);
+        if (shooterState) {
+          this.applyHit(shooterState, hitShip, p.weapon, p.weapon.damage, hitPoint, {
+            projectileId: p.id,
+            ...(p.special ? { special: true } : {}),
+            ...(p.forced?.penetrate ? { forcePenetrate: true } : {}),
+            ...(p.forced?.outage ? { outage: p.forced.outage } : {}),
+          });
+        }
         continue;
       }
       if (p.missDistance !== undefined) this.checkNearMiss(p);
@@ -1537,8 +2021,9 @@ export class BattleSimulation implements AiContext {
       if (distance(m.pos, target.pos) <= target.radiusKm + speed * dt) {
         const shooter = this.shipById.get(m.shooterId);
         const pHit = Math.min(0.97, m.weapon.accuracy * (1 - target.ecm * 0.4));
-        if (shooter && this.rng.chance(pHit)) {
-          this.applyHit(shooter, target, m.weapon, m.weapon.damage, clone(m.pos));
+        // A scripted forced hit cannot miss once it arrives (point defence can still kill it on the way).
+        if (shooter && (m.forced || this.rng.chance(pHit))) {
+          this.applyHit(shooter, target, m.weapon, m.weapon.damage, clone(m.pos), { projectileId: m.id });
         }
         m.alive = false;
         continue;
@@ -1578,6 +2063,16 @@ export class BattleSimulation implements AiContext {
       cause,
       weaponId,
     });
+    // A flagship's death (AP §22.2): exactly one `flagship_destroyed` right after its `ship_destroyed`, naming the killer
+    // and the weapon that fired the killing round. The narrative text is drawn from a fork of `sim.rng` taken at this
+    // moment (deterministic, in step order) so the banner never changes what happens next in the battle.
+    if (ship.flagship) {
+      const weapon = killer && weaponId ? killer.weapons.find((w) => w.def.id === weaponId)?.def : undefined;
+      const fe = flagshipDestroyedEvent(this.rng.fork(`flagship:${ship.id}`), this.time, ship, killer, cause, weapon);
+      if (fe) this.emit(fe);
+    }
+    // A hull destroyed on its way in leaves the arrival bookkeeping (its wave still reports `fleet_arrived`).
+    if (ship.arrival) this.endArrival(ship);
     const fleet = this.fleets.get(ship.fleetId);
     const enemySide: Side = ship.side === 'A' ? 'B' : 'A';
     const isCapital = isCapitalRole(ship.role);
@@ -1610,11 +2105,22 @@ export class BattleSimulation implements AiContext {
     return { start, remaining };
   }
 
+  /**
+   * Whether a side still has forces to come (AP §6, the `checkEnd` guard): an undeployed `arrivalTime` fleet, or an
+   * undeployed `arrivalMode: 'beat'` fleet that a `spawn_wave` beat still in the queue will deploy. Hulls waiting for
+   * their arrival flash are alive and count through the ship scan.
+   */
+  private forcesPending(side: Side): boolean {
+    return this.pendingFleets.some((f) => f.side === side) || waveSpawnPending(this, side);
+  }
+
   private checkEnd(): void {
     const a = this.sidePoints('A');
     const b = this.sidePoints('B');
-    const aAlive = this.ships.some((s) => s.side === 'A' && s.alive && !s.escaped && s.role !== 'fighter');
-    const bAlive = this.ships.some((s) => s.side === 'B' && s.alive && !s.escaped && s.role !== 'fighter');
+    // A side whose fleets are still to arrive is not beaten yet; the points of an undeployed fleet enter the
+    // attrition maths only when it deploys (`startPoints` are summed over deployed fleets).
+    const aAlive = this.ships.some((s) => s.side === 'A' && s.alive && !s.escaped && s.role !== 'fighter') || this.forcesPending('A');
+    const bAlive = this.ships.some((s) => s.side === 'B' && s.alive && !s.escaped && s.role !== 'fighter') || this.forcesPending('B');
     if (!aAlive && !bAlive) return this.end('draw', 'Mutual annihilation');
     if (!aAlive) return this.end('B', a.remaining === 0 ? 'Side A fleet destroyed' : 'Side A fleet withdrew from the battlespace');
     if (!bAlive) return this.end('A', b.remaining === 0 ? 'Side B fleet destroyed' : 'Side B fleet withdrew from the battlespace');
@@ -1624,7 +2130,7 @@ export class BattleSimulation implements AiContext {
     const ineffective = (side: Side, p: { start: number; remaining: number }): boolean =>
       p.start > 0 &&
       p.remaining < WITHDRAWAL.combatIneffectiveFraction * p.start &&
-      !this.pendingFleets.some((f) => f.side === side) &&
+      !this.forcesPending(side) &&
       !this.ships.some((s) => s.side === side && s.alive && !s.escaped && isCapitalRole(s.role));
     const ia = ineffective('A', a);
     const ib = ineffective('B', b);
