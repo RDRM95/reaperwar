@@ -4,7 +4,7 @@ import { SCENARIOS, defaultWorldState, getScenario } from '@/scenarios';
 import { getShipClass } from '@/data/ships';
 import { auPrefix, lockWorldState } from '@/timelines/alternates';
 import type { RuleSet } from '@/timelines/rules';
-import { threatBadge, threatOptionSuffix, worldStateLockNote } from '../threatBadge';
+import { threatBadge, timelineOptionLabel, worldStateLockNote } from '../threatBadge';
 
 /** The world-state choices a scenario exposes, for the timeline's locks (TIMELINES_V2.md §4.10). */
 const choicesOf = (s: { worldState?: { id: string; choices: { id: string }[] }[] }): Record<string, string[]> =>
@@ -66,7 +66,7 @@ export function renderBriefing(app: App, params?: { scenarioId?: string }): HTML
     const timelineSelect = el('select', { onchange: (e: Event) => {
       timelineId = (e.target as HTMLSelectElement).value;
       render();
-    } }, app.allTimelines().map((t) => el('option', { value: t.id, selected: t.id === timelineId }, `${t.name}${t.category === 'canon' ? '' : ` [${t.category.toUpperCase()}]`}${threatOptionSuffix(t)}`)));
+    } }, app.allTimelines().map((t) => el('option', { value: t.id, selected: t.id === timelineId }, timelineOptionLabel(t))));
 
     const worldStateControls = (scenario.worldState ?? []).map((o) => {
       const lock = locks.locked[o.id];

@@ -342,7 +342,7 @@ export const TIMELINE_ENTRIES: CodexEntry[] = ALTERNATE_PRESETS.map((p) => {
   return {
     id: `timeline_${p.id}`,
     category: 'Timelines',
-    title: p.name,
+    title: `${p.name} (AU)`,
     canon: [meta.canonBasis],
     estimate: ['How the threat is measured: see “Threat to the Reapers (measured scale)” in this category.'],
     alternate: [

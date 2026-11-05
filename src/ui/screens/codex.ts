@@ -1,12 +1,17 @@
 import type { App } from '../app';
 import { el, setChildren } from '../dom';
 import { CODEX, CODEX_CATEGORIES, type CodexEntry } from '@/codex/entries';
+import { timelineTag, timelineTitle } from '@/timelines/alternates';
 
 export function renderCodex(app: App): HTMLElement {
   const rules = app.currentRules();
   let current: CodexEntry = CODEX[0];
   const bodyPane = el('div', { class: 'codex-body scroll' });
   const nav = el('div', { class: 'codex-nav scroll' });
+  const labelOf = (id: string): string => {
+    const t = app.allTimelines().find((x) => x.id === id);
+    return t ? `${t.name}${timelineTag(t)}` : id;
+  };
 
   const renderEntry = () => {
     const e = current;
@@ -18,7 +23,7 @@ export function renderCodex(app: App): HTMLElement {
       e.estimate && e.estimate.length > 0 ? el('div', { class: 'entry-block' }, [el('div', { class: 'panel-title' }, [el('span', { class: 'badge estimate' }, 'simulation estimate')]), ...e.estimate.map((p) => el('p', {}, p))]) : null,
       auLines.length > 0 ? el('div', { class: 'entry-block au' }, [el('div', { class: 'panel-title' }, [el('span', { class: 'badge au' }, `AU — ${rules.name}`)]), ...auLines.map((p) => el('p', {}, p))]) : null,
       e.alternate && e.alternate.length > 0 ? el('div', { class: 'entry-block au', 'data-alternate': e.id }, [el('div', { class: 'panel-title' }, [el('span', { class: 'badge au' }, 'alternate universe')]), ...e.alternate.map((p) => el('p', {}, p))]) : null,
-      rules.category === 'canon' && e.au && Object.keys(e.au).length > 0 ? el('p', { class: 'dim', style: { fontSize: '12px' } }, `This entry changes in: ${Object.keys(e.au).map((id) => app.allTimelines().find((t) => t.id === id)?.name ?? id).join(', ')}. Select that timeline to see the alternate history.`) : null,
+      rules.category === 'canon' && e.au && Object.keys(e.au).length > 0 ? el('p', { class: 'dim', style: { fontSize: '12px' } }, `This entry changes in: ${Object.keys(e.au).map(labelOf).join(', ')}. Select that timeline to see the alternate history.`) : null,
     );
     for (const b of nav.querySelectorAll<HTMLButtonElement>('[data-entry]')) b.classList.toggle('active', b.dataset.entry === e.id);
   };
@@ -37,7 +42,7 @@ export function renderCodex(app: App): HTMLElement {
   renderEntry();
 
   return el('div', { class: 'screen' }, [
-    el('div', { class: 'screen-header' }, [el('h1', {}, 'CODEX'), el('span', { class: 'sub' }, `TIMELINE: ${rules.name.toUpperCase()}`)]),
+    el('div', { class: 'screen-header' }, [el('h1', {}, 'CODEX'), el('span', { class: 'sub' }, `TIMELINE: ${timelineTitle(rules).toUpperCase()}`)]),
     el('div', { class: 'screen-body' }, [el('div', { class: 'codex' }, [nav, bodyPane])]),
     el('div', { class: 'screen-footer' }, [el('button', { class: 'btn', onclick: () => app.show('menu') }, '← Main menu'), el('button', { class: 'btn', onclick: () => app.show('timelines') }, 'Change timeline')]),
   ]);

@@ -37,6 +37,8 @@ Prerequisites enforced on import: a dead Shepard has effectiveness 0; Cerberus c
 
 The ten timelines after Cerberus Ascendant (`src/timelines/alternates.ts`, design and review in `docs/apex/TIMELINES_V2.md`) each follow the trilogy up to a named divergence and change only what follows from it: a divergence changes what the organics know or do, never what the Reapers are. They use existing engine knobs only, and none uses Project Titan, HADES penetrators or the Valkyrie.
 
+Every alternate (and custom) timeline is labelled wherever it is named away from its own card and AU notes (`timelineTag` and `timelineTitle` in `alternates.ts`): `[AU]` or `[CUSTOM]` after the name in every timeline picker (briefing, campaign setup, custom battle, comparison), the comparison table, the fleet database column, the saves list and the results line; “(ALTERNATE UNIVERSE)” in the codex, fleet database, campaign and battle-HUD headers, the menu footer and the selection toast. Custom battle also prints the briefing’s AU line under its picker, and the timeline codex entries are titled “<name> (AU)”.
+
 ## Isolation guarantees (tested in `tests/timelines.test.ts`)
 
 - `getPreset()` returns deep clones; mutating a returned set never changes canon.

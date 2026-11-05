@@ -2,6 +2,7 @@ import type { App } from '../app';
 import { el, fmtNum, fmtTime } from '../dom';
 import type { SideSummary } from '@/simulation/types';
 import { assessReapers } from '@/simulation/reaperIntel';
+import { timelineTag } from '@/timelines/alternates';
 
 export function renderResults(app: App): HTMLElement {
   const lb = app.lastBattle;
@@ -40,7 +41,7 @@ export function renderResults(app: App): HTMLElement {
 
   const body = el('div', { class: 'screen-body' }, [
     el('div', { class: `result-banner ${result.outcome}` }, result.outcome.toUpperCase()),
-    el('p', { class: 'dim', style: { textAlign: 'center' } }, `${config.name} · ${result.rulesName} · seed ${result.seed} · ${fmtTime(result.duration)} · ${result.reason}`),
+    el('p', { class: 'dim', style: { textAlign: 'center' } }, `${config.name} · ${result.rulesName}${timelineTag(config.rules)} · seed ${result.seed} · ${fmtTime(result.duration)} · ${result.reason}`),
     config.rules.category !== 'canon' ? el('p', { style: { textAlign: 'center', color: 'var(--orange)' } }, 'ALTERNATE UNIVERSE RESULT — not representative of canon Mass Effect 3.') : null,
     el('div', { class: 'grid3' }, [
       sideTable(result.sides[ps], 'ALLIED FORCES', ''),

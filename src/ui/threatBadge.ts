@@ -1,6 +1,6 @@
 import { el } from './dom';
 import type { RuleSet } from '@/timelines/rules';
-import { alternateMeta, auPrefix, type WorldStateLock } from '@/timelines/alternates';
+import { alternateMeta, auPrefix, timelineTag, type WorldStateLock } from '@/timelines/alternates';
 import { THREAT_REFERENCE_META, threatHoldsText, threatRating, threatTooltip } from '@/timelines/threat';
 
 /**
@@ -30,6 +30,9 @@ export const threatOptionSuffix = (rules: RuleSet): string => {
   const r = threatRating(rules);
   return r ? ` · Threat ${r.tier}/6 ${r.label}` : ' · Threat unrated';
 };
+
+/** The <option> text of every timeline picker (briefing, campaign setup, custom battle, comparison): name, AU or custom tag, threat. */
+export const timelineOptionLabel = (rules: RuleSet): string => `${rules.name}${timelineTag(rules)}${threatOptionSuffix(rules)}`;
 
 const pct = (x: number): string => `${Math.round(100 * x)} %`;
 

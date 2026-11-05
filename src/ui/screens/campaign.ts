@@ -7,8 +7,8 @@ import { effectiveGround, getProject, RESEARCH_PROJECTS, researchOutput, setRese
 import { FACTIONS } from '@/data/factions';
 import { getShipClass } from '@/data/ships';
 import { storage } from '@/core/storage';
-import { CAMPAIGN_WORLD_STATE_CHOICES, CAMPAIGN_WORLD_STATE_DEFAULTS, lockWorldState } from '@/timelines/alternates';
-import { campaignNote, threatBadge, threatOptionSuffix, worldStateLockNote } from '../threatBadge';
+import { CAMPAIGN_WORLD_STATE_CHOICES, CAMPAIGN_WORLD_STATE_DEFAULTS, lockWorldState, timelineTag } from '@/timelines/alternates';
+import { campaignNote, threatBadge, timelineOptionLabel, worldStateLockNote } from '../threatBadge';
 
 /**
  * Galactic campaign screen: interactive galaxy map (canvas), system and
@@ -188,7 +188,7 @@ export function renderCampaign(app: App, state: CampaignState): HTMLElement {
     const alliedVal = state.fleets.filter((f) => f.allegiance === 'allied').reduce((a, f) => a + fleetPoints(f.counts), 0);
     setChildren(
       statusBar,
-      el('div', { class: 'panel', style: { minWidth: '180px' } }, [el('div', { class: 'panel-title' }, 'WAR CLOCK'), el('div', { class: 'hud-clock' }, [`WEEK ${state.tick}`, el('small', {}, `${state.startDate} · ${state.rules.name}`)])]),
+      el('div', { class: 'panel', style: { minWidth: '180px' } }, [el('div', { class: 'panel-title' }, 'WAR CLOCK'), el('div', { class: 'hud-clock' }, [`WEEK ${state.tick}`, el('small', {}, `${state.startDate} · ${state.rules.name}${timelineTag(state.rules)}`)])]),
       el('div', { class: 'panel' }, [el('div', { class: 'panel-title' }, 'WAR ASSETS'), el('div', { class: 'mono', style: { fontSize: '18px', color: 'var(--cyan)' } }, fmtNum(state.warAssets)), el('small', {}, `allied fleet value ${fmtNum(alliedVal)}`)]),
       el('div', { class: 'panel red' }, [el('div', { class: 'panel-title' }, 'REAPER STRENGTH'), el('div', { class: 'mono', style: { fontSize: '18px', color: 'var(--red)' } }, fmtNum(reaperVal)), el('small', {}, `${state.fleets.filter((f) => f.allegiance === 'reaper').length} fleets · ${state.reaper.reinforcementPool} reinforcement groups`)]),
       el('div', { class: 'panel orange' }, [
@@ -463,7 +463,7 @@ export function renderCampaign(app: App, state: CampaignState): HTMLElement {
   }
 
   return el('div', { class: 'screen' }, [
-    el('div', { class: 'screen-header' }, [el('h1', {}, 'GALACTIC CAMPAIGN'), el('span', { class: 'sub' }, state.name.toUpperCase())]),
+    el('div', { class: 'screen-header' }, [el('h1', {}, 'GALACTIC CAMPAIGN'), el('span', { class: 'sub' }, `${state.name.toUpperCase()}${state.rules.category === 'canon' ? '' : ' · ALTERNATE UNIVERSE'}`)]),
     el('div', { class: 'screen-body', style: { padding: '12px 16px' } }, [
       statusBar,
       el('div', { class: 'campaign-layout' }, [
@@ -510,7 +510,7 @@ export function renderCampaignSetup(app: App): HTMLElement {
           el('label', { class: 'field' }, ['Rule set', el('select', { onchange: (e: Event) => {
             timelineId = (e.target as HTMLSelectElement).value;
             render();
-          } }, app.allTimelines().map((t) => el('option', { value: t.id, selected: t.id === timelineId }, `${t.name}${t.category === 'canon' ? '' : ` [${t.category.toUpperCase()}]`}${threatOptionSuffix(t)}`)))]),
+          } }, app.allTimelines().map((t) => el('option', { value: t.id, selected: t.id === timelineId }, timelineOptionLabel(t))))]),
           el('div', { class: 'threat-select-note' }, threatBadge(rules, 'full')),
           el('p', { class: 'dim' }, rules.description),
           campaignNote(rules),

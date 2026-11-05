@@ -7,7 +7,7 @@ import { WEAPON_LIST } from '@/data/weapons';
 import { SCENARIOS, defaultWorldState, type ScenarioDef } from '@/scenarios';
 import { THREAT_COALITION, THREAT_LONGEST_RANGE, THREAT_MAX_DURATION, THREAT_SEEDS, THREAT_STANDOFF, buildThreatReference, threatRungGroups, threatRunOf } from '@/scenarios/threatReference';
 import { BattleSimulation } from '@/simulation/battle';
-import { ALTERNATE_META, ALTERNATE_PRESETS, CAMPAIGN_WORLD_STATE_CHOICES, CAMPAIGN_WORLD_STATE_DEFAULTS, auPrefix, getLever, lockWorldState, withLever } from '@/timelines/alternates';
+import { ALTERNATE_META, ALTERNATE_PRESETS, CAMPAIGN_WORLD_STATE_CHOICES, CAMPAIGN_WORLD_STATE_DEFAULTS, auPrefix, getLever, lockWorldState, timelineTag, timelineTitle, withLever } from '@/timelines/alternates';
 import { PRESETS, getPreset, makeCustom } from '@/timelines/presets';
 import { CANON_FLEETS, CANON_SPECIAL, CANON_STRATEGIC, CANON_TECH, TECH_KEYS, type FleetStrength, type RuleSet } from '@/timelines/rules';
 import { exportRuleSet, normaliseRules, validateRuleSet } from '@/timelines/schema';
@@ -167,6 +167,12 @@ describe('alternate timelines: data', () => {
       expect(p.special.hyperMassAccelerators || p.special.hadesRounds || p.special.valkyrieAvailable || p.special.superDreadnoughts, p.id).toBe(false);
     }
     expect(auPrefix('X')).toBe('ALTERNATE UNIVERSE (X): ');
+    // Away from its own card and AU notes (pickers, headers, toasts, lists) every non-canon name carries a label; canon stays bare.
+    for (const p of [...PRESETS, makeCustom()]) {
+      expect(timelineTag(p), p.id).toBe(p.category === 'canon' ? '' : ` [${p.category.toUpperCase()}]`);
+      expect(timelineTitle(p).startsWith(p.name), p.id).toBe(true);
+      expect(timelineTitle(p).endsWith('ALTERNATE UNIVERSE)'), p.id).toBe(p.category !== 'canon');
+    }
   });
 
   it('metadata: divergence inside established history, provenance, canon basis, a lever that is a knob of the preset', () => {
@@ -255,7 +261,7 @@ describe('alternate timelines: codex', () => {
       expect(entries, p.id).toHaveLength(1);
       const e = entries[0];
       expect(e.category).toBe('Timelines');
-      expect(e.title).toBe(p.name);
+      expect(e.title).toBe(`${p.name} (AU)`);
       expect(e.canon).toEqual([ALTERNATE_META[p.id].canonBasis]);
       expect(e.alternate!.length).toBeGreaterThanOrEqual(p.historyChanges.length + 3);
       for (const line of e.alternate!) expect(line.startsWith(auPrefix(p.name)), line).toBe(true);

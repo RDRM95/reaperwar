@@ -4,6 +4,7 @@ import { describeSave, saveSlots, type SaveKind, type SaveSlotMeta } from '@/cor
 import { storage } from '@/core/storage';
 import type { CampaignState } from '@/campaign/state';
 import type { PostWarState } from '@/campaign/postwar';
+import { timelineTag } from '@/timelines/alternates';
 
 /**
  * Load / save screen: autosaves (one per mode) plus named slots with
@@ -15,6 +16,11 @@ export function renderSaves(app: App, params?: { saveCurrent?: SaveKind }): HTML
   const nameInput = el('input', { type: 'text', value: '', placeholder: 'Slot name', 'data-field': 'slot-name' }) as HTMLInputElement;
   const current = params?.saveCurrent === 'campaign' ? app.campaign : params?.saveCurrent === 'postwar' ? app.postwar : undefined;
   const kind = params?.saveCurrent;
+  /** A slot stores the timeline's name only; the tag comes from the timeline of that name, when it still exists. */
+  const rulesTag = (name: string): string => {
+    const t = app.allTimelines().find((x) => x.name === name);
+    return t ? timelineTag(t) : '';
+  };
 
   const fmtDate = (iso: string) => {
     const d = new Date(iso);
@@ -27,7 +33,7 @@ export function renderSaves(app: App, params?: { saveCurrent?: SaveKind }): HTML
         el('b', {}, [meta.name, ' ', el('span', { class: 'tag', style: { marginLeft: '6px' } }, meta.kind === 'campaign' ? 'CAMPAIGN' : 'POST-WAR'), opts.autosave ? el('span', { class: 'tag', style: { marginLeft: '6px' } }, 'AUTOSAVE') : null]),
         el('span', { class: 'mono dim', style: { fontSize: '11px' } }, fmtDate(meta.savedAt)),
       ]),
-      el('div', { class: 'dim', style: { fontSize: '12px', margin: '4px 0' } }, `${meta.rulesName} · ${meta.summary}`),
+      el('div', { class: 'dim', style: { fontSize: '12px', margin: '4px 0' } }, `${meta.rulesName}${rulesTag(meta.rulesName)} · ${meta.summary}`),
       el('div', { class: 'row' }, [
         el('button', { class: 'btn small primary', 'data-action': opts.autosave ? `load-autosave-${meta.kind}` : 'load-slot', onclick: () => void load(meta, opts.autosave ?? false) }, 'Load'),
         opts.autosave

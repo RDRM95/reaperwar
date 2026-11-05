@@ -3,7 +3,7 @@ import { el } from '../dom';
 import { CANON_TECH, TECH_KEYS, cloneRules, type RuleSet, type TechModifiers } from '@/timelines/rules';
 import { TECH_RANGE, exportRuleSet, importRuleSet } from '@/timelines/schema';
 import { makeCustom } from '@/timelines/presets';
-import { alternateMeta, auPrefix } from '@/timelines/alternates';
+import { alternateMeta, auPrefix, timelineTitle } from '@/timelines/alternates';
 import { threatBadge, threatPanel } from '../threatBadge';
 
 /** The alternate-universe block of a new timeline: divergence, world-state locks and campaign note (TIMELINES_V2.md §4.8). */
@@ -186,7 +186,7 @@ export function renderTimelines(app: App, params?: { editId?: string }): HTMLEle
             el('div', { class: 'row' }, [
               !editable ? el('button', { class: 'btn primary', 'data-action': 'select-timeline', onclick: () => {
                 app.selectTimeline(rules.id);
-                app.toast(`TIMELINE: ${rules.name.toUpperCase()}`);
+                app.toast(`TIMELINE: ${timelineTitle(rules).toUpperCase()}`);
                 render();
               } }, app.prefs.lastTimelineId === rules.id ? 'Active timeline ✓' : 'Set as active timeline') : null,
               !editable && isCustomSaved ? el('button', { class: 'btn', onclick: () => {

@@ -31,6 +31,17 @@ const preset = (r: RuleSet): RuleSet => deepFreeze(r);
 /** Prefix for every alternate-universe line shown outside the preset itself (codex, tooltips, world-state notes). */
 export const auPrefix = (name: string): string => `ALTERNATE UNIVERSE (${name}): `;
 
+/**
+ * The label that follows a timeline's name wherever the name is shown away
+ * from the timeline's own card and its AU notes: " [AU]" or " [CUSTOM]" where
+ * space is short (pickers, table columns, footers), nothing for canon.
+ */
+export const timelineTag = (r: Pick<RuleSet, 'category'>): string => (r.category === 'canon' ? '' : ` [${r.category.toUpperCase()}]`);
+
+/** A timeline's name with the full label, for headers and toasts: every non-canon timeline reads "… (ALTERNATE UNIVERSE)". */
+export const timelineTitle = (r: Pick<RuleSet, 'name' | 'category'>): string =>
+  r.category === 'canon' ? r.name : `${r.name} (${r.category === 'custom' ? 'CUSTOM, ' : ''}ALTERNATE UNIVERSE)`;
+
 /** A world-state value the timeline's story fixes, with the reason shown beside the locked control. */
 export interface WorldStateLock {
   value: string;
