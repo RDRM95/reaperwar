@@ -202,3 +202,33 @@ No simulation change is needed for this workstream. The simulation's own cost pe
 ## 5. After
 
 To be added by the implementation step: the same command and the same tables. Measure Before again in the same session on a build of `d27997a` (§2.4), so that both sides see the same machine.
+
+## 6. The worker seam (brief §19.1 "Web Worker where beneficial"; §17.2 item 2)
+
+### 6.1 What exists
+
+`src/ui/simDriver.ts` defines `SimDriver`, the only way the controller, the playback clock and Fast-forward to result reach the simulation: `step(n)`, `finished`, `result`, `time`, `tick`, `events` (the whole log) and `drain()` (the events since the last drain, in order). Its one implementation, `LocalSimDriver`, runs the simulation on the main thread: `step(n)` is a loop of `sim.step()`, and `drain()` reads the simulation's own event log from a cursor. The controller no longer hooks `sim.onEvent`: it drains once per frame and hands the events to the view, the HUD and the audio. Every event is plain JSON already (brief §17, CORE's T15 seam), so a worker could stream them back unchanged.
+
+### 6.2 Why the live worker waits for the snapshot protocol
+
+Stepping and events are the easy half. The other half is everything the main thread reads from the live simulation every frame:
+
+- **The view** reads every ship's position, previous position, heading, velocity, hull, barriers and subsystems, every projectile, missile, beam and point-defence flash, and the fleets' headings (`BattleView.update`, the camera paths, picking).
+- **The overlay and the HUD** read the same ships again, their targets and orders, and `assessReapers` walks the whole battle four times a second.
+- **Player input** writes into the simulation between ticks: `issueOrders`, `orderShipsAttack`, the volley and HADES specials.
+
+In a worker, each of those reads becomes a copy that crosses the thread boundary every frame, and each write becomes a message applied at a tick boundary. At the scale this stage measured (1,039 live ships with craft and 229 rounds in flight in the 300 vs 300 at T+60 s), a structured clone of the ship objects every frame would cost more main-thread time than it saves. It needs exactly what the extreme-scale programme specifies in §17.2 item 2: typed-array snapshots (transferable or in a `SharedArrayBuffer`), a versioned schema, and a main-thread view that renders from a snapshot instead of from `BattleSimulation`. Player orders must also arrive at a known tick for the result to stay deterministic. That is the tick-stamped order log of §16.3, which CORE adds by T18 (INTEGRATION_NOTES.md). Building half of that protocol here, for one consumer, would only fix a schema before the programme that owns it has designed it. So the seam is defined now, and the live implementation is left to §17.2.
+
+### 6.3 What a worker would and would not buy
+
+**It would buy:**
+
+- **A free main thread during Fast-forward.** Today the run is time-sliced: 24 ms of stepping, then a yield, so input and the progress display get a turn at least every ~25 ms. In a worker the main thread would not be blocked at all.
+- **A higher ceiling for 8× during normal playback.** The simulation would run on its own core in parallel with rendering, instead of sharing each frame with the render and UI work. The ceiling would become one whole core: 1,000 ms of simulation per second instead of the frame budget. From the step costs of §2.3, that is enough for the Final Battle's busiest minute at 8× (5.14 ms per tick × 160 ticks per second = 820 ms per second). It is not enough for the 300 vs 300 (6.2× at its 8.06 ms peak), and a weaker CPU reaches the same wall sooner.
+- **Smoothness independent of the battle's size.** A slow tick would delay the next snapshot, not the next frame.
+
+**It would not buy:**
+
+- **A faster Fast-forward.** A battle is one deterministic sequence of ticks, each depending on the last. It cannot be split across workers without changing the simulation, which the brief rules out (no approximation, no change to random-number generation). Fast-forward to result is therefore bound by the headless step rate in a worker as on the main thread: 7.2 s for the Final Battle and 22.1 s for the 300 vs 300 on this CPU (§2.3). Because the in-thread Fast-forward renders nothing between its slices, it already runs close to that rate (§5).
+- **Cheaper ticks.** Eight times as many ticks still cost eight times the simulation CPU (brief §19.1). The tick cost belongs to the extreme-scale programme's spatial partitioning and multi-scale model (§17.2 items 1, 3 and 5).
+- **Anything without the snapshot copy.** Its per-frame cost is new work that the in-thread view does not pay today.

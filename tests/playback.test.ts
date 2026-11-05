@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { SIM_DT } from '@/simulation/battle';
+import { buildCustomBattle } from '@/scenarios';
+import { BattleSimulation, SIM_DT } from '@/simulation/battle';
+import type { BattleConfig } from '@/simulation/types';
 import {
   BUDGET_FLOOR_MS,
   FAST_BUDGET_CEILING_MS,
@@ -14,6 +16,7 @@ import {
   runToResult,
   type Stepper,
 } from '@/ui/playback';
+import { LocalSimDriver } from '@/ui/simDriver';
 
 /**
  * The playback clock and Fast-forward to result (brief §19.1, src/ui/playback.ts). Time is injected: a fake clock
@@ -384,5 +387,67 @@ describe('runToResult', () => {
     await runToResult(guarded, { now: time.now, sliceMs: 3, yieldFn: async () => undefined });
     expect(inner.finished).toBe(true);
     expect([...touched].sort()).toEqual(['finished', 'step']);
+  });
+});
+
+/** A small custom battle (seed 42) for the driver tests. */
+const smallBattle = (maxDuration = 120): BattleConfig =>
+  buildCustomBattle({
+    seed: 42,
+    rulesId: 'canon_me3',
+    environment: 'deep_space',
+    startingDistanceKm: 30,
+    sideA: { faction: 'alliance', name: 'Alliance', formation: 'line_abreast', counts: { alliance_cruiser: 3, alliance_frigate: 4 } },
+    sideB: { faction: 'reaper', name: 'Reapers', formation: 'strike_wedge', counts: { reaper_destroyer: 2 } },
+    maxDuration,
+  });
+
+describe('LocalSimDriver (the in-thread side of the worker seam)', () => {
+  it('step(n) runs up to n ticks and stops at the result', () => {
+    const sim = new BattleSimulation(smallBattle(10));
+    const driver = new LocalSimDriver(sim);
+    expect(driver.step()).toBe(1);
+    expect(driver.step(9)).toBe(9);
+    expect(driver.tick).toBe(10);
+    expect(driver.time).toBeCloseTo(10 * SIM_DT, 9);
+    let ran = 0;
+    while (!driver.finished) ran += driver.step(50);
+    expect(driver.result).toBe(sim.result);
+    expect(driver.result).toBeDefined();
+    expect(driver.step(5)).toBe(0);
+    expect(ran + 10).toBe(sim.tick);
+  });
+
+  it('drain() hands over every event after attaching exactly once, in order; the log itself is untouched', () => {
+    const sim = new BattleSimulation(smallBattle());
+    const atStart = sim.events.length;
+    expect(atStart).toBeGreaterThan(0); // battle_start and the opening comms
+    const driver = new LocalSimDriver(sim);
+    const drained = [];
+    expect(driver.drain()).toEqual([]);
+    while (!driver.finished) {
+      driver.step(7);
+      drained.push(...driver.drain());
+    }
+    expect(driver.drain()).toEqual([]);
+    expect(drained.length).toBe(sim.events.length - atStart);
+    expect(drained.every((e, i) => e === sim.events[atStart + i])).toBe(true);
+    expect(driver.events).toBe(sim.events);
+  });
+
+  it('stepping through the driver computes the same battle as stepping the simulation', () => {
+    const plain = new BattleSimulation(smallBattle());
+    while (!plain.finished) plain.step();
+    const sim = new BattleSimulation(smallBattle());
+    const driver = new LocalSimDriver(sim);
+    let n = 1;
+    while (!driver.finished) {
+      driver.step(n);
+      driver.drain();
+      n = (n % 13) + 1;
+    }
+    expect(sim.time).toBe(plain.time);
+    expect(sim.result).toEqual(plain.result);
+    expect(JSON.stringify(sim.events)).toBe(JSON.stringify(plain.events));
   });
 });
