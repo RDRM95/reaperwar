@@ -35,6 +35,7 @@ import { FLIGHT_SIZE, formFlight, launchAsFlights, launchUnits, liveCraft, membe
 import { ARC_VERTICAL_REACH, BATTLESPACE_SCALE as S, SIM_DT } from './constants';
 import { DEFAULT_ARRIVAL_STAGGER, arrivalPending, arrivalPos, arrivalProfileFor } from './arrival';
 import { applyBeat, beatApplies, clampBeatScale, resolveFleetSel as resolveFleetSelIn, resolveShipRef as resolveShipRefIn, scheduleBeats, waveSpawnPending, type ScheduledBeat } from './beats';
+import { considerDriveRun, tickDriveRun, type DriveHost } from './driveAttack';
 import { flagshipDestroyedEvent } from './flagships';
 import type { SimKernel } from './kernel';
 import { tickScriptedMove } from './scriptedMoves';
@@ -250,6 +251,7 @@ export class BattleSimulation implements AiContext {
         return fleet;
       },
       applyOrders: (fleetId, patch, source) => this.applyOrders(fleetId, patch, source),
+      drive: this.driveHost,
     };
     this.special = createSpecials(this, this.kernel);
     this.emit({ t: 0, type: 'battle_start', name: config.name });
@@ -874,6 +876,31 @@ export class BattleSimulation implements AiContext {
     resolveShipRef: (ref: ShipRef, from?: ShipState): ShipState | undefined => this.resolveShipRef(ref, from),
   } as VolleyHost & { sim: BattleSimulation };
 
+  /** What the Black Fleet drive attack needs (`driveAttack.ts`); `attempts` is the battle's run budget (AP §9). */
+  private readonly driveHost: DriveHost = {
+    sim: this as BattleSimulation,
+    attempts: 0,
+    get time(): number {
+      return this.sim.time;
+    },
+    get rng(): Rng {
+      return this.sim.rng;
+    },
+    get rules(): RuleSet {
+      return this.sim.rules;
+    },
+    get environment() {
+      return this.sim.config.environment;
+    },
+    get ships(): readonly ShipState[] {
+      return this.sim.ships;
+    },
+    getShip: (id: string): ShipState | undefined => this.shipById.get(id),
+    pending: (s: ShipState): boolean => this.isPending(s),
+    emit: (e: BattleEvent): void => this.emit(e),
+    destroyShip: (ship: ShipState, killer?: ShipState, cause?: DestructionCause): void => this.destroyShip(ship, killer, cause),
+  } as DriveHost & { sim: BattleSimulation };
+
   /** Steps synchronously until `time` (or the end of the battle): the tests' and the e2e helper's fast-forward. */
   skipTo(time: number): void {
     while (!this.finished && this.time < time - 1e-9) this.step();
@@ -971,14 +998,24 @@ export class BattleSimulation implements AiContext {
       ship.aiTimer -= dt;
       if (ship.aiTimer <= 0) {
         ship.aiTimer = FACTIONS[ship.faction].doctrine.decisionInterval * (0.7 + 0.6 * this.rng.next());
-        const wasWithdrawing = ship.withdrawing;
-        shipDecision(this, ship, fleet);
-        if (ship.withdrawing && !wasWithdrawing) this.emit({ t: this.time, type: 'ship_withdrawing', shipId: ship.id });
+        // A crippled Cerberus hull may commit to a Black Fleet drive run (AP §9; nothing is drawn unless it is
+        // eligible); a committed run is terminal, so the hull takes no other decision until it ends.
+        if (!ship.driveRun) considerDriveRun(this.driveHost, ship);
+        if (!ship.driveRun) {
+          const wasWithdrawing = ship.withdrawing;
+          shipDecision(this, ship, fleet);
+          if (ship.withdrawing && !wasWithdrawing) this.emit({ t: this.time, type: 'ship_withdrawing', shipId: ship.id });
+        }
       }
       if (profiling) tp = prof.lap('ai', tp);
       // An arriving hull follows its scripted run-in into the slot; everything else steers.
       if (ship.arrival) this.runIn(ship, fleet, dt);
       else this.updateMovement(ship, fleet, dt);
+      // A drive run ends at its time — the impact, and the runner is gone — or when its target is lost (aborted).
+      if (ship.driveRun && tickDriveRun(this.driveHost, ship)) {
+        if (profiling) tp = prof.lap('movement', tp);
+        continue;
+      }
       // A scripted move (`approach`, `strafeThrough`) reports once it is over.
       const moved = tickScriptedMove(this.time, ship, (id) => this.shipById.get(id));
       if (moved) this.emit({ t: this.time, type: 'scripted_event', ...(moved.beatId ? { beatId: moved.beatId } : {}), special: moved.special, shipIds: [ship.id, moved.targetId], forced: false, detail: moved.detail });
@@ -1331,6 +1368,7 @@ export class BattleSimulation implements AiContext {
     const volley = fleet.volley;
     const salvo = hadesSalvoOf(fleet, this.time);
     const hold = fleet.orders.holdFire;
+    const running = ship.driveRun !== undefined;
     for (const w of ship.weapons) {
       // Active beams deal damage over time.
       if (w.beamRemaining > 0) {
@@ -1386,8 +1424,8 @@ export class BattleSimulation implements AiContext {
         dropForcedShot(w);
         this.emit({ t: this.time, type: 'forced_shot_expired', shipId: ship.id, weaponIndex: w.index });
       }
-      // An arriving hull holds fire until it has settled into its slot.
-      if (w.arrivalHold) continue;
+      // An arriving hull holds fire until it has settled into its slot; a hull on a drive run is silent (AP §9).
+      if (w.arrivalHold || running) continue;
       // Fire control (volley.ts). A scripted forced shot bypasses every hold. A volley mount holds until its release
       // offset, then fires once inside the window — a gun that is nearly ready (reload left ≤ the window) fires on the
       // beat (CINEMATIC_DESIGN.md §1.3); a HADES-salvo member holds until its release; the standing hold keeps the rest

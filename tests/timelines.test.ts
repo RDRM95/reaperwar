@@ -5,6 +5,7 @@ import { exportRuleSet, importRuleSet, normaliseRules, validateRuleSet } from '@
 import { getShipClass, SHIP_CLASS_LIST } from '@/data/ships';
 import { WEAPONS } from '@/data/weapons';
 import { BattleSimulation } from '@/simulation/battle';
+import { DRIVE_TIERS } from '@/simulation/specials';
 import { getScenario } from '@/scenarios';
 
 describe('canon preset integrity', () => {
@@ -298,5 +299,7 @@ describe('normaliseRules', () => {
     expect(sim.ships.length).toBeGreaterThan(0);
     for (const s of sim.ships) expect(Number.isFinite(s.crewQuality), s.id).toBe(true);
     expect(['off', 'rare', 'upper']).toContain(n.special.driveAttacks);
+    // The drive-attack tier table answers every normalised tier that is not 'off' (T14).
+    for (const r of [n, ...PRESETS].map((x) => normaliseRules(x))) if (r.special.driveAttacks !== 'off') expect(DRIVE_TIERS[r.special.driveAttacks], r.id).toBeDefined();
   });
 });

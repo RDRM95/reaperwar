@@ -23,6 +23,7 @@ import {
   type FleetView,
 } from './movement';
 import { REAPER_AI, coverDamagedCapital, interposeGoal, rotateProtection, transferGoal } from './reaperAi';
+import { driveRunGoal } from './driveAttack';
 import { scriptedGoal } from './scriptedMoves';
 import { solutionFor } from './solutions';
 import { detectable, hunterGoal, hunterTarget } from './stealth';
@@ -72,6 +73,8 @@ export interface MovementGoal {
   transit?: boolean;
   /** Velocity bias added after steering (point-defence repulsion of small craft). */
   repel?: Vec3;
+  /** Drive overload: multiplies the top speed and the acceleration (a Black Fleet drive run ramps it 1 → 4, AP §9). */
+  boost?: number;
 }
 
 export const doctrineOf = (ship: ShipState): FactionDoctrine => FACTIONS[ship.faction].doctrine;
@@ -416,6 +419,11 @@ export function shipDecision(ctx: AiContext, ship: ShipState, fleet: FleetState)
 
 /** Compute where the ship wants to be and where it wants to point (movement.ts turns it into motion). */
 export function movementGoal(ctx: AiContext, ship: ShipState, fleet: FleetState): MovementGoal {
+  // A committed Black Fleet drive run is terminal: straight at its target with the drive overloaded (AP §9).
+  if (ship.driveRun) {
+    const run = driveRunGoal(ctx, ship);
+    if (run) return run;
+  }
   const target = ship.targetId ? ctx.getShip(ship.targetId) : undefined;
   const slotVel = fleetMotion(fleet).anchorVel;
 

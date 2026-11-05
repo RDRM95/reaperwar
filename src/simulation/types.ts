@@ -627,6 +627,8 @@ export type BattleEvent =
   | { t: number; type: 'ship_arrival_flash'; shipId: string; pos: Vec3; heading: Vec3; lengthKm: number }
   | { t: number; type: 'drive_run_started'; runnerId: string; targetId: string; endsAt: number }
   | { t: number; type: 'drive_run_impact'; runnerId: string; targetId: string; pos: Vec3; dir: Vec3; success: boolean }
+  /** A committed drive run whose target was destroyed by someone else before `endsAt`: the runner fights on (T14 addition). */
+  | { t: number; type: 'drive_run_aborted'; runnerId: string; targetId: string; reason: 'target_lost' }
   | { t: number; type: 'hades_detonation'; shipId: string; targetId: string; pos: Vec3; damage: number; outage: keyof Subsystems; projectileId?: number }
   | { t: number; type: 'strike_scheduled'; shipId: string; weaponId: string; at: number; kind: 'hades' | 'nova' | 'nova_legacy' }
   | { t: number; type: 'weapon_charging'; shipId: string; weaponIndex: number; weaponId?: string; seconds: number }

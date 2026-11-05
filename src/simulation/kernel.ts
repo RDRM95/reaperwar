@@ -1,5 +1,6 @@
 import type { CommsEvent } from '@/data/factions';
 import type { DamageType } from '@/data/types';
+import type { DriveHost } from './driveAttack';
 import type { ArrivalProfile, BattleEvent, DestructionCause, FleetOrders, FleetSpec, FleetState, ShipState, Side } from './types';
 
 /**
@@ -21,4 +22,6 @@ export interface SimKernel {
   spawnBeatFleet(spec: FleetSpec, opts: { stagger?: number; run?: Partial<ArrivalProfile> }): FleetState | undefined;
   /** Applies an order patch; `'beat'` passes the player lock and spares scripted forced targets. */
   applyOrders(fleetId: string, patch: Partial<FleetOrders>, source: 'beat' | 'player'): 'issued' | 'rejected';
+  /** The Black Fleet drive attack's view of the simulation (its per-battle attempt budget included). */
+  readonly drive: DriveHost;
 }
