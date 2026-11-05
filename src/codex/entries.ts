@@ -372,7 +372,7 @@ export const THREAT_SCALE_ENTRY: CodexEntry = {
     ...THREAT_TIERS.map((t) => `Tier ${t.tier}, ${t.label}: ${t.summary}`),
     'The breaking point shown with each rating is the largest Reaper group, counted up from the smallest, that the coalition beats in at least 3 of 4 seeds, named as the timeline actually deploys it.',
     'What the scale cannot see: the Crucible and the Catalyst, a controlled Reaper fleet, Reaper reinforcements and every other campaign-only rule. A timeline can win its war and still rate low here, or the reverse.',
-    `Measured on ${THREAT_REFERENCE_META.measuredOn}. The thresholds (${THREAT_THRESHOLDS.join(', ')}) are fixed and never moved to rescue a label; custom timelines are unrated.`,
+    `Measured on ${THREAT_REFERENCE_META.measuredOn}. The thresholds (${THREAT_THRESHOLDS.join(', ')}) come from a probe ladder built from canon alone, with every organic navy’s fire rate and hull made uniformly weaker or stronger: each sits midway between the probes either side of a rule (wins any battle; holds one, two, three or all five groups). They move only when that ladder is re-measured and shifts, never to rescue a label; custom timelines are unrated.`,
     ...PRESETS.map((p) => {
       const r = threatRating(p);
       const m = REAPER_THREAT[p.id];

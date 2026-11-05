@@ -1,12 +1,15 @@
 import { v3 } from '@/core/vec3';
-import { SHIP_CLASSES } from '@/data/ships';
-import { WEAPON_LIST } from '@/data/weapons';
-import type { FactionId } from '@/data/types';
+import { FACTIONS } from '@/data/factions';
+import { IES_STEALTH, SHIP_CLASSES } from '@/data/ships';
+import { BARRIER_EFFICIENCY, HADES_WARHEAD, WEAPONS, WEAPON_LIST } from '@/data/weapons';
+import { HADES_FUSE, HADES_GATE, UNIQUE_CLASS_IDS, type FactionId } from '@/data/types';
 import { BattleSimulation } from '@/simulation/battle';
+import * as SIM_CONSTANTS from '@/simulation/constants';
 import { summarise } from '@/simulation/results';
 import type { BattleConfig, FleetSpec, FormationType } from '@/simulation/types';
-import { isApexRules, type RuleSet } from '@/timelines/rules';
-import { THREAT_RUNGS, type RungGroup, type ThreatRun } from '@/timelines/threat';
+import { CANON_ME3 } from '@/timelines/presets';
+import { cloneRules, isApexRules, type RuleSet } from '@/timelines/rules';
+import { THREAT_PROBE_KEYS, THREAT_RUNGS, type RungGroup, type ThreatFingerprint, type ThreatRun } from '@/timelines/threat';
 import { fleet } from './index';
 
 /**
@@ -128,3 +131,89 @@ export function runThreatReference(rules: RuleSet, rung: number, seed: number): 
   sim.run();
   return threatRunOf(sim, rung, seed);
 }
+
+// ------------------------------------------------------------------ the probe ladder (TIMELINES_V2.md §1.3)
+
+/**
+ * A probe of the ladder: canon with every organic faction's fire rate, heat capacity and hull integrity × m
+ * (`THREAT_PROBE_KEYS`; heat capacity moves with the fire rate so the heat cycle is unchanged). Preset-blind:
+ * built from canon alone, the ladder's own m = 1 point.
+ */
+export function threatProbeRules(m: number): RuleSet {
+  const r = cloneRules(CANON_ME3);
+  r.id = `probe_m${m}`;
+  r.name = `Probe ×${m}`;
+  for (const k of THREAT_PROBE_KEYS) r.organic[k] = m;
+  return r;
+}
+
+// ------------------------------------------------------------------ fingerprint (TIMELINES_V2.md §1.8)
+
+/** Text that never reaches a battle: names, descriptions, provenance notes and colours. */
+const TEXT_KEYS: ReadonlySet<string> = new Set(['name', 'shortName', 'description', 'note', 'provenance', 'designProvenance', 'colour', 'colourHex', 'engineColourHex', 'tagline', 'historyChanges', 'objective']);
+
+const isSourced = (x: object): x is { value: unknown } => 'value' in x && 'provenance' in x;
+
+/** A stable text form of plain data: keys sorted, numbers in full (Infinity kept), Sourced values reduced to `.value`, text keys and functions dropped. */
+function stable(x: unknown): string {
+  if (x === null || x === undefined) return 'null';
+  if (typeof x === 'number') return String(x);
+  if (typeof x === 'string') return JSON.stringify(x);
+  if (typeof x === 'boolean') return x ? 'true' : 'false';
+  if (typeof x === 'function') return 'fn';
+  if (Array.isArray(x)) return `[${x.map(stable).join(',')}]`;
+  if (typeof x === 'object') {
+    if (isSourced(x)) return stable(x.value);
+    const keys = Object.keys(x)
+      .filter((k) => !TEXT_KEYS.has(k) && typeof (x as Record<string, unknown>)[k] !== 'function' && (x as Record<string, unknown>)[k] !== undefined)
+      .sort();
+    return `{${keys.map((k) => `${JSON.stringify(k)}:${stable((x as Record<string, unknown>)[k])}`).join(',')}}`;
+  }
+  return JSON.stringify(String(x));
+}
+
+/** cyrb53: a 53-bit string hash (public domain), as 14 hex digits. */
+function hash53(str: string): string {
+  let h1 = 0xdeadbeef;
+  let h2 = 0x41c6ce57;
+  for (let i = 0; i < str.length; i++) {
+    const ch = str.charCodeAt(i);
+    h1 = Math.imul(h1 ^ ch, 2654435761);
+    h2 = Math.imul(h2 ^ ch, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507);
+  h1 ^= Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507);
+  h2 ^= Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(16).padStart(14, '0');
+}
+
+/** The battle-relevant knobs of a rule set (every field but its id and texts). */
+const rulesKnobs = (r: RuleSet): unknown => ({ organic: r.organic, reaper: r.reaper, factionOverrides: r.factionOverrides, special: r.special, fleetStrength: r.fleetStrength, strategic: r.strategic });
+
+/** The reference battles a rule set builds, without the rules themselves (rungs × seeds share fleets; seed 1 stands for all). */
+const referenceOf = (r: RuleSet): unknown =>
+  THREAT_RUNGS.map((_, k) => {
+    const { rules: _rules, id: _id, seed: _seed, ...rest } = buildThreatReference(r, k, 1);
+    return rest;
+  });
+
+/** The battle-relevant catalogue: weapons, ship classes, faction doctrine (and how many comms lines each event draws from), and the data and simulation constants. */
+export const threatCatalogueFingerprint = (): string =>
+  hash53(
+    stable({
+      weapons: WEAPONS,
+      ships: SHIP_CLASSES,
+      factions: Object.fromEntries(Object.entries(FACTIONS).map(([id, f]) => [id, { doctrine: f.doctrine, comms: Object.fromEntries(Object.entries(f.comms).map(([k, v]) => [k, v.length])) }])),
+      constants: { barrierEfficiency: BARRIER_EFFICIENCY, hadesWarhead: HADES_WARHEAD, hadesFuse: HADES_FUSE, hadesGate: HADES_GATE, iesStealth: IES_STEALTH, unique: UNIQUE_CLASS_IDS, simulation: { ...SIM_CONSTANTS } },
+    }),
+  );
+
+/** A preset's knobs and the reference fleets it builds (so a change to `fleet()` or to the coalition shows up too). */
+export const threatPresetFingerprint = (r: RuleSet): string => hash53(stable({ rules: rulesKnobs(r), reference: referenceOf(r) }));
+
+/** What a measurement of these presets was taken from (§1.8): `threatMeasured.ts` stores it, a test and `--check` compare it. */
+export const threatFingerprint = (presets: readonly RuleSet[]): ThreatFingerprint => ({
+  catalogue: threatCatalogueFingerprint(),
+  presets: Object.fromEntries(presets.map((p) => [p.id, threatPresetFingerprint(p)])),
+});
