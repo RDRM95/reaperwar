@@ -4,6 +4,7 @@ import { SHIP_CLASS_LIST } from '@/data/ships';
 import { WEAPONS, getWeapon } from '@/data/weapons';
 import { FACTIONS } from '@/data/factions';
 import { applyRulesToShip, applyRulesToWeapon } from '@/timelines/rules';
+import { timelineTag, timelineTitle } from '@/timelines/alternates';
 import type { ShipClassDef } from '@/data/types';
 
 export function renderDatabase(app: App): HTMLElement {
@@ -31,7 +32,7 @@ export function renderDatabase(app: App): HTMLElement {
       el('p', {}, [provenanceBadge(c.designProvenance.provenance), ' ', c.designProvenance.value]),
       el('p', {}, c.description),
       el('table', {}, [
-        el('thead', {}, el('tr', {}, [el('th', {}, 'Statistic'), el('th', {}, 'Canon ME3 value'), el('th', {}, `${rules.name}`)])),
+        el('thead', {}, el('tr', {}, [el('th', {}, 'Statistic'), el('th', {}, 'Canon ME3 value'), el('th', {}, `${rules.name}${timelineTag(rules)}`)])),
         el('tbody', {}, [
           statRow('Length', c.lengthM, c.lengthM.value, ' m'),
           statRow('Hull integrity', c.hull, eff.hull),
@@ -81,7 +82,7 @@ export function renderDatabase(app: App): HTMLElement {
   renderEntry();
 
   return el('div', { class: 'screen' }, [
-    el('div', { class: 'screen-header' }, [el('h1', {}, 'FLEET DATABASE'), el('span', { class: 'sub' }, `EFFECTIVE STATS UNDER: ${rules.name.toUpperCase()}`)]),
+    el('div', { class: 'screen-header' }, [el('h1', {}, 'FLEET DATABASE'), el('span', { class: 'sub' }, `EFFECTIVE STATS UNDER: ${timelineTitle(rules).toUpperCase()}`)]),
     el('div', { class: 'screen-body' }, [el('div', { class: 'codex' }, [nav, bodyPane])]),
     el('div', { class: 'screen-footer' }, [el('button', { class: 'btn', onclick: () => app.show('menu') }, '← Main menu'), el('button', { class: 'btn', onclick: () => app.show('timelines') }, 'Change timeline')]),
   ]);

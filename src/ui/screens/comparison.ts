@@ -3,6 +3,8 @@ import { el } from '../dom';
 import { SCENARIOS, defaultWorldState, getScenario, FLEET_SCALING_KEY } from '@/scenarios';
 import { compareBattles, type ComparisonReport } from '@/scenarios/comparison';
 import { CANON_ME3 } from '@/timelines/presets';
+import { timelineTag } from '@/timelines/alternates';
+import { timelineOptionLabel } from '../threatBadge';
 
 export function renderComparison(app: App, params?: { report?: ComparisonReport }): HTMLElement {
   let scenarioId = 'alliance_fleet_engagement';
@@ -37,7 +39,7 @@ export function renderComparison(app: App, params?: { report?: ComparisonReport 
       el('div', { class: 'row' }, [
         el('label', { class: 'field' }, ['Scenario', el('select', { onchange: (e: Event) => (scenarioId = (e.target as HTMLSelectElement).value) }, SCENARIOS.filter((s) => s.id !== 'custom').map((s) => el('option', { value: s.id, selected: s.id === scenarioId }, s.name)))]),
         el('label', { class: 'field' }, ['Side A', el('input', { type: 'text', value: 'Canon Mass Effect 3', disabled: true })]),
-        el('label', { class: 'field' }, ['Side B (alternate timeline)', el('select', { onchange: (e: Event) => (timelineB = (e.target as HTMLSelectElement).value) }, app.allTimelines().filter((t) => t.id !== 'canon_me3').map((t) => el('option', { value: t.id, selected: t.id === timelineB }, t.name)))]),
+        el('label', { class: 'field' }, ['Side B (alternate timeline)', el('select', { onchange: (e: Event) => (timelineB = (e.target as HTMLSelectElement).value) }, app.allTimelines().filter((t) => t.id !== 'canon_me3').map((t) => el('option', { value: t.id, selected: t.id === timelineB }, timelineOptionLabel(t))))]),
         el('label', { class: 'field' }, ['Seed', el('input', { type: 'number', value: seed, onchange: (e: Event) => (seed = Number((e.target as HTMLInputElement).value) || 0) })]),
         el('label', { class: 'field' }, ['Fleets', el('select', { onchange: (e: Event) => (fixedFleets = (e.target as HTMLSelectElement).value === 'fixed') }, [el('option', { value: 'fixed', selected: fixedFleets }, 'Identical fleets (technology only)'), el('option', { value: 'rules', selected: !fixedFleets }, 'Scale with timeline fleet strength')])]),
         el('button', { class: 'btn primary', 'data-action': 'run-comparison', disabled: running, onclick: run }, running ? 'Simulating…' : 'Run both battles'),
@@ -60,7 +62,7 @@ export function renderComparison(app: App, params?: { report?: ComparisonReport 
         el('div', { class: 'panel' }, [
           el('div', { class: 'panel-title' }, 'RESULTS — SPLIT VIEW'),
           el('table', { class: 'compare-table' }, [
-            el('thead', {}, el('tr', {}, [el('th', {}, 'Metric'), el('th', {}, `A: ${r.a.rules.name}`), el('th', {}, `B: ${r.b.rules.name}`)])),
+            el('thead', {}, el('tr', {}, [el('th', {}, 'Metric'), el('th', {}, `A: ${r.a.rules.name}${timelineTag(r.a.rules)}`), el('th', {}, `B: ${r.b.rules.name}${timelineTag(r.b.rules)}`)])),
             el('tbody', {}, rows),
           ]),
           el('div', { class: 'row', style: { marginTop: '12px' } }, [

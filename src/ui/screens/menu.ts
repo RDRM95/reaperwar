@@ -2,6 +2,7 @@ import type { App } from '../app';
 import { el } from '../dom';
 import { SCENARIOS } from '@/scenarios';
 import { isLocalEdition } from '@/rendering/localHardware';
+import { timelineTitle } from '@/timelines/alternates';
 
 export function renderMenu(app: App): HTMLElement {
   const rules = app.currentRules();
@@ -39,7 +40,7 @@ export function renderMenu(app: App): HTMLElement {
     el('div', { class: 'menu-foot' }, [
       'Unofficial, non-commercial fan project. Mass Effect is a trademark of Electronic Arts / BioWare. No game assets are used; all models, audio and text are original.',
       el('br'),
-      el('span', { class: 'mono' }, [`v${__APP_VERSION__}`, isLocalEdition() ? el('span', { 'data-local-edition': '' }, ' · Local Edition') : null, ` · timeline: ${rules.name}`]),
+      el('span', { class: 'mono' }, [`v${__APP_VERSION__}`, isLocalEdition() ? el('span', { 'data-local-edition': '' }, ' · Local Edition') : null, ` · timeline: ${timelineTitle(rules)}`]),
     ]),
   ]);
 

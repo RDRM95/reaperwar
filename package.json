@@ -14,6 +14,7 @@
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "sim": "node --import tsx/esm scripts/headless-battle.ts",
+    "timeline:threat": "node --import tsx/esm scripts/timeline-threat.ts",
     "perf": "node scripts/perf.mjs"
   },
   "dependencies": {

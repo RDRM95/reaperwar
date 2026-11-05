@@ -2,6 +2,13 @@ import type { App } from '../app';
 import { el } from '../dom';
 import { SCENARIOS, defaultWorldState, getScenario } from '@/scenarios';
 import { getShipClass } from '@/data/ships';
+import { auPrefix, lockWorldState } from '@/timelines/alternates';
+import type { RuleSet } from '@/timelines/rules';
+import { threatBadge, timelineOptionLabel, worldStateLockNote } from '../threatBadge';
+
+/** The world-state choices a scenario exposes, for the timeline's locks (TIMELINES_V2.md §4.10). */
+const choicesOf = (s: { worldState?: { id: string; choices: { id: string }[] }[] }): Record<string, string[]> =>
+  Object.fromEntries((s.worldState ?? []).map((o) => [o.id, o.choices.map((c) => c.id)]));
 
 export function renderBriefing(app: App, params?: { scenarioId?: string }): HTMLElement {
   let scenarioId = params?.scenarioId ?? app.prefs.lastScenarioId;
@@ -20,11 +27,22 @@ export function renderBriefing(app: App, params?: { scenarioId?: string }): HTML
     for (const f of c.fleets.filter((x) => x.allegiance === 'reaper')) for (const [k, n] of Object.entries(f.counts)) reaper[k] = (reaper[k] ?? 0) + n;
     return { campaignAllied: JSON.stringify(allied), campaignReaper: JSON.stringify(reaper) };
   };
+  /** The player's choices with the timeline's world-state locks applied on top. */
+  const lockedWorldState = (rules: RuleSet) => lockWorldState(rules, worldState, choicesOf(scenario));
   const body = el('div', { class: 'screen-body' });
   const render = () => {
     body.replaceChildren();
     const rules = app.getTimeline(timelineId);
-    const config = scenario.build(rules, seed, { ...worldState, ...campaignWorldState() });
+    const locks = lockedWorldState(rules);
+    const config = scenario.build(rules, seed, { ...locks.ws, ...campaignWorldState() });
+    // Keys the scenario reads without a control: list only those that change the order of battle.
+    const shipsOf = (ws: Record<string, string>) => JSON.stringify(scenario.build(rules, seed, { ...ws, ...campaignWorldState() }).fleets.map((f) => f.ships));
+    const hiddenNotes = Object.entries(locks.hidden).filter(([k]) => {
+      const without = { ...locks.ws };
+      if (worldState[k] === undefined) delete without[k];
+      else without[k] = worldState[k];
+      return shipsOf(without) !== shipsOf(locks.ws);
+    });
     const fleetSummary = (side: 'A' | 'B') =>
       config.fleets
         .filter((f) => f.side === side)
@@ -48,18 +66,22 @@ export function renderBriefing(app: App, params?: { scenarioId?: string }): HTML
     const timelineSelect = el('select', { onchange: (e: Event) => {
       timelineId = (e.target as HTMLSelectElement).value;
       render();
-    } }, app.allTimelines().map((t) => el('option', { value: t.id, selected: t.id === timelineId }, `${t.name}${t.category === 'canon' ? '' : ` [${t.category.toUpperCase()}]`}`)));
+    } }, app.allTimelines().map((t) => el('option', { value: t.id, selected: t.id === timelineId }, timelineOptionLabel(t))));
 
-    const worldStateControls = (scenario.worldState ?? []).map((o) =>
-      el('label', { class: 'field' }, [
-        el('span', {}, [o.label, ' ', el('span', { class: `badge ${o.kind === 'player_dependent' ? 'inferred' : o.kind === 'au' ? 'au' : 'estimate'}` }, o.kind.replace('_', ' '))]),
-        el('select', { onchange: (e: Event) => {
+    const worldStateControls = (scenario.worldState ?? []).map((o) => {
+      const lock = locks.locked[o.id];
+      const value = locks.ws[o.id] ?? o.default;
+      return el('label', { class: 'field' }, [
+        el('span', {}, [o.label, ' ', el('span', { class: `badge ${lock ? 'au' : o.kind === 'player_dependent' ? 'inferred' : o.kind === 'au' ? 'au' : 'estimate'}` }, lock ? 'locked (AU)' : o.kind.replace('_', ' '))]),
+        el('select', { 'data-ws': o.id, onchange: (e: Event) => {
           worldState = { ...worldState, [o.id]: (e.target as HTMLSelectElement).value };
           render();
-        } }, o.choices.map((c) => el('option', { value: c.id, selected: (worldState[o.id] ?? o.default) === c.id, title: c.description }, c.label))),
-        el('small', {}, o.choices.find((c) => c.id === (worldState[o.id] ?? o.default))?.description ?? ''),
-      ]),
-    );
+        } }, o.choices.map((c) => el('option', { value: c.id, selected: value === c.id, disabled: !!lock && c.id !== lock.value, title: c.description }, c.label))),
+        el('small', {}, o.choices.find((c) => c.id === value)?.description ?? ''),
+        lock ? worldStateLockNote(rules, lock) : null,
+      ]);
+    });
+    const hiddenNote = hiddenNotes.length > 0 ? el('p', { class: 'ws-lock', 'data-ws-hidden': hiddenNotes.map(([k]) => k).join(',') }, `${auPrefix(rules.name)}this timeline also sets world state the scenario reads without a control: ${hiddenNotes.map(([, l]) => l.why).join(' ')}`) : null;
 
     const warn = scenario.auOnly && rules.category === 'canon' ? el('p', { style: { color: 'var(--orange)' } }, 'This scenario is written for an alternate-universe timeline. It will run under canon rules, but the briefing assumes AU technology.') : null;
     const canonNote = !scenario.auOnly && rules.category !== 'canon' ? el('p', { style: { color: 'var(--orange)' } }, `ALTERNATE UNIVERSE: ${rules.name}. Results do not represent canon Mass Effect 3.`) : null;
@@ -81,8 +103,10 @@ export function renderBriefing(app: App, params?: { scenarioId?: string }): HTML
           el('div', { class: 'panel orange' }, [
             el('div', { class: 'panel-title' }, 'TIMELINE & WORLD STATE'),
             el('label', { class: 'field' }, ['Timeline', timelineSelect]),
+            el('div', { class: 'threat-select-note' }, threatBadge(rules, 'full')),
             el('p', { class: 'dim', style: { fontSize: '12px' } }, rules.tagline),
             ...worldStateControls,
+            hiddenNote,
             el('label', { class: 'field' }, ['Random seed', el('input', { type: 'number', value: seed, onchange: (e: Event) => {
               seed = Number((e.target as HTMLInputElement).value) || 0;
             } })]),
@@ -102,7 +126,7 @@ export function renderBriefing(app: App, params?: { scenarioId?: string }): HTML
       app.playUi('ui_confirm');
       app.selectTimeline(timelineId);
       const rules = app.getTimeline(timelineId);
-      app.startBattle(scenario.build(rules, seed, { ...worldState, ...campaignWorldState() }));
+      app.startBattle(scenario.build(rules, seed, { ...lockedWorldState(rules).ws, ...campaignWorldState() }));
     } }, 'Launch battle →'),
   ]);
 

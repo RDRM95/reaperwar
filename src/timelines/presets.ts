@@ -1,3 +1,4 @@
+import { ALTERNATE_PRESETS } from './alternates';
 import {
   CANON_FLEETS,
   CANON_SPECIAL,
@@ -312,6 +313,7 @@ export const PRESETS: RuleSet[] = [
   PRIME_APEX,
   APEX_LEGACY,
   CERBERUS_ASCENDANT,
+  ...ALTERNATE_PRESETS,
 ];
 
 export const getPreset = (id: string): RuleSet => {
