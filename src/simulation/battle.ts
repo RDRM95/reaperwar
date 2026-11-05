@@ -22,6 +22,7 @@ import { HADES_GATE, NAMED_FLAGSHIPS, isCapitalRole, type DamageType, type Facti
 import { WEAPONS, getWeapon } from '@/data/weapons';
 import { applyRulesToShip, applyRulesToWeapon, cloneRules, type EffectiveWeapon, type RuleSet } from '@/timelines/rules';
 import { beginWithdrawal, centroid, fleetDecision, movementGoal, shipDecision, type AiContext } from './ai';
+import { threatenedGroup, topGunPlatform } from './reaperAi';
 import { applyDamage, barrierFraction, hitProbability } from './damage';
 import { assignSlots } from './formations';
 import { WITHDRAWAL, WITHDRAWN_QUIET_SECONDS, fleetMotion, steerShip } from './movement';
@@ -411,18 +412,19 @@ export class BattleSimulation implements AiContext {
     return side === 'A' ? this.sideCache.A : this.sideCache.B;
   }
   /**
-   * The per-ship targeting set (AP §4.1): the other side plus every rogue hull; a rogue ship sees everyone else.
-   * Identical to `enemiesOf(ship.side)` while no rogue hull is deployed.
+   * The per-ship targeting set (AP §4.1): the other side plus every rogue hull; a rogue ship sees everyone but its
+   * own rogue group (two hulls are enemies when they are on different sides or exactly one of them is rogue — the
+   * `gridFilterPasses` rule). Identical to `enemiesOf(ship.side)` while no rogue hull is deployed.
    */
   enemiesOfShip(ship: ShipState): ShipState[] {
     this.refreshSideCache();
     const c = this.sideCache;
     if (ship.rogue) {
-      const key = `rogue:${ship.id}`;
+      const key = `rogue:${ship.side}`;
       let list = c.enemiesRogue.get(key);
       if (!list) {
         list = [];
-        for (const s of this.ships) if (s !== ship && s.alive && !s.escaped) list.push(s);
+        for (const s of this.ships) if (s.alive && !s.escaped && (s.side !== ship.side || !s.rogue)) list.push(s);
         c.enemiesRogue.set(key, list);
       }
       return list;
@@ -453,6 +455,23 @@ export class BattleSimulation implements AiContext {
     if (c.centroidA === undefined) c.centroidA = centroid(c.combatantsA) ?? null;
     return c.centroidA ?? undefined;
   }
+  /**
+   * The Reapers' "active gun platform" among a side's enemies (AP §10): the visible combatant with the most recent
+   * damage — the other side's combatants plus the rogue hulls of the own side (they are enemies too, AP §4.1). A
+   * silent stealth hull is never a candidate (brief §15.2). Cached per tick.
+   */
+  private gunPlatformCache = { tick: -1, A: undefined as ShipState | undefined, B: undefined as ShipState | undefined };
+  activeGunPlatform(side: Side): ShipState | undefined {
+    const c = this.gunPlatformCache;
+    if (c.tick !== this.tick) {
+      c.tick = this.tick;
+      this.refreshSideCache();
+      c.A = topGunPlatform(this.enemyCombatants('A'), this.sideCache.rogueA);
+      c.B = topGunPlatform(this.enemyCombatants('B'), this.sideCache.rogueB);
+    }
+    return side === 'A' ? c.A : c.B;
+  }
+
   /** Living, present members of a fleet in ship-index order (cached per tick). */
   membersOf(fleetId: string): ShipState[] {
     this.refreshSideCache();
@@ -607,6 +626,11 @@ export class BattleSimulation implements AiContext {
       fleet.commsCooldown = Math.max(0, fleet.commsCooldown - dt);
       fleet.coordinationPenalty = Math.max(0, fleet.coordinationPenalty - dt / 30);
       fleetDecision(this, fleet, dt);
+      // Apex doctrine: a threatened Reaper group falls back to its recovery stations and returns (AP §10; never an exit).
+      for (const s of threatenedGroup(this, fleet, FACTIONS[fleet.spec.faction].doctrine.decisionInterval)) {
+        beginWithdrawal(this, s, fleet);
+        this.emit({ t: this.time, type: 'ship_withdrawing', shipId: s.id });
+      }
     }
     if (profiling) tp = prof.lap('fleets', tp);
 
@@ -1442,7 +1466,10 @@ export class BattleSimulation implements AiContext {
       p.ttl -= dt;
       let hitShip: ShipState | undefined;
       let bestT = Infinity;
-      for (const s of this.grid.querySegment(p.prevPos, p.pos, pad, p.side)) {
+      // A round can hit whatever its shooter may target (enemiesOfShip semantics, AP §4.1): a rogue hull's rounds hit
+      // both sides and rounds aimed at a rogue hull hit it. Without a rogue hull this is exactly the shooter's enemy side.
+      const shooterState = this.shipById.get(p.shooterId);
+      for (const s of this.grid.querySegment(p.prevPos, p.pos, pad, shooterState ?? p.side)) {
         if (s.role === 'fighter' && !p.weapon.antiSmall) continue;
         const r = s.radiusKm * (s.role === 'fighter' ? 2.5 : 1);
         const t = segmentSphere(p.prevPos, p.pos, s.pos, r);
@@ -1453,8 +1480,7 @@ export class BattleSimulation implements AiContext {
       }
       if (hitShip) {
         const hitPoint = addScaled(p.prevPos, sub(p.pos, p.prevPos), bestT);
-        const shooter = this.shipById.get(p.shooterId);
-        if (shooter) this.applyHit(shooter, hitShip, p.weapon, p.weapon.damage, hitPoint, p.special ? { special: true } : undefined);
+        if (shooterState) this.applyHit(shooterState, hitShip, p.weapon, p.weapon.damage, hitPoint, p.special ? { special: true } : undefined);
         continue;
       }
       if (p.missDistance !== undefined) this.checkNearMiss(p);
