@@ -339,3 +339,26 @@ Subtle camera recoil and hull vibration; weapon glow building before discharge; 
 | Mount and sensor anchors on every model; muzzle-accurate projectile origins; charge glow, discharge, trace, impact, barrier flash, molten armour, recoil and hull vibration; the layered audio with its voice budget; the history buffer for kill replays | A |
 | The four camera modes, attacker/defender switching, the Alliance HUD, the Reaper perception interface, the Cerberus/HADES interface, notifications, automated engagement tracking, the slow-motion kill replay player | B |
 | Codex and README entries for the views, e2e coverage of every camera mode and HUD (reticles on real targets, notifications raised by events), screenshots in the shot list | D |
+
+## 21. Pure battle logic and combat behaviour rules (owner's requirement, 5 Nov; scheduled with CORE's final chunk)
+
+Owner's words: "give option to disable boring gameplay things like sensors and indoctrination, just have it pure battle logic; reapers never retreat unless it's a critical mass defeat or Harbinger is taken out, special event; organics retreat if critically damaged, self preservation; good space combat behaviour; don't like idle fleets unless I order them to hold; attack should mean everyone attacks and finds space so it still looks professional and military tactics."
+
+### 21.1 Pure battle logic (option)
+- A **Pure battle** switch in the briefing and the custom battle setup (and a rules flag, so saves and replays carry it): sensor and electronic-warfare effects become neutral (every hull builds firing solutions at its class's nominal rate; no ECM or sensor degradation), indoctrination effects are off (no crew-quality or coordination penalties from indoctrination, no indoctrination events), and strategic side systems stay out of the battle. Stealth stays (it is the Normandy's identity) unless the player also turns it off. Off by default; labelled as a simulation option, not a timeline.
+
+### 21.2 Reapers never retreat, with two exceptions
+- **Critical-mass defeat:** when the Reaper side has lost at least 75 % of its committed strength by points, or is combat-ineffective by the existing judgement, the survivors make a fighting withdrawal: they keep firing while they leave.
+- **Harbinger destroyed:** a special event, "THE HARVEST FALTERS", with its own transmission and banner. The remaining Reapers make the same fighting withdrawal. This replaces the earlier rule that the others fight on after Harbinger's fall; they still never switch off (they shoot while withdrawing, so the flagship tests' "a Reaper fires within 10 s" still holds).
+- Labelled SIMULATION_ESTIMATE (the owner's rule; the trilogy never shows Harbinger destroyed). A rules option keeps the old behaviour ("Reapers fight to the last") for players who want it.
+
+### 21.3 Organic self-preservation
+- A critically damaged organic hull (hull ≤ 15 %, or main drive or weapons destroyed) disengages and leaves the battlespace, logged as "withdrew critically damaged" (not destroyed, not escaped intact). Moderately damaged hulls keep the existing tactical withdrawal to a recovery station and return. Fixed platforms cannot leave. Explicit Retreat orders still apply to whole fleets.
+
+### 21.4 No idle fleets; Attack means everyone fights
+- No fleet idles unless the player ordered Hold or Defend: reserves arrive and engage, and the AI's default order is to engage. A fleet out of every weapon's range for more than 20 s after contact advances.
+- **Attack:** every hull of the fleet engages. Capital lines advance to their standoff band, escorts close to their own weapon ranges, frigates make runs, carriers launch. Ships spread laterally and vertically to open clear firing lanes, so no hull blocks another's line of fire. The structure stays military and readable: battle lines, echelons, layered screens, never a crowd.
+- Checks: deterministic tests for no idle fleet without a Hold order, clear firing lanes (no friendly hull inside another's firing cone at fire time beyond a small fraction), the Reaper withdrawal triggers and the organic critical retreat.
+
+### 21.5 Owners
+CORE in its final chunk, alongside the pacing pass and before calibration pass 2: the rules flags, the withdrawal triggers, the Harbinger special event, the critical retreat, no-idle and the Attack spacing, and the tests. Stage C: the Pure battle switch and the Reaper rule option in the briefing and custom setup. Stage B: the banner and transmission, and the order tooltips. Stage D: codex and README.
