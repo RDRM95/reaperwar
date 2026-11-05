@@ -38,6 +38,18 @@ export const auPrefix = (name: string): string => `ALTERNATE UNIVERSE (${name}):
  */
 export const timelineTag = (r: Pick<RuleSet, 'category'>): string => (r.category === 'canon' ? '' : ` [${r.category.toUpperCase()}]`);
 
+/**
+ * The tag for a timeline known only by its id (a battle-history record): the
+ * timeline's own tag while it exists; for one deleted since, " [CUSTOM]" for a
+ * player-made id and " [AU]" for any other id that is not canon's.
+ */
+export const timelineTagById = (id: string, timelines: readonly Pick<RuleSet, 'id' | 'category'>[]): string => {
+  const t = timelines.find((x) => x.id === id);
+  if (t) return timelineTag(t);
+  if (id === 'canon_me3') return '';
+  return id === 'custom' || id.startsWith('custom_') ? ' [CUSTOM]' : ' [AU]';
+};
+
 /** A timeline's name with the full label, for headers and toasts: every non-canon timeline reads "… (ALTERNATE UNIVERSE)". */
 export const timelineTitle = (r: Pick<RuleSet, 'name' | 'category'>): string =>
   r.category === 'canon' ? r.name : `${r.name} (${r.category === 'custom' ? 'CUSTOM, ' : ''}ALTERNATE UNIVERSE)`;

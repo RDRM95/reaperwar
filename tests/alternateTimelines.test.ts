@@ -7,7 +7,7 @@ import { WEAPON_LIST } from '@/data/weapons';
 import { SCENARIOS, defaultWorldState, type ScenarioDef } from '@/scenarios';
 import { THREAT_COALITION, THREAT_LONGEST_RANGE, THREAT_MAX_DURATION, THREAT_SEEDS, THREAT_STANDOFF, buildThreatReference, threatFingerprint, threatProbeRules, threatRungGroups, threatRunOf } from '@/scenarios/threatReference';
 import { BattleSimulation } from '@/simulation/battle';
-import { ALTERNATE_META, ALTERNATE_PRESETS, CAMPAIGN_WORLD_STATE_CHOICES, CAMPAIGN_WORLD_STATE_DEFAULTS, auPrefix, getLever, lockWorldState, timelineTag, timelineTitle, withLever } from '@/timelines/alternates';
+import { ALTERNATE_META, ALTERNATE_PRESETS, CAMPAIGN_WORLD_STATE_CHOICES, CAMPAIGN_WORLD_STATE_DEFAULTS, auPrefix, getLever, lockWorldState, timelineTag, timelineTagById, timelineTitle, withLever } from '@/timelines/alternates';
 import { PRESETS, getPreset, makeCustom } from '@/timelines/presets';
 import { CANON_FLEETS, CANON_SPECIAL, CANON_STRATEGIC, CANON_TECH, TECH_KEYS, type FleetStrength, type RuleSet } from '@/timelines/rules';
 import { exportRuleSet, normaliseRules, validateRuleSet } from '@/timelines/schema';
@@ -189,7 +189,14 @@ describe('alternate timelines: data', () => {
       expect(timelineTag(p), p.id).toBe(p.category === 'canon' ? '' : ` [${p.category.toUpperCase()}]`);
       expect(timelineTitle(p).startsWith(p.name), p.id).toBe(true);
       expect(timelineTitle(p).endsWith('ALTERNATE UNIVERSE)'), p.id).toBe(p.category !== 'canon');
+      // A battle-history record knows the timeline only by id.
+      expect(timelineTagById(p.id, [...PRESETS, makeCustom()]), p.id).toBe(timelineTag(p));
     }
+    // A timeline deleted since the battle is still marked: a player-made id as custom, any other non-canon id as AU.
+    expect(timelineTagById('canon_me3', [])).toBe('');
+    expect(timelineTagById('custom_k3x9', [])).toBe(' [CUSTOM]');
+    expect(timelineTagById('custom', [])).toBe(' [CUSTOM]');
+    expect(timelineTagById('a_removed_preset', [])).toBe(' [AU]');
   });
 
   it('metadata: divergence inside established history, provenance, canon basis, a lever that is a knob of the preset', () => {

@@ -1,6 +1,7 @@
 import type { App } from '../app';
 import { el } from '../dom';
 import { storage } from '@/core/storage';
+import { timelineTagById } from '@/timelines/alternates';
 
 export function renderSettings(app: App): HTMLElement {
   const p = app.prefs;
@@ -89,7 +90,7 @@ export function renderSettings(app: App): HTMLElement {
           } }, 'Clear save data'),
         ]),
         el('h3', { style: { marginTop: '16px' } }, 'Battle history'),
-        app.history.length === 0 ? el('p', { class: 'dim' }, 'No battles recorded yet.') : el('div', { class: 'scroll mono', style: { maxHeight: '200px', fontSize: '11px' } }, [...app.history].reverse().slice(0, 20).map((r) => el('div', {}, `${r.outcome.toUpperCase().padEnd(8)} ${r.scenarioId} · ${r.rulesName} · seed ${r.seed} · ${Math.round(r.duration)}s`))),
+        app.history.length === 0 ? el('p', { class: 'dim' }, 'No battles recorded yet.') : el('div', { class: 'scroll mono', style: { maxHeight: '200px', fontSize: '11px' } }, [...app.history].reverse().slice(0, 20).map((r) => el('div', {}, `${r.outcome.toUpperCase().padEnd(8)} ${r.scenarioId} · ${r.rulesName}${timelineTagById(r.rulesId, app.allTimelines())} · seed ${r.seed} · ${Math.round(r.duration)}s`))),
       ]),
     ]),
   ]);
