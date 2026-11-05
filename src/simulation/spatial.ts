@@ -16,7 +16,9 @@ import type { ShipState, Side } from './types';
  * Filters: a `Side` selects the enemies of that side under plain two-sided
  * bookkeeping (`enemiesOf(side)` semantics); a `ShipState` selects that ship's
  * targeting set (`enemiesOfShip`: the other side plus every rogue hull, and a
- * rogue hull sees everyone else, AP §4.1). Dead and escaped hulls never match.
+ * rogue hull sees everyone but its own rogue group, AP §4.1 — two hulls are
+ * enemies when they are on different sides or exactly one of them is rogue).
+ * Dead and escaped hulls never match.
  * Every cell carries a mask of the sides (and rogue hulls) it holds, so a query
  * skips cells that contain only hulls its filter can never match.
  */
@@ -50,7 +52,8 @@ export function gridFilterPasses(filter: GridFilter | undefined, other: ShipStat
   if (filter === undefined) return true;
   if (typeof filter === 'string') return other.side !== filter;
   if (other === filter) return false;
-  return other.side !== filter.side || other.rogue || filter.rogue;
+  // Enemies: different sides, or exactly one of the pair is rogue (the hostile group fights both sides, never itself).
+  return other.side !== filter.side || other.rogue !== filter.rogue;
 }
 
 /** The cell-mask bits a filter can match: cells without any of them hold nothing for it. */

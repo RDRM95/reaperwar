@@ -14,8 +14,13 @@ import { yieldToLoop } from './support/async';
  * plus the owner's regression requirements (INTEGRATION_NOTES.md): formation cohesion and a stable standoff band.
  */
 
-/** Hulls that keep a formation station (the angular-momentum and cohesion measures are about the formation). */
-const stationKeeper = (s: ShipState): boolean => s.alive && !s.escaped && s.role !== 'fighter' && !s.stealth && !s.withdrawing && s.maxSpeed > 0;
+/**
+ * Hulls that keep a formation station (the angular-momentum and cohesion measures are about the formation). Off
+ * station by design: stealth hunters, withdrawing hulls and — since CORE T12 — hulls on an interpose cover mission
+ * (Reaper destroyers escorting a damaged capital, AP §10), which follow their protectee. Every non-fighter's own path
+ * stays bounded by the 360° check below.
+ */
+const stationKeeper = (s: ShipState): boolean => s.alive && !s.escaped && s.role !== 'fighter' && !s.stealth && !s.withdrawing && !s.interpose && s.maxSpeed > 0;
 
 const yawOf = (x: number, z: number): number => Math.atan2(x, z);
 const wrap = (a: number): number => Math.atan2(Math.sin(a), Math.cos(a));
