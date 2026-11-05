@@ -1,6 +1,7 @@
 import { getShipClass } from '@/data/ships';
 import { isCapitalRole, type FactionId } from '@/data/types';
 import type { BattleSimulation } from './battle';
+import { realEventCount } from './distant';
 import type { BattleResult, Side, SideSummary } from './types';
 
 const isCapital = isCapitalRole;
@@ -62,7 +63,8 @@ export function summarise(sim: BattleSimulation): BattleResult {
     perspectiveSide: perspective,
     outcome,
     sides: { A: summariseSide(sim, 'A'), B: summariseSide(sim, 'B') },
-    eventCount: sim.events.length,
+    // The distant layer's own events are not part of the battle (AP §13.3: the result is identical with it on or off).
+    eventCount: realEventCount(sim.events),
     objectiveCompleted: outcome === 'victory',
   };
 }

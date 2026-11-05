@@ -505,8 +505,14 @@ export interface Projectile {
   intendedTargetId: string;
   /** A HADES round left the gun (counts against specialAmmo; the fuse runs on impact). */
   special: boolean;
-  /** Closest approach to the intended target for a deliberate miss (km). */
+  /** Closest approach to the intended target for a deliberate miss (km); cleared once the round has passed it. */
   missDistance?: number;
+  /**
+   * The hit roll failed and the round was aimed off its target (kept for the whole flight, unlike `missDistance`). A
+   * HADES penetrator arms only when it strikes the hull it was fired at on a successful roll: one that misses or is
+   * intercepted by another hull is an expensive slug (AP §7).
+   */
+  rolledMiss?: boolean;
   /**
    * A scripted shot (`WeaponState.forcedShot`: `Specials.hadesStrike`, `forceTarget`, `force_target.forceNextShot`):
    * with `hit` the round steers onto its intended target and can strike nothing else; with `penetrate` a penetrator's
@@ -621,6 +627,8 @@ export type BattleEvent =
   | { t: number; type: 'ship_arrival_flash'; shipId: string; pos: Vec3; heading: Vec3; lengthKm: number }
   | { t: number; type: 'drive_run_started'; runnerId: string; targetId: string; endsAt: number }
   | { t: number; type: 'drive_run_impact'; runnerId: string; targetId: string; pos: Vec3; dir: Vec3; success: boolean }
+  /** A committed drive run whose target was destroyed by someone else before `endsAt`: the runner fights on (T14 addition). */
+  | { t: number; type: 'drive_run_aborted'; runnerId: string; targetId: string; reason: 'target_lost' }
   | { t: number; type: 'hades_detonation'; shipId: string; targetId: string; pos: Vec3; damage: number; outage: keyof Subsystems; projectileId?: number }
   | { t: number; type: 'strike_scheduled'; shipId: string; weaponId: string; at: number; kind: 'hades' | 'nova' | 'nova_legacy' }
   | { t: number; type: 'weapon_charging'; shipId: string; weaponIndex: number; weaponId?: string; seconds: number }
