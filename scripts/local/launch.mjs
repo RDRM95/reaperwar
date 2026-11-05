@@ -3,7 +3,7 @@
  * Local Edition launcher (Windows, macOS, Linux).
  *
  *   node scripts/local/launch.mjs [--port 4180] [--rebuild] [--browser <path>]
- *                                 [--vsync] [--fullscreen] [--no-browser]
+ *                                 [--vsync] [--fullscreen] [--gpu-info] [--no-browser]
  *
  * 1. Runs "npm ci" when node_modules is missing or older than
  *    package-lock.json, and builds the game (npm run build) when dist/ is
