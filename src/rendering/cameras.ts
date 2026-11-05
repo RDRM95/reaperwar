@@ -92,18 +92,47 @@ export class CameraRig {
     this.pendingPose = { instant };
   }
 
+  /** Modes whose framing is chosen by the director, not by the player's drag and wheel. */
+  static readonly DIRECTED: ReadonlySet<CameraMode> = new Set<CameraMode>(['cinematic', 'projectile', 'reaper', 'command', 'shot']);
+
+  /**
+   * The player grabbed the camera in a director-driven mode: continue as a free
+   * orbit around what the camera is looking at, from exactly where it is, so the
+   * view never jumps. Picking a camera mode again hands control back.
+   */
+  takeControl(): boolean {
+    if (!CameraRig.DIRECTED.has(this.mode)) return false;
+    const off = this.tmp.copy(this.camera.position).sub(this.currentLook);
+    const dist = Math.max(off.length(), CameraRig.MIN_DISTANCE);
+    this.focus.copy(this.currentLook);
+    this.distance = dist;
+    this.pitch = THREE.MathUtils.clamp(Math.asin(THREE.MathUtils.clamp(off.y / dist, -1, 1)), -CameraRig.MAX_PITCH, CameraRig.MAX_PITCH);
+    this.yaw = Math.atan2(off.x, off.z);
+    this.mode = 'tactical';
+    this.pendingPose = undefined;
+    this.transition = 0;
+    return true;
+  }
+
+  /** Orbit limits: nearly straight down or up (a pole would flip the view), and a zoom from hull scale to the whole battlespace. */
+  static readonly MAX_PITCH = 1.55;
+  static readonly MIN_DISTANCE = 2;
+  static readonly MAX_DISTANCE = 250_000;
+
   // --- Input hooks (called by the controller).
   orbit(dx: number, dy: number): void {
     if (this.mode === 'free') {
       this.freeYaw -= dx * 0.003;
-      this.freePitch = THREE.MathUtils.clamp(this.freePitch - dy * 0.003, -1.5, 1.5);
+      this.freePitch = THREE.MathUtils.clamp(this.freePitch - dy * 0.003, -CameraRig.MAX_PITCH, CameraRig.MAX_PITCH);
       return;
     }
+    this.takeControl();
     this.yaw -= dx * 0.005;
-    this.pitch = THREE.MathUtils.clamp(this.pitch + dy * 0.005, -1.5, 1.5); // full orbit: above and below the plane
+    this.pitch = THREE.MathUtils.clamp(this.pitch + dy * 0.005, -CameraRig.MAX_PITCH, CameraRig.MAX_PITCH); // full orbit: above and below the plane
   }
   zoom(delta: number): void {
-    this.distance = THREE.MathUtils.clamp(this.distance * Math.exp(delta * 0.0012), 6, 60_000);
+    this.takeControl();
+    this.distance = THREE.MathUtils.clamp(this.distance * Math.exp(delta * 0.0012), CameraRig.MIN_DISTANCE, CameraRig.MAX_DISTANCE);
   }
   pan(dx: number, dy: number): void {
     const right = new THREE.Vector3(Math.cos(this.yaw), 0, -Math.sin(this.yaw));
@@ -153,7 +182,7 @@ export class CameraRig {
         // Free orbit around the followed ship: yaw and pitch rotate the chase offset relative to its heading,
         // so dragging looks at it from any side, above or below; the wheel scales the chase distance.
         const h = Math.atan2(s.heading.x, s.heading.z);
-        const dist = (s.size * 2.4 + 3) * THREE.MathUtils.clamp(this.distance / 320, 0.35, 5);
+        const dist = (s.size * 2.4 + 3) * THREE.MathUtils.clamp(this.distance / 320, 0.15, 400);
         const a = h + Math.PI + this.yaw;
         const off = new THREE.Vector3(Math.sin(a) * Math.cos(this.pitch), Math.sin(this.pitch) + 0.25, Math.cos(a) * Math.cos(this.pitch)).normalize().multiplyScalar(dist);
         this.desiredPos.copy(s.position).add(off);
