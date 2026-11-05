@@ -1751,7 +1751,7 @@ export class BattleSimulation implements AiContext {
             ttl: (def.range * PROJECTILE_RANGE_FACTOR) / def.projectileSpeed + 0.5,
             intendedTargetId: target.id,
             special: special && m === 0,
-            ...(missDistance !== undefined ? { missDistance } : {}),
+            ...(missDistance !== undefined ? { missDistance, rolledMiss: true } : {}),
             ...(scripted && m === 0 ? { forced: scripted } : {}),
           });
         }
@@ -1958,9 +1958,14 @@ export class BattleSimulation implements AiContext {
       if (hitShip) {
         const hitPoint = addScaled(p.prevPos, sub(p.pos, p.prevPos), bestT);
         if (shooterState) {
+          // A HADES penetrator is a penetrator only on the hull it was fired at and only on a successful hit roll: a
+          // round that misses or is intercepted by another hull (a destroyer covering its capital) is an expensive slug —
+          // kinetic damage only, no internal effect, no event (AP §7). A forced hit homes onto its target and strikes
+          // nothing else, so it always qualifies.
+          const penetrator = p.special && hitShip.id === p.intendedTargetId && !p.rolledMiss;
           this.applyHit(shooterState, hitShip, p.weapon, p.weapon.damage, hitPoint, {
             projectileId: p.id,
-            ...(p.special ? { special: true } : {}),
+            ...(penetrator ? { special: true } : {}),
             ...(p.forced?.penetrate ? { forcePenetrate: true } : {}),
             ...(p.forced?.outage ? { outage: p.forced.outage } : {}),
           });

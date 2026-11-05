@@ -505,8 +505,14 @@ export interface Projectile {
   intendedTargetId: string;
   /** A HADES round left the gun (counts against specialAmmo; the fuse runs on impact). */
   special: boolean;
-  /** Closest approach to the intended target for a deliberate miss (km). */
+  /** Closest approach to the intended target for a deliberate miss (km); cleared once the round has passed it. */
   missDistance?: number;
+  /**
+   * The hit roll failed and the round was aimed off its target (kept for the whole flight, unlike `missDistance`). A
+   * HADES penetrator arms only when it strikes the hull it was fired at on a successful roll: one that misses or is
+   * intercepted by another hull is an expensive slug (AP §7).
+   */
+  rolledMiss?: boolean;
   /**
    * A scripted shot (`WeaponState.forcedShot`: `Specials.hadesStrike`, `forceTarget`, `force_target.forceNextShot`):
    * with `hit` the round steers onto its intended target and can strike nothing else; with `penetrate` a penetrator's
