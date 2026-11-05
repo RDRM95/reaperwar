@@ -5,7 +5,7 @@ import { forbiddenWording } from '@/core/lint';
 import { SHIP_CLASSES } from '@/data/ships';
 import { WEAPON_LIST } from '@/data/weapons';
 import { SCENARIOS, defaultWorldState, type ScenarioDef } from '@/scenarios';
-import { THREAT_COALITION, THREAT_LONGEST_RANGE, THREAT_MAX_DURATION, THREAT_SEEDS, THREAT_STANDOFF, buildThreatReference, threatRungGroups, threatRunOf } from '@/scenarios/threatReference';
+import { THREAT_COALITION, THREAT_LONGEST_RANGE, THREAT_MAX_DURATION, THREAT_SEEDS, THREAT_STANDOFF, buildThreatReference, threatFingerprint, threatProbeRules, threatRungGroups, threatRunOf } from '@/scenarios/threatReference';
 import { BattleSimulation } from '@/simulation/battle';
 import { ALTERNATE_META, ALTERNATE_PRESETS, CAMPAIGN_WORLD_STATE_CHOICES, CAMPAIGN_WORLD_STATE_DEFAULTS, auPrefix, getLever, lockWorldState, timelineTag, timelineTitle, withLever } from '@/timelines/alternates';
 import { PRESETS, getPreset, makeCustom } from '@/timelines/presets';
@@ -13,18 +13,34 @@ import { CANON_FLEETS, CANON_SPECIAL, CANON_STRATEGIC, CANON_TECH, TECH_KEYS, ty
 import { exportRuleSet, normaliseRules, validateRuleSet } from '@/timelines/schema';
 import {
   REAPER_THREAT,
+  THREAT_FINGERPRINT,
+  THREAT_FORMULA_VERSION,
   THREAT_LEVERS,
+  THREAT_PROBE_GAP,
+  THREAT_PROBE_GRID,
+  THREAT_PROBE_KEYS,
+  THREAT_PROBE_RATIO,
+  THREAT_REBASE_DRIFT,
   THREAT_REFERENCE_META,
   THREAT_RUNGS,
+  THREAT_SCALE,
+  THREAT_SPLIT_RULES,
   THREAT_THRESHOLDS,
   THREAT_TIERS,
   THREAT_TIME_LIMIT_BOUND,
+  bandClaims,
+  bandStatement,
+  nextProbeValues,
+  rebaseReasons,
   summariseThreat,
+  thresholdsFromProbes,
   threatHoldsText,
   threatIndex,
   threatRating,
+  threatTiers,
   threatTooltip,
   tierForIndex,
+  type ThreatProbe,
   type ThreatRun,
 } from '@/timelines/threat';
 import { runSimAsync, yieldToLoop } from './support/async';
@@ -108,6 +124,7 @@ function favours(path: string, v: unknown, canon: unknown): 'reapers' | 'organic
 }
 
 const run = (rung: number, seed: number, over: Partial<ThreatRun> = {}): ThreatRun => ({ rung, seed, reaperLoss: 0.5, organicSurvival: 0, winner: 'B', duration: 100, timeLimit: false, ...over });
+const probe = (m: number, index: number, holdsRungs: number, wins = holdsRungs * 4): ThreatProbe => ({ m, index, reaperLoss: 0, organicSurvival: 0, holdsRungs, wins, battles: 20, timeLimit: 0 });
 
 describe('alternate timelines: data', () => {
   it('are appended to PRESETS, in order, after the eight existing presets', () => {
@@ -288,16 +305,28 @@ describe('alternate timelines: codex', () => {
 
 describe('threat scale: arithmetic', () => {
   it('thresholds, tiers and the index', () => {
-    expect([...THREAT_THRESHOLDS]).toEqual([17, 30, 48, 62, 87]);
+    expect(THREAT_THRESHOLDS).toHaveLength(5);
+    for (const t of THREAT_THRESHOLDS) {
+      expect(Number.isInteger(t), String(t)).toBe(true);
+      expect(t).toBeGreaterThan(0);
+      expect(t).toBeLessThan(100);
+    }
     for (let i = 1; i < THREAT_THRESHOLDS.length; i++) expect(THREAT_THRESHOLDS[i]).toBeGreaterThan(THREAT_THRESHOLDS[i - 1]);
     expect(THREAT_TIERS.map((t) => t.tier)).toEqual([1, 2, 3, 4, 5, 6]);
-    expect(THREAT_TIERS.slice(1).map((t) => t.min)).toEqual([...THREAT_THRESHOLDS]);
+    expect(THREAT_TIERS.map((t) => t.min)).toEqual([0, ...THREAT_THRESHOLDS]);
+    expect(THREAT_TIERS.map((t) => t.max)).toEqual([...THREAT_THRESHOLDS, 100]);
     for (const t of THREAT_TIERS) {
       expect(t.summary.length).toBeGreaterThan(40);
       expect(t.summary, 'a tier sentence never names a rung').not.toMatch(/Raid|Strike group|Battlegroup|Assault fleet|Harvest fleet|capital/);
     }
-    const cases: [number, number][] = [[0, 1], [16.99, 1], [17, 2], [29.99, 2], [30, 3], [47.99, 3], [48, 4], [61.99, 4], [62, 5], [86.99, 5], [87, 6], [100, 6]];
-    for (const [i, t] of cases) expect(tierForIndex(i), String(i)).toBe(t);
+    expect(tierForIndex(0)).toBe(1);
+    expect(tierForIndex(100)).toBe(6);
+    THREAT_THRESHOLDS.forEach((t, i) => {
+      expect(tierForIndex(t - 0.01), String(t - 0.01)).toBe(i + 1);
+      expect(tierForIndex(t), String(t)).toBe(i + 2);
+    });
+    // An explicit threshold set (the script rates a re-based run before it is committed).
+    expect([0, 16.99, 17, 29.99, 30, 47.99, 48, 61.99, 62, 86.99, 87, 100].map((x) => tierForIndex(x, [17, 30, 48, 62, 87]))).toEqual([1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6]);
     expect(threatIndex(0, 0)).toBe(0);
     expect(threatIndex(1, 1)).toBe(100);
     expect(threatIndex(0.5, 0.2)).toBeCloseTo(35, 10);
@@ -305,34 +334,44 @@ describe('threat scale: arithmetic', () => {
   });
 
   it('every band statement holds for every Reaper loss and organic survival its band admits', () => {
-    // The statements are claims about L and S alone (index = 50 × (L + S)); check them on a 0.005 grid.
+    // The statements are claims about L and S alone (index = 50 × (L + S)); check them on a 0.005 grid,
+    // for the committed thresholds and for the formula-1 ones, so the renderer is checked away from today's values too.
     const eps = 1e-9;
-    const claims: Record<number, (L: number, S: number) => boolean> = {
-      1: (L, S) => L + S < 0.34 + eps && Math.max(L, S) < 0.34 + eps,
-      2: (L, S) => L + S >= 0.34 - eps && L + S < 0.6 + eps && Math.max(L, S) < 0.6 + eps,
-      3: (L, S) => L + S >= 0.6 - eps && L + S < 0.96 + eps && Math.max(L, S) >= 0.3 - eps && Math.min(L, S) < 0.5 + eps,
-      4: (L, S) => L + S >= 0.96 - eps && L + S < 1.24 + eps && Math.max(L, S) >= 0.48 - eps && Math.min(L, S) < 0.62 + eps,
-      5: (L, S) => L + S >= 1.24 - eps && L + S < 1.74 + eps && Math.min(L, S) >= 0.24 - eps && Math.max(L, S) >= 0.62 - eps,
-      6: (L, S) => L + S >= 1.74 - eps && Math.min(L, S) >= 0.74 - eps,
-    };
-    const seen = new Set<number>();
-    for (let i = 0; i <= 200; i++) {
-      for (let j = 0; j <= 200; j++) {
-        const L = i / 200;
-        const S = j / 200;
-        const tier = tierForIndex(threatIndex(L, S));
-        seen.add(tier);
-        expect(claims[tier](L, S), `tier ${tier} at L ${L}, S ${S}`).toBe(true);
+    for (const th of [THREAT_THRESHOLDS, [17, 30, 48, 62, 87]]) {
+      const tiers = threatTiers(th);
+      const seen = new Set<number>();
+      for (let i = 0; i <= 200; i++) {
+        for (let j = 0; j <= 200; j++) {
+          const L = i / 200;
+          const S = j / 200;
+          const tier = tierForIndex(threatIndex(L, S), th);
+          seen.add(tier);
+          const c = bandClaims(tiers[tier - 1].min, tiers[tier - 1].max);
+          const at = `tier ${tier} at L ${L}, S ${S} (${th.join('/')})`;
+          if (c.sumAtLeast !== undefined) expect(L + S >= c.sumAtLeast - eps, at).toBe(true);
+          if (c.sumUnder !== undefined) expect(L + S < c.sumUnder + eps, at).toBe(true);
+          if (c.bothAtLeast !== undefined) expect(Math.min(L, S) >= c.bothAtLeast - eps, at).toBe(true);
+          if (c.largerAtLeast !== undefined) expect(Math.max(L, S) >= c.largerAtLeast - eps, at).toBe(true);
+          if (c.bothUnder !== undefined) expect(Math.max(L, S) < c.bothUnder + eps, at).toBe(true);
+          if (c.smallerUnder !== undefined) expect(Math.min(L, S) < c.smallerUnder + eps, at).toBe(true);
+        }
+      }
+      expect([...seen].sort()).toEqual([1, 2, 3, 4, 5, 6]);
+      // Every sentence states its bounds, and only the bounds that say something.
+      for (const t of tiers) {
+        const c = bandClaims(t.min, t.max);
+        expect(t.summary).toBe(bandStatement(t.min, t.max));
+        for (const x of [c.bothAtLeast, c.largerAtLeast, c.bothUnder, c.smallerUnder]) if (x !== undefined) expect(t.summary, t.summary).toContain(`${Math.round(x * 1000) / 10} %`);
+        if (t.min === 0) expect(c.largerAtLeast).toBeUndefined();
+        if (t.max === 100) expect(c.smallerUnder).toBeUndefined();
       }
     }
-    expect([...seen].sort()).toEqual([1, 2, 3, 4, 5, 6]);
-    // The sentences state exactly those bounds.
-    expect(THREAT_TIERS[0].summary).toMatch(/under 0\.34 together.*less than 34 %.*less than 34 %/);
-    expect(THREAT_TIERS[1].summary).toMatch(/0\.34 to 0\.60 together.*less than 60 %.*less than 60 %/);
-    expect(THREAT_TIERS[2].summary).toMatch(/0\.60 to 0\.96 together.*reaches 30 %.*at most one reaches half/);
-    expect(THREAT_TIERS[3].summary).toMatch(/0\.96 to 1\.24 together.*reaches 48 %.*under 62 %/);
-    expect(THREAT_TIERS[4].summary).toMatch(/1\.24 to 1\.74 together.*at least 24 %.*at least 24 %.*reaches 62 %/);
-    expect(THREAT_TIERS[5].summary).toMatch(/at least 1\.74 together.*at least 74 %.*at least 74 %/);
+    // The formula-1 bands read as they did, with the exact bounds.
+    const old = threatTiers([17, 30, 48, 62, 87]).map((t) => t.summary);
+    expect(old[0]).toMatch(/less than 0\.34.*less than 34 %.*less than 34 %/);
+    expect(old[2]).toMatch(/0\.60 to 0\.96.*reaches 30 %.*under 48 %/);
+    expect(old[4]).toMatch(/1\.24 to 1\.74.*at least 24 %.*at least 24 %.*reaches 62 %/);
+    expect(old[5]).toMatch(/at least 1\.74.*at least 74 %.*at least 74 %/);
   });
 
   it('summariseThreat weighs every battle equally, rounds as the table stores, and stops the breaking point at the first rung won fewer than 3 of 4', () => {
@@ -382,6 +421,88 @@ describe('threat scale: arithmetic', () => {
   });
 });
 
+describe('threat scale: the probe ladder', () => {
+  it('a probe is canon with the organic fire rate, heat capacity and hull integrity × m, and nothing else', () => {
+    const canon = getPreset('canon_me3');
+    for (const m of [0.5, 1, 2.45]) {
+      const r = threatProbeRules(m);
+      expect(r.id).not.toBe(canon.id);
+      for (const k of TECH_KEYS) expect(r.organic[k], k).toBe((THREAT_PROBE_KEYS as readonly string[]).includes(k) ? m : canon.organic[k]);
+      expect({ ...r, id: canon.id, name: canon.name, organic: canon.organic }).toEqual(canon);
+    }
+    expect(canon.factionOverrides).toEqual({});
+    expect(THREAT_PROBE_GRID).toContain(1);
+  });
+
+  it('derives each threshold as the rounded midpoint between the probes either side of its rule', () => {
+    // wins nothing / wins something / holds 1 / 2 / 3 / 4 / 5
+    const probes = [probe(0.4, 12, 0, 0), probe(0.5, 20.4, 0, 2), probe(0.6, 27, 1), probe(0.7, 33, 1), probe(0.8, 41, 2), probe(1, 52, 3), probe(1.2, 70, 4), probe(1.5, 90, 5)];
+    const d = thresholdsFromProbes(probes);
+    expect(d.problems).toEqual([]);
+    expect(d.splits.map((x) => x.tier)).toEqual([2, 3, 4, 5, 6]);
+    expect(d.thresholds).toEqual([Math.round((12 + 20.4) / 2), Math.round((20.4 + 27) / 2), Math.round((33 + 41) / 2), Math.round((41 + 52) / 2), Math.round((70 + 90) / 2)]);
+    expect(d.splits[0]).toMatchObject({ below: { m: 0.4, index: 12 }, above: { m: 0.5, index: 20.4 } });
+    expect(d.holdCounts).toEqual([0, 1, 2, 3, 4, 5]);
+    // A probe out of order (noise) counts on its side of the rule: the highest index below and the lowest above.
+    const noisy = thresholdsFromProbes([...probes, probe(0.75, 43, 1)]);
+    expect(noisy.splits[2]).toMatchObject({ below: { m: 0.75, index: 43 }, above: { m: 0.8, index: 41 }, threshold: 42 });
+    // A rule with probes on one side only leaves the scale undefined.
+    const short = thresholdsFromProbes(probes.filter((p) => p.holdsRungs < 5));
+    expect(short.thresholds).toBeUndefined();
+    expect(short.problems.join(' ')).toMatch(/tier-6/);
+    // Thresholds that do not increase leave it undefined too.
+    const flat = thresholdsFromProbes([probe(0.4, 30, 0, 0), probe(0.5, 32, 1), probe(0.8, 40, 2), probe(1, 50, 3), probe(1.5, 90, 5)]);
+    expect(flat.splits.map((x) => x.threshold)).toEqual([31, 31, 36, 45, 70]);
+    expect(flat.thresholds).toBeUndefined();
+    expect(flat.problems.join(' ')).toMatch(/tier-3 threshold 31/);
+    expect(THREAT_SPLIT_RULES.map((r) => r.meets({ holdsRungs: 0, wins: 1 }))).toEqual([true, false, false, false, false]);
+    expect(THREAT_SPLIT_RULES.map((r) => r.meets({ holdsRungs: 4, wins: 16 }))).toEqual([true, true, true, true, false]);
+  });
+
+  it('refines deterministically until every transition is pinned, and extends past an unspanned end', () => {
+    expect(nextProbeValues([])).toEqual([...THREAT_PROBE_GRID]);
+    // A wide bracket with a large index gap is bisected (geometric midpoint, 3 decimals).
+    const a = [probe(0.5, 10, 0, 0), probe(0.8, 30, 0, 3), probe(1, 50, 2), probe(2, 95, 5)];
+    const next = nextProbeValues(a);
+    expect(next).toEqual([...next].sort((x, y) => x - y));
+    expect(next).toContain(Math.round(Math.sqrt(0.5 * 0.8) * 1000) / 1000);
+    expect(next).toContain(Math.round(Math.sqrt(0.8 * 1) * 1000) / 1000);
+    expect(next).toContain(Math.round(Math.sqrt(1 * 2) * 1000) / 1000);
+    expect(nextProbeValues(a)).toEqual(next);
+    // Closed brackets need nothing more: within the ratio, or within the index gap when no count is skipped.
+    const closed = [
+      probe(0.5, 10, 0, 0),
+      probe(0.51, 17, 0, 1), // wins: closed by the ratio (gap 7)
+      probe(0.99, 49, 0, 3),
+      probe(1, 50, 1), // holds 1: ratio
+      probe(1.02, 52, 2), // holds 2: ratio
+      probe(1.58, 79, 2),
+      probe(1.6, 80, 3), // holds 3: ratio
+      probe(1.62, 81, 4), // holds 4: ratio
+      probe(2, 94, 4),
+      probe(2.3, 94 + THREAT_PROBE_GAP - 0.5, 5), // holds 5: closed by the index gap (×1.15 apart)
+    ];
+    expect(nextProbeValues(closed)).toEqual([]);
+    // A bracket that skips a count of groups held is bisected whatever its index gap.
+    const skip = [probe(0.5, 10, 0, 0), probe(0.6, 12, 0, 1), probe(1, 50, 1), probe(1.2, 51, 3), probe(2, 95, 5), probe(2.04, 95.5, 4)];
+    expect(nextProbeValues(skip)).toContain(Math.round(Math.sqrt(1.2) * 1000) / 1000);
+    // Nothing below the first win, or nothing that holds all five: the ladder extends by ×1.25.
+    expect(nextProbeValues([probe(0.5, 20, 0, 1), probe(1, 50, 2), probe(2, 95, 5)])).toContain(0.4);
+    expect(nextProbeValues([probe(0.4, 10, 0, 0), probe(1, 50, 2), probe(2, 80, 4)])).toContain(2.5);
+  });
+
+  it('re-bases only on the stated triggers', () => {
+    const committed = { formulaVersion: THREAT_FORMULA_VERSION, standoffKm: THREAT_STANDOFF, maxDuration: THREAT_MAX_DURATION, thresholds: [20, 30, 45, 60, 85], probes: [probe(1, 40, 1)] };
+    const now = { formulaVersion: THREAT_FORMULA_VERSION, standoffKm: THREAT_STANDOFF, maxDuration: THREAT_MAX_DURATION };
+    expect(rebaseReasons(committed, { ...now, thresholds: [20 + THREAT_REBASE_DRIFT, 30 - THREAT_REBASE_DRIFT, 45, 60, 85] })).toEqual([]);
+    expect(rebaseReasons(committed, { ...now, thresholds: [20, 30, 45 + THREAT_REBASE_DRIFT + 1, 60, 85] })).toHaveLength(1);
+    expect(rebaseReasons({ ...committed, probes: [] }, { ...now, thresholds: committed.thresholds })).toHaveLength(1);
+    expect(rebaseReasons({ ...committed, formulaVersion: THREAT_FORMULA_VERSION - 1 }, now)).toHaveLength(1);
+    expect(rebaseReasons({ ...committed, standoffKm: THREAT_STANDOFF + 1 }, now)).toHaveLength(1);
+    expect(rebaseReasons({ ...committed, maxDuration: THREAT_MAX_DURATION + 1 }, now)).toHaveLength(1);
+  });
+});
+
 describe('threat scale: the generated table', () => {
   it('covers every preset, in PRESETS order, with consistent values and the deployed groups', () => {
     expect(Object.keys(REAPER_THREAT)).toEqual(PRESETS.map((p) => p.id));
@@ -417,6 +538,37 @@ describe('threat scale: the generated table', () => {
     expect(THREAT_REFERENCE_META.battles).toBe(PRESETS.length * THREAT_RUNGS.length * THREAT_SEEDS.length);
     expect(THREAT_REFERENCE_META.timeLimitShare).toBeLessThanOrEqual(THREAT_TIME_LIMIT_BOUND);
     expect(THREAT_REFERENCE_META.measuredOn).not.toMatch(/unmeasured|partial/);
+    expect(THREAT_REFERENCE_META.formulaVersion).toBe(THREAT_FORMULA_VERSION);
+  });
+
+  it('its thresholds are the ones the recorded probe ladder derives, on this reference and formula', () => {
+    expect([...THREAT_THRESHOLDS]).toEqual([...THREAT_SCALE.thresholds]);
+    expect(THREAT_SCALE.formulaVersion, 'formula version changed: re-base with npm run timeline:threat (TIMELINES_V2.md §1.8)').toBe(THREAT_FORMULA_VERSION);
+    expect(THREAT_SCALE.standoffKm, 'standoff changed: re-base (§1.8)').toBe(THREAT_STANDOFF);
+    expect(THREAT_SCALE.maxDuration, 'time limit changed: re-base (§1.8)').toBe(THREAT_MAX_DURATION);
+    expect(THREAT_SCALE.rebasedOn).not.toMatch(/partial|design-time/);
+    expect(THREAT_SCALE.probes.length).toBeGreaterThanOrEqual(THREAT_PROBE_GRID.length);
+    const ms = THREAT_SCALE.probes.map((p) => p.m);
+    expect(ms).toEqual([...ms].sort((a, b) => a - b));
+    for (const m of THREAT_PROBE_GRID) expect(ms).toContain(m);
+    for (const p of THREAT_SCALE.probes) {
+      expect(p.battles, `×${p.m}`).toBe(THREAT_RUNGS.length * THREAT_SEEDS.length);
+      expect(p.wins).toBeLessThanOrEqual(p.battles);
+      expect(Math.abs(threatIndex(p.reaperLoss, p.organicSurvival) - p.index), `×${p.m}`).toBeLessThanOrEqual(0.15);
+    }
+    const d = thresholdsFromProbes(THREAT_SCALE.probes);
+    expect(d.problems).toEqual([]);
+    expect(d.thresholds).toEqual([...THREAT_THRESHOLDS]);
+    // The recorded ladder is complete: no bracket would get another probe.
+    expect(nextProbeValues(THREAT_SCALE.probes)).toEqual([]);
+  });
+
+  it('was measured from the current catalogue and presets (fingerprint)', () => {
+    const now = threatFingerprint(PRESETS);
+    const how = `the threat table is out of date (measured on ${THREAT_REFERENCE_META.measuredOn}): regenerate it with npm run timeline:threat and commit src/timelines/threatMeasured.ts and docs/apex/TIMELINE_THREAT.md (TIMELINES_V2.md §4.14)`;
+    expect(now.catalogue, `the battle-relevant catalogue changed; ${how}`).toBe(THREAT_FINGERPRINT.catalogue);
+    expect(Object.keys(THREAT_FINGERPRINT.presets)).toEqual(PRESETS.map((p) => p.id));
+    for (const p of PRESETS) expect(now.presets[p.id], `${p.id} or the reference fleets it builds changed; ${how}`).toBe(THREAT_FINGERPRINT.presets[p.id]);
   });
 
   it('every new timeline measures in its declared tier', () => {
