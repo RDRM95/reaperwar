@@ -18,9 +18,9 @@
 - **Oculus drones** launch through the Reaper hangars in flights of four and fight the escort screens; fighters and drones within 1.5 km reveal a silent stealth frigate.
 - **Reaper AI:** Reapers rotate protection onto damaged capitals, focus the active gun platform, and destroyers cover a damaged capital; under the Apex timelines they abandon lost hulls and fall back by group.
 - **Groundwork for the Final Battle:** the fleet volley (every spinal gun with a solution fires inside one window), coordinated HADES salvos, arrival waves, scripted specials and flagship events with a final transmission. These are in the simulation and the exported event log now; their banners, controls and camera cues arrive with the HUD and cinematics work.
-- 295 unit tests before the timelines merge.
+- Release gate: typecheck clean; 379 unit tests in 35 files; build clean; 10/10 end-to-end tests (Battle of Earth, replay, comparison, campaign, Local Edition); screenshots inspected with no page errors. The threat table was re-measured on this exact build.
 
-Known limitations: new hull classes still use placeholder models; 8× playback still lags on large battles; combat ranges and pacing are being redesigned; the Harbinger banner and the volley control are not on screen yet.
+Known limitations: new hull classes still use placeholder models; 8× playback still lags on large battles; combat ranges and pacing are being redesigned; the Harbinger banner and the volley control are not on screen yet; canon currently measures 46 on the threat index (tier 4, Serious) after the new Oculus and Reaper AI behaviour moved its reference battles, and the labels follow the measurement until the second calibration pass.
 
 ## 0.12.0 — V2 preview: movement, firing solutions, stealth, HADES penetrators
 
