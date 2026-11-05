@@ -7,6 +7,8 @@ import { effectiveGround, getProject, RESEARCH_PROJECTS, researchOutput, setRese
 import { FACTIONS } from '@/data/factions';
 import { getShipClass } from '@/data/ships';
 import { storage } from '@/core/storage';
+import { CAMPAIGN_WORLD_STATE_CHOICES, CAMPAIGN_WORLD_STATE_DEFAULTS, lockWorldState, timelineTag } from '@/timelines/alternates';
+import { campaignNote, threatBadge, timelineOptionLabel, worldStateLockNote } from '../threatBadge';
 
 /**
  * Galactic campaign screen: interactive galaxy map (canvas), system and
@@ -186,7 +188,7 @@ export function renderCampaign(app: App, state: CampaignState): HTMLElement {
     const alliedVal = state.fleets.filter((f) => f.allegiance === 'allied').reduce((a, f) => a + fleetPoints(f.counts), 0);
     setChildren(
       statusBar,
-      el('div', { class: 'panel', style: { minWidth: '180px' } }, [el('div', { class: 'panel-title' }, 'WAR CLOCK'), el('div', { class: 'hud-clock' }, [`WEEK ${state.tick}`, el('small', {}, `${state.startDate} · ${state.rules.name}`)])]),
+      el('div', { class: 'panel', style: { minWidth: '180px' } }, [el('div', { class: 'panel-title' }, 'WAR CLOCK'), el('div', { class: 'hud-clock' }, [`WEEK ${state.tick}`, el('small', {}, `${state.startDate} · ${state.rules.name}${timelineTag(state.rules)}`)])]),
       el('div', { class: 'panel' }, [el('div', { class: 'panel-title' }, 'WAR ASSETS'), el('div', { class: 'mono', style: { fontSize: '18px', color: 'var(--cyan)' } }, fmtNum(state.warAssets)), el('small', {}, `allied fleet value ${fmtNum(alliedVal)}`)]),
       el('div', { class: 'panel red' }, [el('div', { class: 'panel-title' }, 'REAPER STRENGTH'), el('div', { class: 'mono', style: { fontSize: '18px', color: 'var(--red)' } }, fmtNum(reaperVal)), el('small', {}, `${state.fleets.filter((f) => f.allegiance === 'reaper').length} fleets · ${state.reaper.reinforcementPool} reinforcement groups`)]),
       el('div', { class: 'panel orange' }, [
@@ -461,7 +463,7 @@ export function renderCampaign(app: App, state: CampaignState): HTMLElement {
   }
 
   return el('div', { class: 'screen' }, [
-    el('div', { class: 'screen-header' }, [el('h1', {}, 'GALACTIC CAMPAIGN'), el('span', { class: 'sub' }, state.name.toUpperCase())]),
+    el('div', { class: 'screen-header' }, [el('h1', {}, 'GALACTIC CAMPAIGN'), el('span', { class: 'sub' }, `${state.name.toUpperCase()}${state.rules.category === 'canon' ? '' : ' · ALTERNATE UNIVERSE'}`)]),
     el('div', { class: 'screen-body', style: { padding: '12px 16px' } }, [
       statusBar,
       el('div', { class: 'campaign-layout' }, [
@@ -483,10 +485,23 @@ export function renderCampaign(app: App, state: CampaignState): HTMLElement {
 export function renderCampaignSetup(app: App): HTMLElement {
   let timelineId = app.prefs.lastTimelineId;
   let seed = Math.floor(Math.random() * 100000);
-  const ws: Record<string, string> = { ascension: 'present', rannoch: 'war', crucible: 'use', genophage: 'cured', rachni: 'saved' };
+  /** The player's choices; the timeline's world-state locks are applied on top at render and at start (TIMELINES_V2.md §4.10). */
+  const ws: Record<string, string> = { ...CAMPAIGN_WORLD_STATE_DEFAULTS };
+  const lockedWs = (rules: ReturnType<App['getTimeline']>) => lockWorldState(rules, ws, CAMPAIGN_WORLD_STATE_CHOICES, false);
   const body = el('div', { class: 'screen-body' });
   const render = () => {
     const rules = app.getTimeline(timelineId);
+    const locks = lockedWs(rules);
+    const eff = locks.ws;
+    /** A world-state select: locked values are preselected, the contradicting choices disabled, and the reason shown. */
+    const wsSelect = (key: string, label: string, options: [string, string][], attrs: Record<string, unknown> = {}) => {
+      const lock = locks.locked[key];
+      return el('label', { class: 'field' }, [
+        label,
+        el('select', { 'data-ws': key, ...attrs, onchange: (e: Event) => (ws[key] = (e.target as HTMLSelectElement).value) }, options.map(([v, text]) => el('option', { value: v, selected: eff[key] === v, disabled: !!lock && lock.value !== v }, text))),
+        lock ? worldStateLockNote(rules, lock) : null,
+      ]);
+    };
     setChildren(
       body,
       el('div', { class: 'grid2' }, [
@@ -495,8 +510,10 @@ export function renderCampaignSetup(app: App): HTMLElement {
           el('label', { class: 'field' }, ['Rule set', el('select', { onchange: (e: Event) => {
             timelineId = (e.target as HTMLSelectElement).value;
             render();
-          } }, app.allTimelines().map((t) => el('option', { value: t.id, selected: t.id === timelineId }, `${t.name}${t.category === 'canon' ? '' : ` [${t.category.toUpperCase()}]`}`)))]),
+          } }, app.allTimelines().map((t) => el('option', { value: t.id, selected: t.id === timelineId }, timelineOptionLabel(t))))]),
+          el('div', { class: 'threat-select-note' }, threatBadge(rules, 'full')),
           el('p', { class: 'dim' }, rules.description),
+          campaignNote(rules),
           el('div', { class: 'kv' }, [
             el('span', {}, 'Crucible'), el('span', { class: 'v' }, rules.strategic.crucibleAvailable && rules.strategic.catalystOperational ? 'available' : 'unavailable'),
             el('span', {}, 'Conventional victory'), el('span', { class: 'v' }, rules.strategic.conventionalVictoryPossible ? 'possible' : 'Crucible only'),
@@ -507,12 +524,12 @@ export function renderCampaignSetup(app: App): HTMLElement {
         ]),
         el('div', { class: 'panel' }, [
           el('div', { class: 'panel-title' }, 'WORLD STATE (PLAYER-DEPENDENT ME3 OUTCOMES)'),
-          el('label', { class: 'field' }, ['Destiny Ascension and the Council (2183)', el('select', { onchange: (e: Event) => (ws.ascension = (e.target as HTMLSelectElement).value) }, [el('option', { value: 'present', selected: ws.ascension === 'present' }, 'Saved: the old Council survives (Council races +5 % cooperation)'), el('option', { value: 'absent', selected: ws.ascension === 'absent' }, 'Lost: a human-led Council (Alliance production +10 %, others −5 % cooperation)')])]),
-          el('label', { class: 'field' }, ['Rachni queen (2183)', el('select', { onchange: (e: Event) => (ws.rachni = (e.target as HTMLSelectElement).value) }, [el('option', { value: 'saved', selected: ws.rachni === 'saved' }, 'Spared: rachni workers aid the Crucible (+8 %)'), el('option', { value: 'killed', selected: ws.rachni === 'killed' }, 'Killed: no rachni workers')])]),
-          el('label', { class: 'field' }, ['Geth–quarian conflict', el('select', { onchange: (e: Event) => (ws.rannoch = (e.target as HTMLSelectElement).value) }, [el('option', { value: 'war', selected: ws.rannoch === 'war' }, 'At war: neither fleet joins the alliance'), el('option', { value: 'peace', selected: ws.rannoch === 'peace' }, 'Peace: both fleets join the war')])]),
-          el('label', { class: 'field' }, ['Genophage cure', el('select', { onchange: (e: Event) => (ws.genophage = (e.target as HTMLSelectElement).value) }, [el('option', { value: 'cured', selected: ws.genophage === 'cured' }, 'Cure deployed: the Union keeps its fleets at home'), el('option', { value: 'sabotaged', selected: ws.genophage === 'sabotaged' }, 'Cure sabotaged: the Salarian First Fleet joins the war')])]),
+          wsSelect('ascension', 'Destiny Ascension and the Council (2183)', [['present', 'Saved: the old Council survives (Council races +5 % cooperation)'], ['absent', 'Lost: a human-led Council (Alliance production +10 %, others −5 % cooperation)']]),
+          wsSelect('rachni', 'Rachni queen (2183)', [['saved', 'Spared: rachni workers aid the Crucible (+8 %)'], ['killed', 'Killed: no rachni workers']]),
+          wsSelect('rannoch', 'Geth–quarian conflict', [['war', 'At war: neither fleet joins the alliance'], ['peace', 'Peace: both fleets join the war']]),
+          wsSelect('genophage', 'Genophage cure', [['cured', 'Cure deployed: the Union keeps its fleets at home'], ['sabotaged', 'Cure sabotaged: the Salarian First Fleet joins the war']]),
           rules.strategic.crucibleAvailable && rules.strategic.catalystOperational
-            ? el('label', { class: 'field' }, ['The Crucible', el('select', { 'data-field': 'crucible', onchange: (e: Event) => (ws.crucible = (e.target as HTMLSelectElement).value) }, [el('option', { value: 'use', selected: ws.crucible === 'use' }, 'Build and use it: the war ends when it docks with the Citadel'), el('option', { value: 'refuse', selected: ws.crucible === 'refuse' }, 'Refuse it: victory only by destroying every Reaper (AU “Successful Refuse”)')]), el('small', {}, rules.strategic.conventionalVictoryPossible ? 'This timeline flags conventional victory as possible.' : 'This timeline does not consider conventional victory possible; refusing is a long shot.')])
+            ? el('label', { class: 'field' }, ['The Crucible', el('select', { 'data-field': 'crucible', onchange: (e: Event) => (ws.crucible = (e.target as HTMLSelectElement).value) }, [el('option', { value: 'use', selected: eff.crucible === 'use' }, 'Build and use it: the war ends when it docks with the Citadel'), el('option', { value: 'refuse', selected: eff.crucible === 'refuse' }, 'Refuse it: victory only by destroying every Reaper (AU “Successful Refuse”)')]), el('small', {}, rules.strategic.conventionalVictoryPossible ? 'This timeline flags conventional victory as possible.' : 'This timeline does not consider conventional victory possible; refusing is a long shot.')])
             : el('p', { class: 'dim', style: { fontSize: '12px' } }, 'No Crucible in this timeline: the war can only be won conventionally.'),
           el('p', { class: 'dim', style: { fontSize: '12px' } }, 'The campaign begins as the Reapers enter from batarian space. One turn is one week. Engagements involving your fleets can be fought in the 3D simulator or auto-resolved. Progress autosaves every turn.'),
           el('p', { class: 'dim', style: { fontSize: '12px' } }, 'The strategic layer models movement, harvest, the ground war, production, research projects, refugee pressure, political events, Crucible construction, indoctrination pressure and fleet morale. Diplomacy is represented by cooperation and events rather than negotiation (see ROADMAP).'),
@@ -533,7 +550,8 @@ export function renderCampaignSetup(app: App): HTMLElement {
       } }, 'Cerberus Ascendant: post-war 2186–2206 →'),
       el('button', { class: 'btn primary', 'data-action': 'start-campaign', onclick: () => {
         app.selectTimeline(timelineId);
-        app.startCampaign({ seed, rules: app.getTimeline(timelineId), worldState: ws });
+        const rules = app.getTimeline(timelineId);
+        app.startCampaign({ seed, rules, worldState: lockedWs(rules).ws });
       } }, 'Begin the war →'),
     ]),
   ]);

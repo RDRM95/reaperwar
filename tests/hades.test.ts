@@ -3,7 +3,7 @@ import { HADES_FUSE, HADES_GATE } from '@/data/types';
 import { HADES_WARHEAD } from '@/data/weapons';
 import { buildCustomBattle, buildScenario } from '@/scenarios';
 import { BattleSimulation, SIM_DT, hadesGateOpen } from '@/simulation/battle';
-import type { ShipState, WeaponState } from '@/simulation/types';
+import type { BattleEvent, ShipState, WeaponState } from '@/simulation/types';
 
 /**
  * Project Titan and HADES (ADOPTION_PLAN.md §7; WORK_BREAKDOWN.md §1.6.3 `tests/hades.test.ts`):
@@ -130,6 +130,92 @@ describe('the HADES fuse', () => {
     expect(target.subsystems.engines).toBeCloseTo(1, 6);
     expect(target.subsystems.weapons).toBeCloseTo(0.7, 6);
     expect(target.outageUntil?.subsystem).toBe('weapons');
+  });
+});
+
+describe('an intercepted penetrator', () => {
+  it('a destroyer with collapsed barriers on the line intercepts a gated HADES round: kinetic damage only, no internal effect, one round spent', () => {
+    // The geometry T12's cover behaviour creates on purpose: a degraded capital (gate open) with a destroyer parked on the
+    // capital–attacker line. The destroyer's hull pool is raised so it survives the kinetic step — a stock destroyer
+    // dies to it, and a destroyed hull never takes a warhead, which would hide the question this test asks.
+    const sim = new BattleSimulation(
+      buildCustomBattle({
+        seed: 1,
+        rulesId: 'prime_apex',
+        environment: 'deep_space',
+        startingDistanceKm: 12,
+        maxDuration: 600,
+        sideA: { faction: 'alliance', name: 'Titan group', formation: 'line_abreast', counts: { alliance_dreadnought: 1 } },
+        sideB: { faction: 'reaper', name: 'Target', formation: 'capital_column', counts: { reaper_capital: 1, reaper_destroyer: 1 } },
+      }),
+    );
+    const dn = sim.ships.find((s) => s.classId === 'alliance_dreadnought')!;
+    const capital = sim.ships.find((s) => s.classId === 'reaper_capital')!;
+    const destroyer = sim.ships.find((s) => s.classId === 'reaper_destroyer')!;
+    const titan = dn.weapons.find((w) => w.def.id === 'apex_hyper_ma')!;
+    for (const s of [dn, capital, destroyer]) {
+      s.maxSpeed = 0; // held in place (slew only), so the line stays a line
+      if (s.side === 'B') for (const w of s.weapons) w.cooldown = Infinity;
+      if (s.hangar) s.hangar.remaining = 0;
+    }
+    dn.pos = { x: 0, y: 0, z: -6 };
+    dn.heading = { x: 0, y: 0, z: 1 };
+    capital.pos = { x: 0, y: 0, z: 6 };
+    capital.heading = { x: 0, y: 0, z: -1 };
+    destroyer.pos = { x: 0, y: 0, z: 4.5 };
+    capital.barriers = 0.05 * capital.maxBarriers;
+    capital.barrierRegen = 0;
+    capital.regenSuppressedUntil = 1e9;
+    destroyer.barriers = 0;
+    destroyer.barrierRegen = 0;
+    destroyer.maxHull = destroyer.hull = 1e6;
+    expect(hadesGateOpen(capital)).toBe(true);
+    sim.orderShipsAttack([dn.id], capital.id);
+
+    // The first penetrator whose hit roll succeeded (it flies at the capital's centre, through the destroyer); a round
+    // rolled as a miss is offset by more than a capital's radius and passes the destroyer.
+    let shot: BattleEvent | undefined;
+    let specialShots = 0;
+    let ammoAfterShot = -1;
+    while (!shot && sim.time < 90) {
+      const n = sim.events.length;
+      sim.step();
+      for (const e of sim.events.slice(n)) {
+        if (e.type !== 'weapon_fired' || e.shipId !== dn.id || !e.special) continue;
+        specialShots++;
+        const round = sim.projectiles.find((p) => p.id === e.projectileId);
+        expect(round?.special).toBe(true);
+        if (round && !round.rolledMiss && !shot) {
+          shot = e;
+          ammoAfterShot = titan.specialAmmo ?? -1;
+        }
+      }
+    }
+    if (shot?.type !== 'weapon_fired') throw new Error('no penetrator fired on a successful roll');
+    expect(shot.targetId).toBe(capital.id);
+    expect(ammoAfterShot).toBe(12 - specialShots); // one round per penetrator, spent when it leaves the gun
+    // It strikes the destroyer on the line, not the capital behind it.
+    const projectileId = shot.projectileId;
+    const impactOf = () => sim.events.find((e) => e.type === 'projectile_impact' && e.projectileId === projectileId);
+    const hullBefore = destroyer.hull;
+    const end = sim.time + 3;
+    while (!impactOf() && sim.time < end) sim.step();
+    const impact = impactOf()!;
+    if (impact?.type !== 'projectile_impact') throw new Error('the penetrator struck nothing');
+    expect(impact.targetId).toBe(destroyer.id);
+    expect(impact.special).toBeUndefined();
+    expect(impact.penetrated).toBe(true); // the round got through the collapsed field: only the warhead is withheld
+    expect(sim.events.some((e) => e.type === 'hades_detonation')).toBe(false);
+    expect(destroyer.hull).toBeCloseTo(hullBefore - impact.hullDamage, 6); // kinetic damage only
+    expect(destroyer.outageUntil).toBeUndefined();
+    expect(destroyer.regenSuppressedUntil).toBe(0);
+    expect(capital.hull).toBe(capital.maxHull);
+    expect(titan.specialAmmo).toBe(ammoAfterShot); // the interception refunds nothing and spends nothing more
+    // Every penetrator that struck the destroyer so far (rolled misses included) was a slug there.
+    const special = new Set(titanShots(sim, dn).flatMap((e) => (e.type === 'weapon_fired' && e.special && e.projectileId !== undefined ? [e.projectileId] : [])));
+    const onDestroyer = sim.events.filter((e) => e.type === 'projectile_impact' && e.targetId === destroyer.id && e.projectileId !== undefined && special.has(e.projectileId));
+    expect(onDestroyer.length).toBeGreaterThanOrEqual(1);
+    expect(onDestroyer.every((e) => e.type === 'projectile_impact' && e.special === undefined)).toBe(true);
   });
 });
 

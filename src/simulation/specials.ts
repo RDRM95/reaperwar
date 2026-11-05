@@ -1,3 +1,4 @@
+import { commitDriveRun, driveRefusal, driveTier } from './driveAttack';
 import { isDamageType, flagshipMissionKillEvent, heaviestAntiCapitalMount } from './flagships';
 import type { SimKernel } from './kernel';
 import { attackerOf } from './reaperAi';
@@ -37,11 +38,8 @@ export interface Specials {
   launchDrones(fleetIds: string[], burst?: number): void;
 }
 
-/** The Black Fleet drive-attack tiers (AP §9; the run itself is CORE T14). */
-export const DRIVE_TIERS: Record<'rare' | 'upper', { window: number; completion: number; maxAttempts: number; collateralKm: number; failHullDamage: number }> = {
-  rare: { window: 40, completion: 0.25, maxAttempts: 3, collateralKm: 0, failHullDamage: 0 },
-  upper: { window: 30, completion: 0.35, maxAttempts: 5, collateralKm: 1.5, failHullDamage: 0.3 },
-};
+/** The Black Fleet drive-attack tiers (AP §9); the run itself lives in `driveAttack.ts`. */
+export { DRIVE_TIERS } from './driveAttack';
 
 /** An unconsumed forced shot lapses after this long (`forced_shot_expired`). */
 export const FORCED_SHOT_SECONDS = 6;
@@ -109,12 +107,18 @@ export function createSpecials(sim: BattleSimulation, k: SimKernel): Specials {
   };
 
   return {
-    driveAttack(runnerId, targetId) {
-      // The Black Fleet drive attack is CORE T14 (eligibility, tiers, run kinematics). Until then nothing starts a run;
-      // under canon and every non-Apex preset (`driveAttacks: 'off'`) this is the correct answer anyway.
-      void runnerId;
-      void targetId;
-      return 'skipped';
+    driveAttack(runnerId, targetId, opts = {}) {
+      // The Black Fleet drive attack (AP §9, driveAttack.ts): the eligibility of the AI's runs applies to a scripted run
+      // too — a crippled Cerberus cruiser or dreadnought with a working drive, an enemy Reaper capital, attempts left, a
+      // clear corridor — and the tier must be on. `force` decides the outcome instead of the roll (and lets a scene run
+      // one under a tier that is off); `ignoreCorridor` skips the corridor. Both are scene overrides, logged as forced.
+      const runner = ship(runnerId);
+      const target = ship(targetId);
+      if (!runner || !target || driveRefusal(k.drive, runner, target, opts) !== undefined) return 'skipped';
+      commitDriveRun(k.drive, runner, target, opts);
+      const forced = opts.force !== undefined || opts.ignoreCorridor === true || driveTier(sim.rules) === undefined;
+      log('drive_attack', [runner.id, target.id], forced, opts.beatId);
+      return 'applied';
     },
 
     hadesStrike(shooterId, targetId, opts = {}) {

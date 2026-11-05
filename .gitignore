@@ -9,6 +9,8 @@ playwright-report/
 blob-report/
 playwright/.cache/
 e2e-screenshots/
+# Browser profile the Local Edition launcher creates (scripts/local/launch.mjs).
+.local-profile/
 *.log
 .vite/
 

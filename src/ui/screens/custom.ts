@@ -5,6 +5,7 @@ import { FACTIONS } from '@/data/factions';
 import { SHIP_CLASS_LIST, getShipClass } from '@/data/ships';
 import { FORMATION_LABELS, type Environment, type FormationType } from '@/simulation/types';
 import { storage } from '@/core/storage';
+import { timelineOptionLabel } from '../threatBadge';
 
 const ENVIRONMENTS: { id: Environment; label: string }[] = [
   { id: 'earth_orbit', label: 'Earth orbit' },
@@ -127,6 +128,14 @@ export function renderCustom(app: App): HTMLElement {
 
   const render = () => {
     const rf = input.reinforcementFaction ?? input.sideB.faction;
+    // An alternate or custom timeline is marked in the picker and named in an AU line under it, as in the briefing.
+    const auNote = el('p', { 'data-au-note': '', style: { color: 'var(--orange)', fontSize: '12px', margin: '0 0 8px' } });
+    const setAuNote = () => {
+      const t = app.getTimeline(input.rulesId);
+      auNote.textContent = t.category === 'canon' ? '' : `ALTERNATE UNIVERSE: ${t.name}. Results do not represent canon Mass Effect 3.`;
+      auNote.hidden = t.category === 'canon';
+    };
+    setAuNote();
     body.replaceChildren(
       el('div', { class: 'grid3' }, [
         sideEditor('A', 'SIDE A — PLAYER', ''),
@@ -134,7 +143,11 @@ export function renderCustom(app: App): HTMLElement {
         el('div', { class: 'col' }, [
           el('div', { class: 'panel orange' }, [
             el('div', { class: 'panel-title' }, 'CONDITIONS'),
-            el('label', { class: 'field' }, ['Technology / timeline', el('select', { onchange: (e: Event) => (input.rulesId = (e.target as HTMLSelectElement).value) }, app.allTimelines().map((t) => el('option', { value: t.id, selected: input.rulesId === t.id }, t.name)))]),
+            el('label', { class: 'field' }, ['Technology / timeline', el('select', { 'data-field': 'timeline', onchange: (e: Event) => {
+              input.rulesId = (e.target as HTMLSelectElement).value;
+              setAuNote();
+            } }, app.allTimelines().map((t) => el('option', { value: t.id, selected: input.rulesId === t.id }, timelineOptionLabel(t))))]),
+            auNote,
             el('label', { class: 'field' }, ['Battlefield', el('select', { onchange: (e: Event) => (input.environment = (e.target as HTMLSelectElement).value as Environment) }, ENVIRONMENTS.map((x) => el('option', { value: x.id, selected: input.environment === x.id }, x.label)))]),
             el('label', { class: 'field' }, [`Starting distance: ${input.startingDistanceKm} km`, el('input', { type: 'range', min: 30, max: 160, step: 2, value: input.startingDistanceKm, oninput: (e: Event) => {
               input.startingDistanceKm = Number((e.target as HTMLInputElement).value);

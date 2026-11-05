@@ -20,14 +20,19 @@ export const POINT_FACTOR = 700;
 export const FIGHTER_POINT_DISTANCE = 90;
 export const FIGHTER_REDUCED_DISTANCE = 30;
 
-export function lodLevel(distance: number, lengthUnits: number, role: ShipRole, enabled = true): LodLevel {
+/**
+ * `distanceScale` multiplies every threshold: the full-detail distance, the
+ * hull-only distance and so where the far point cloud starts (Ultra: 2.5).
+ */
+export function lodLevel(distance: number, lengthUnits: number, role: ShipRole, enabled = true, distanceScale = 1): LodLevel {
   if (!enabled) return 'full';
+  const d = distance / (distanceScale > 0 ? distanceScale : 1);
   if (role === 'fighter') {
-    if (distance > FIGHTER_POINT_DISTANCE) return 'point';
-    return distance > FIGHTER_REDUCED_DISTANCE ? 'reduced' : 'full';
+    if (d > FIGHTER_POINT_DISTANCE) return 'point';
+    return d > FIGHTER_REDUCED_DISTANCE ? 'reduced' : 'full';
   }
   const L = Math.max(0.5, lengthUnits);
-  if (distance > L * POINT_FACTOR) return 'point';
-  if (distance > L * REDUCED_FACTOR) return 'reduced';
+  if (d > L * POINT_FACTOR) return 'point';
+  if (d > L * REDUCED_FACTOR) return 'reduced';
   return 'full';
 }

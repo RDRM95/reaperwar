@@ -32,3 +32,10 @@
 - Audio needs a first click (browser policy); it is synthesised and intentionally restrained.
 - Headless/software-GL renders at low frame rates; the simulation step budget (40 ms per frame) keeps it responsive but slows simulated time.
 - Loading a slot makes it the autosave; the previous autosave is overwritten on the next turn.
+
+## Local Edition
+
+- The launcher removes the frame-rate cap by default, so the GPU draws as many frames as it can, even in quiet scenes and while a battle is paused: it runs hot and its fans get loud, and frames can tear. `--vsync` (for example `run-local.cmd --vsync`) restores the cap at the monitor's refresh rate.
+- The simulation still runs on one CPU core on the main thread; on very large battles that core, not the GPU, sets the pace. 8× playback and a worker-thread simulation are separate work.
+- Saves belong to the address, so the Local Edition (`http://127.0.0.1:4180`) does not see the web version's saves; move them with Settings → Export / Import save data, and keep using the same `--port`.
+- On macOS the browser keeps running after the game window closes; quit it (⌘Q) or press Ctrl+C in the terminal to stop the server.

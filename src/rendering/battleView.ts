@@ -12,6 +12,7 @@ import { buildEnvironment, type EnvironmentBuild } from './environment';
 import { KM } from './geometry';
 import { instantiateShip, type BuiltShip } from './ships';
 import { DETAIL_MESH_NAMES, lodLevel, type LodLevel } from './lod';
+import { FpsMeter, pixelRatioFor, presetFor, type QualityPreset } from './quality';
 
 /**
  * Binds a BattleSimulation to a Three.js scene. The simulation owns all
@@ -32,11 +33,25 @@ export interface ShipVisual {
 }
 
 export interface GraphicsSettings {
-  quality: 'low' | 'medium' | 'high';
+  /** Render preset (src/rendering/quality.ts). Ultra is meant for a dedicated GPU (the Local Edition starts there). */
+  quality: 'low' | 'medium' | 'high' | 'ultra';
   showEngineGlow: boolean;
   pixelRatioCap: number;
   /** Distance-based level of detail (default on). */
   lod?: boolean;
+  /** True once the player has changed a graphics setting; until then the Local Edition starts at Ultra. Read with a default of false. */
+  chosen?: boolean;
+}
+
+/** Anisotropic filtering on every texture map below `root`. */
+function applyAnisotropy(root: THREE.Object3D, anisotropy: number): void {
+  root.traverse((o) => {
+    const material = (o as THREE.Mesh).material as THREE.Material | THREE.Material[] | undefined;
+    for (const m of Array.isArray(material) ? material : material ? [material] : []) {
+      const map = (m as THREE.MeshStandardMaterial).map;
+      if (map) map.anisotropy = anisotropy;
+    }
+  });
 }
 
 const MAX_FAR_POINTS = 2048;
@@ -45,7 +60,9 @@ export class BattleView {
   readonly renderer: THREE.WebGLRenderer;
   readonly scene = new THREE.Scene();
   readonly rig: CameraRig;
-  readonly effects = new EffectsSystem();
+  readonly effects: EffectsSystem;
+  /** Render preset for this battle's quality (fixed for the battle's lifetime). */
+  readonly preset: QualityPreset;
   readonly visuals = new Map<string, ShipVisual>();
   env!: EnvironmentBuild;
   sim: BattleSimulation;
@@ -77,19 +94,22 @@ export class BattleView {
   driver?: CameraDriver;
   /** Interpolated simulation time of the frame being rendered: sim.time − SIM_DT + alpha × SIM_DT. */
   renderTime = 0;
+  private readonly fpsMeter = new FpsMeter();
 
   constructor(canvas: HTMLCanvasElement, sim: BattleSimulation, settings: GraphicsSettings) {
     this.settings = settings;
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: settings.quality !== 'low', powerPreference: 'high-performance', logarithmicDepthBuffer: true });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, settings.pixelRatioCap));
+    this.preset = presetFor(settings);
+    this.effects = new EffectsSystem(this.preset.effectBudgetScale);
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: this.preset.antialias, powerPreference: 'high-performance', logarithmicDepthBuffer: true });
+    this.renderer.setPixelRatio(pixelRatioFor(settings, window.devicePixelRatio));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.05;
     this.rig = new CameraRig(canvas.clientWidth / Math.max(1, canvas.clientHeight));
     // Image-based lighting so metallic hull plating reads as metal rather than
-    // black: a neutral PMREM environment at low intensity.
+    // black: a neutral PMREM environment at low intensity (a larger map on Ultra).
     const pmrem = new THREE.PMREMGenerator(this.renderer);
-    this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04, 0.1, 100, { size: this.preset.envMapSize }).texture;
     this.scene.environmentIntensity = 0.35;
     pmrem.dispose();
     this.sim = sim;
@@ -104,6 +124,10 @@ export class BattleView {
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, 64, 64);
     this.glowTex = new THREE.CanvasTexture(c);
+    if (this.preset.maxAnisotropy) {
+      this.glowTex.anisotropy = this.maxAnisotropy;
+      this.effects.setAnisotropy(this.maxAnisotropy);
+    }
 
     this.sunLight = new THREE.DirectionalLight(0xfff2e0, 2.6);
     this.scene.add(this.sunLight);
@@ -132,6 +156,7 @@ export class BattleView {
     this.effects.clear();
     if (this.env) this.scene.remove(this.env.group);
     this.env = buildEnvironment(sim.config.environment);
+    if (this.preset.maxAnisotropy) applyAnisotropy(this.env.group, this.maxAnisotropy);
     this.scene.add(this.env.group);
     this.sunLight.position.copy(this.env.sunDirection).multiplyScalar(10_000);
     this.sunLight.target.position.set(0, 0, 0);
@@ -235,7 +260,7 @@ export class BattleView {
       this.placeVisual(v, alpha);
       // Level of detail by distance; far ships collapse into the shared point cloud.
       const dist = cam.distanceTo(v.built.group.position);
-      const level = lodLevel(dist, v.built.lengthUnits, ship.role, lodOn);
+      const level = lodLevel(dist, v.built.lengthUnits, ship.role, lodOn, this.preset.lodDistanceScale);
       this.applyLod(v, level);
       this.lodCounts[level]++;
       if (level === 'point' && far < MAX_FAR_POINTS) {
@@ -598,13 +623,26 @@ export class BattleView {
   }
 
   resize(width: number, height: number): void {
+    // The window may have moved to a display with another pixel density.
+    this.renderer.setPixelRatio(pixelRatioFor(this.settings, window.devicePixelRatio));
     this.renderer.setSize(width, height, false);
     this.rig.resize(width / Math.max(1, height));
+  }
+
+  /** The GPU's maximum anisotropic filtering level. */
+  get maxAnisotropy(): number {
+    return this.renderer.capabilities.getMaxAnisotropy();
+  }
+
+  /** Frames per second actually drawn (shown on the HUD at Ultra). */
+  get fps(): number {
+    return this.fpsMeter.fps;
   }
 
   render(): void {
     this.renderer.render(this.scene, this.rig.camera);
     this.drawCalls = this.renderer.info.render.calls;
+    this.fpsMeter.tick(performance.now());
   }
 
   dispose(): void {

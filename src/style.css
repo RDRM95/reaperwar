@@ -211,3 +211,46 @@ td.num { font-family: var(--mono); text-align: right; }
 
 /* ---------- campaign map ---------- */
 .galaxy-map { width: 100%; height: auto; display: block; background: #06090f; border: 1px solid var(--line); cursor: pointer; }
+
+/* ---------- threat to the Reapers (TIMELINES_V2.md §4.8) ---------- */
+.threat { display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--threat, var(--orange)); white-space: nowrap; line-height: 1.2; }
+.threat .pips { display: inline-flex; gap: 2px; flex: none; }
+.threat .pip { width: 7px; height: 7px; border: 1px solid currentColor; opacity: 0.45; }
+.threat .pip.on { background: currentColor; opacity: 1; }
+.threat.t1 { --threat: #ff7a6e; }
+.threat.t2 { --threat: #ffa25a; }
+.threat.t3 { --threat: #ffd47f; }
+.threat.t4 { --threat: #d6ec7a; }
+.threat.t5 { --threat: #8fd3ff; }
+.threat.t6 { --threat: #7fe0a0; }
+.threat.unrated { color: var(--text-dim); }
+.threat.unrated .pip { border-style: dashed; }
+.threat.full { font-size: 12px; white-space: normal; }
+.threat.full .pip { width: 9px; height: 9px; }
+.btn .threat { display: flex; margin-top: 5px; font-size: 9px; letter-spacing: 0.1em; }
+.btn.timeline-card { padding-right: 44px; }
+.threat-panel { margin: 10px 0 12px; padding: 10px 12px; border-left: 2px solid var(--line); background: rgba(79, 163, 255, 0.05); }
+.threat-panel .threat-head { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; font-family: var(--mono); font-size: 11px; letter-spacing: 0.25em; color: var(--blue); margin-bottom: 6px; }
+.threat-panel p { margin: 6px 0; font-size: 13px; }
+.threat-panel p.small { font-size: 11px; }
+.threat-table { overflow-x: auto; }
+.threat-table table { font-size: 12px; width: auto; min-width: min(100%, 420px); }
+.threat-table th.num { text-align: right; }
+.threat-table td, .threat-table th { white-space: nowrap; padding-right: 14px; }
+.timeline-au p { font-size: 13px; margin: 6px 0; }
+.panel > label.field { margin-bottom: 8px; }
+label.field select, label.field input, label.field textarea { max-width: 100%; min-width: 0; }
+.grid2 > *, .grid3 > * { min-width: 0; }
+.threat-select-note { margin-top: 4px; }
+.ws-lock { display: block; color: var(--orange); font-size: 11px; letter-spacing: 0.02em; text-transform: none; font-family: var(--sans); line-height: 1.4; }
+.timelines-layout { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 18px; }
+.timelines-layout > .col { min-width: 0; }
+@media (max-width: 900px) {
+  .timelines-layout { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 600px) {
+  /* The group table fits a phone without scrolling: headings wrap, cells tighten. */
+  .threat-table table { min-width: 0; width: 100%; }
+  .threat-table th { white-space: normal; letter-spacing: 0.08em; vertical-align: bottom; }
+  .threat-table td, .threat-table th { padding-left: 4px; padding-right: 6px; }
+}

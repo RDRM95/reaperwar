@@ -376,7 +376,8 @@ export const HARD_MANOEUVRE_SECONDS = 0.5;
  * The acceleration limit applies to both.
  */
 export function steerShip(ship: ShipState, goal: MovementGoal, dt: number): void {
-  const engineFactor = 0.25 + 0.75 * ship.subsystems.engines;
+  // A drive overload (the Black Fleet drive run) raises the engine-scaled limits; every other goal leaves them as they are.
+  const engineFactor = (0.25 + 0.75 * ship.subsystems.engines) * (goal.boost ?? 1);
   const maxSpeed = ship.maxSpeed * engineFactor * Math.max(0, Math.min(1, goal.speedFraction));
   const accel = ship.acceleration * engineFactor;
   const ex = goal.position.x - ship.pos.x;

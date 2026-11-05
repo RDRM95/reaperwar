@@ -72,7 +72,8 @@ On each completion, in this order of dependency:
 ## Released (lead log)
 
 - **0.12.0 — 4 Nov 20:31 UTC**, commit `917cae2` on `main`, Pages deployment success (https://rdrm95.github.io/reaperwar/), CI green. Contents: CORE T1–T10 (movement rewrite, tactical withdrawal, firing solutions, IES stealth and hunter doctrine, HADES penetrators, canon calibration, Apex core/legacy presets, new catalogue classes on placeholder models, spatial grid). Gate on `46b7006`: typecheck, 217 unit tests, build, 8/8 e2e, screenshots inspected. Release procedure that worked: detached worktree at the candidate, `npm ci`, the suites (Playwright through a temporary config on port 4178 so it never collides with another worktree's server on 4173), screenshots via `scripts/screenshots.mjs <dir> http://localhost:4178`, `npm version X --no-git-tag-version` + CHANGELOG on a `release/X` branch, `git push origin release/X:main` (fast-forward), merge `release/X` into the integration branch, poll `gh api repos/RDRM95/reaperwar/actions/runs?branch=main` until "Deploy to GitHub Pages" and "CI" complete, read the deployment status.
-- Next: 0.12.1 = the new timelines when `wf_07ef8a55-815` finishes; 0.12.2 = the playback workstream.
+- **0.12.1 — 5 Nov 15:48 UTC**, commit `0ba3588` on `main`, Pages deployment success, CI green. Contents: the Local Edition (`stage/L-local` + the lead's review fixes), the ten new timelines with the measured Threat to the Reapers (`stage/T-timelines`; table re-measured on the release build), CORE T11–T13. Gate: typecheck, 379 unit tests, build, 10/10 e2e, screenshots inspected. Merged back into the integration branch by a wait-for-clean-tree script (release worktree `/home/user/reaperwar-R`, branch `release/0.12.1`; remove both once the merge-back lands).
+- Next: 0.12.2 = the playback workstream (`docs/apex/workflows/playback-fastforward.js`); 0.13.0 = CORE complete.
 
 ## Sequence after 4 Nov 18:40 UTC (lead)
 

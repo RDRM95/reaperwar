@@ -97,7 +97,7 @@ export function createHud(app: App, ctrl: BattleController): Hud {
     el('div', { class: 'panel' }, [el('div', { class: 'panel-title' }, 'SIMULATION'), speedRow, el('button', { class: 'btn small hud-panels-toggle', 'data-action': 'toggle-panels', style: { marginTop: '6px' }, onclick: () => root.classList.toggle('panels-open') }, 'Panels')]),
     el('div', { class: 'panel' }, [el('div', { class: 'panel-title' }, 'CAMERA'), cameraRow]),
     el('div', { class: 'spacer' }),
-    el('div', { class: 'panel orange hud-timeline', style: { maxWidth: '260px' } }, [el('div', { class: 'panel-title' }, 'TIMELINE'), el('div', { style: { fontSize: '13px' } }, rules.name), el('div', { class: 'dim', style: { fontSize: '11px' } }, rules.tagline)]),
+    el('div', { class: 'panel orange hud-timeline', style: { maxWidth: '260px' } }, [el('div', { class: 'panel-title' }, rules.category === 'canon' ? 'TIMELINE' : 'TIMELINE · ALTERNATE UNIVERSE'), el('div', { style: { fontSize: '13px' } }, rules.name), el('div', { class: 'dim', style: { fontSize: '11px' } }, rules.tagline)]),
     el('button', { class: 'btn', 'data-action': 'menu', onclick: () => toggleMenu() }, 'Menu'),
   ]);
 
@@ -311,7 +311,10 @@ export function createHud(app: App, ctrl: BattleController): Hud {
 
   const refresh = () => {
     const s = sim();
-    clock.replaceChildren(fmtTime(s.time), el('small', {}, `${ctrl.paused ? 'PAUSED' : `${ctrl.speed}× SPEED`} · ${ctrl.isReplay ? 'REPLAY · ' : ''}SEED ${s.config.seed} · ${ctrl.view.drawCalls} DRAWS`));
+    // Ultra shows the measured frame rate beside the draw calls, right-aligned on the clock row so the panel keeps its height
+    // (an uncapped Local Edition window can run far above 60).
+    const fps = ctrl.view.settings.quality === 'ultra' ? el('span', { class: 'hud-fps', title: 'Frames per second', style: { float: 'right', fontSize: '11px', letterSpacing: '0.2em', color: 'var(--text-dim)', marginTop: '9px' } }, `${Math.round(ctrl.view.fps)} FPS`) : null;
+    clock.replaceChildren(...(fps ? [fps] : []), fmtTime(s.time), el('small', {}, `${ctrl.paused ? 'PAUSED' : `${ctrl.speed}× SPEED`} · ${ctrl.isReplay ? 'REPLAY · ' : ''}SEED ${s.config.seed} · ${ctrl.view.drawCalls} DRAWS`));
     const a = s.ships.filter((x) => x.side === 'A' && x.alive && !x.escaped && x.role !== 'fighter').length;
     const b = s.ships.filter((x) => x.side === 'B' && x.alive && !x.escaped && x.role !== 'fighter').length;
     statusLine.textContent = `ALLIED ${a} · HOSTILE ${b} · ${CAMERA_MODE_LABELS[ctrl.view.rig.mode].toUpperCase()} CAM`;
