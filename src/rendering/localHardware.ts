@@ -64,8 +64,14 @@ export function gpuRenderer(): string | undefined {
   return rendererCache ?? undefined;
 }
 
-/** The Settings screen's Local Edition line. */
+/** Renderer strings of software rasterisers: the browser is not using the GPU. */
+export const SOFTWARE_RENDERER = /swiftshader|llvmpipe|softpipe|software|basic render/i;
+
+/** The Settings screen's Local Edition line; a software renderer is called out, never reported as the GPU. */
 export function localEditionStatus(renderer: string | undefined): string {
+  if (renderer && SOFTWARE_RENDERER.test(renderer)) {
+    return `Local Edition: software rendering (${renderer}). The GPU is not in use: see "Confirm it runs on your GPU" in the README.`;
+  }
   return `Local Edition: running on this machine's GPU${renderer ? ` (${renderer})` : ''}`;
 }
 

@@ -15,17 +15,6 @@ if errorlevel 1 (
   exit /b 1
 )
 
-if not exist "node_modules\.package-lock.json" (
-  echo Installing dependencies ^(first run only^)...
-  call npm ci
-  if errorlevel 1 (
-    echo.
-    echo npm ci failed: check the messages above and your internet connection.
-    pause
-    exit /b 1
-  )
-)
-
 node scripts\local\launch.mjs %*
 if errorlevel 1 (
   echo.

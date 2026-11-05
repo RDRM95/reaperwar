@@ -20,6 +20,8 @@ import {
   parseLaunchArgs,
   planLaunch,
   UNCAPPED_FLAGS,
+  formatCommandLine,
+  manualOpenCommand,
 } from '../scripts/local/launch.mjs';
 import { DEFAULT_PREFERENCES } from '@/core/storage';
 import type { GraphicsSettings } from '@/rendering/battleView';
@@ -608,11 +610,13 @@ describe('Local Edition packaging', () => {
     const cmd = readFileSync(join(ROOT, 'run-local.cmd'), 'utf8');
     expect(cmd).toContain('where node');
     expect(cmd).toContain('https://nodejs.org/');
-    expect(cmd).toContain('npm ci');
+    // Dependencies are installed by launch.mjs after its Node version check, never by the wrappers first.
+    expect(cmd).not.toContain('npm ci');
     expect(cmd).toContain('node scripts\\local\\launch.mjs %*');
     const sh = readFileSync(join(ROOT, 'run-local.sh'), 'utf8');
     expect(sh.startsWith('#!/bin/sh')).toBe(true);
     expect(sh).toContain('exec node scripts/local/launch.mjs "$@"');
+    expect(sh).not.toContain('npm ci');
     let mode = '';
     try {
       mode = execFileSync('git', ['ls-files', '-s', 'run-local.sh'], { cwd: ROOT, encoding: 'utf8' });
@@ -620,5 +624,45 @@ describe('Local Edition packaging', () => {
       return; // no git here: the executable bit is checked where the repository is
     }
     if (mode) expect(mode.startsWith('100755')).toBe(true);
+  });
+});
+
+describe('Local Edition review fixes', () => {
+  it('a lockfile-only change triggers a rebuild', () => {
+    const repo = mkdtempSync(join(tmpdir(), 'rw-lock-'));
+    try {
+      mkdirSync(join(repo, 'dist'), { recursive: true });
+      mkdirSync(join(repo, 'src'), { recursive: true });
+      writeFileSync(join(repo, 'src', 'main.ts'), '');
+      writeFileSync(join(repo, 'index.html'), '');
+      writeFileSync(join(repo, 'package.json'), '{}');
+      writeFileSync(join(repo, 'vite.config.ts'), '');
+      writeFileSync(join(repo, 'dist', 'index.html'), '<script src="/assets/a.js"></script>');
+      const old = new Date(Date.now() - 60_000);
+      const built = new Date(Date.now() - 30_000);
+      for (const f of ['src/main.ts', 'src', 'index.html', 'package.json', 'vite.config.ts']) utimesSync(join(repo, f), old, old);
+      utimesSync(join(repo, 'dist', 'index.html'), built, built);
+      expect(needsBuild(repo).build).toBe(false);
+      writeFileSync(join(repo, 'package-lock.json'), '{}');
+      expect(needsBuild(repo)).toEqual({ build: true, reason: 'package-lock.json changed since the last build' });
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it('pasted command lines survive the platform shell', () => {
+    const args = ['--app=http://127.0.0.1:4180/?local=1', '--user-data-dir=/Users/a b/.local-profile'];
+    expect(formatCommandLine('google-chrome', args, 'linux')).toBe("google-chrome '--app=http://127.0.0.1:4180/?local=1' '--user-data-dir=/Users/a b/.local-profile'");
+    expect(formatCommandLine('x', ["it's"], 'darwin')).toBe("x 'it'\\''s'");
+    expect(manualOpenCommand(undefined, args, 'darwin')).toBe("open -na 'Google Chrome' --args '--app=http://127.0.0.1:4180/?local=1' '--user-data-dir=/Users/a b/.local-profile'");
+    expect(manualOpenCommand('C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe', ['--app=http://127.0.0.1:4180/?local=1'], 'win32')).toBe('"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" --app=http://127.0.0.1:4180/?local=1');
+    expect(manualOpenCommand(undefined, ['--app=http://127.0.0.1:4180/?local=1&x=1'], 'win32')).toBe('start "" chrome "--app=http://127.0.0.1:4180/?local=1&x=1"');
+  });
+
+  it('a software renderer is never reported as the GPU', () => {
+    for (const r of ['ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)', 'llvmpipe (LLVM 15.0.7, 256 bits)', 'Microsoft Basic Render Driver']) {
+      expect(localEditionStatus(r)).toMatch(/^Local Edition: software rendering \(.+\)\. The GPU is not in use/);
+    }
+    expect(localEditionStatus('ANGLE (NVIDIA, NVIDIA GeForce RTX 5090 Direct3D11 vs_5_0 ps_5_0, D3D11)')).toMatch(/^Local Edition: running on this machine's GPU/);
   });
 });

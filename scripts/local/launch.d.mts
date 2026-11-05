@@ -44,4 +44,5 @@ export declare function needsInstall(repoRoot: string): { install: boolean; reas
 export declare function newestMtime(p: string): { mtimeMs: number; path: string };
 export declare function needsBuild(repoRoot: string, options?: { rebuild?: boolean }): { build: boolean; reason: string };
 export declare function nodeVersionOk(version: string): boolean;
-export declare function formatCommandLine(command: string, args: string[]): string;
+export declare function formatCommandLine(command: string, args: string[], platform?: NodeJS.Platform): string;
+export declare function manualOpenCommand(browser: string | undefined, args: string[], platform?: NodeJS.Platform): string;

@@ -60,7 +60,8 @@ test.describe('Local Edition', () => {
     await page.click('[data-menu="settings"]');
     await expect(page.locator('select[data-setting="quality"]')).toHaveValue('ultra');
     await expect(page.locator('select[data-setting="quality"] option:checked')).toHaveText('Ultra — local GPU');
-    await expect(page.locator('.local-edition')).toContainText("Local Edition: running on this machine's GPU");
+    // This sandbox renders with SwiftShader, which the line must call software rendering; on a real GPU it names the card.
+    await expect(page.locator('.local-edition')).toContainText(/Local Edition: (running on this machine's GPU|software rendering)/);
     await page.click('text=Main menu');
 
     // A Quick Battle renders at Ultra and keeps running.

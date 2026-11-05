@@ -41,7 +41,7 @@ export const UNCAPPED_FLAGS = Object.freeze(['--disable-gpu-vsync', '--disable-f
 /** Keep a fresh dedicated profile from showing first-run and default-browser prompts. */
 export const PROFILE_FLAGS = Object.freeze(['--no-first-run', '--no-default-browser-check']);
 /** What a build depends on: dist/ is stale when any of these is newer than dist/index.html. */
-export const BUILD_INPUTS = Object.freeze(['src', 'index.html', 'package.json', 'vite.config.ts']);
+export const BUILD_INPUTS = Object.freeze(['src', 'index.html', 'package.json', 'package-lock.json', 'tsconfig.json', 'vite.config.ts']);
 /** A browser that exits sooner than this handed its window to a copy already running on the same profile. */
 export const HANDOFF_MS = 5000;
 
@@ -338,13 +338,34 @@ export function nodeVersionOk(version) {
 }
 
 /**
- * A copy-and-paste command line (arguments with spaces quoted).
+ * A copy-and-paste command line for the given platform's default shell:
+ * POSIX shells (zsh, bash) get single quotes around anything outside a safe set,
+ * so `?` and `&` in the URL are never globbed or split; Windows (Command Prompt)
+ * gets double quotes around anything with spaces or cmd metacharacters.
  * @param {string} command
  * @param {string[]} args
+ * @param {NodeJS.Platform} [platform]
  */
-export function formatCommandLine(command, args) {
-  const q = (/** @type {string} */ s) => (/[\s"]/.test(s) ? `"${s.replace(/"/g, '\\"')}"` : s);
+export function formatCommandLine(command, args, platform = process.platform) {
+  if (platform === 'win32') {
+    const q = (/** @type {string} */ s) => (s === '' || /[\s"&|<>^()!]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s);
+    return [command, ...args].map(q).join(' ');
+  }
+  const q = (/** @type {string} */ s) => (/^[A-Za-z0-9_@%+=:,./-]+$/.test(s) ? s : `'${s.replace(/'/g, "'\\''")}'`);
   return [command, ...args].map(q).join(' ');
+}
+
+/**
+ * The line to paste when the launcher could not start a browser itself.
+ * @param {string | undefined} browser the executable found, if any
+ * @param {string[]} args
+ * @param {NodeJS.Platform} [platform]
+ */
+export function manualOpenCommand(browser, args, platform = process.platform) {
+  if (browser) return formatCommandLine(browser, args, platform);
+  if (platform === 'darwin') return formatCommandLine('open', ['-na', 'Google Chrome', '--args', ...args], platform);
+  if (platform === 'win32') return `start "" ${formatCommandLine('chrome', args, platform)}`;
+  return formatCommandLine('google-chrome', args, platform);
 }
 
 // ---------------------------------------------------------------- runtime
@@ -379,8 +400,9 @@ function runNpm(npmArgs) {
 
 /** @param {ReturnType<typeof planLaunch>} plan */
 function printManualOpen(plan) {
-  console.log(`Open ${plan.url} in Chrome or Edge. For the GPU and frame-rate flags, start the browser like this:`);
-  console.log(`  ${formatCommandLine(plan.browser ?? (process.platform === 'win32' ? 'chrome.exe' : 'google-chrome'), plan.args)}`);
+  const shell = process.platform === 'win32' ? ' (in Command Prompt)' : process.platform === 'darwin' ? ' (in Terminal)' : '';
+  console.log(`Open ${plan.url} in Chrome or Edge. For the GPU and frame-rate flags, start the browser like this${shell}:`);
+  console.log(`  ${manualOpenCommand(plan.browser, plan.args)}`);
 }
 
 async function main() {
