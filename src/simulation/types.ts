@@ -64,13 +64,19 @@ export type ShipRef =
   | { fleetId: string; classId?: string; role?: ShipRole; nth?: number }
   | { query: 'top_damage_dealer'; side: Side; window?: number; roles?: ShipRole[] }
   | { query: 'most_valuable'; side: Side; faction?: FactionId; role?: ShipRole; roles?: ShipRole[] }
-  | { query: 'nearest'; to: ShipRef; side?: Side; role?: ShipRole; roles?: ShipRole[] }
+  /** The nearest match to `to`, or — without `to` — to the ship the reference is resolved for (a volley target is resolved per mount). */
+  | { query: 'nearest'; to?: ShipRef; side?: Side; role?: ShipRole; roles?: ShipRole[] }
   | { query: 'weakest_barriers'; side: Side; role?: ShipRole; roles?: ShipRole[] };
 
 /** Fleet selector; `{ side, wave }` is the n-th beat-arriving wave of that side, by faction order. */
 export type FleetSel = { fleetIds: string[] } | { side: Side } | { side: Side; wave: number } | 'all';
 
-export type VolleyMounts = 'spinal' | 'beams' | 'spinal_and_beams' | 'all_anti_capital';
+/**
+ * Mount classes of a volley or a mount-level target order: `spinal` (anti-capital accelerators and Thanix lances with an
+ * arc ≤ 25°), `beams` (Reaper beams), both, every anti-capital mount, or `broadside` (the remaining anti-ship
+ * accelerators — the flank batteries; `force_target.mounts`, WORK_BREAKDOWN.md §1.6.3).
+ */
+export type VolleyMounts = 'spinal' | 'beams' | 'spinal_and_beams' | 'all_anti_capital' | 'broadside';
 export type CaptionStyle = 'title' | 'tag' | 'tactical' | 'quote' | 'insert';
 
 export interface ArrivalProfile {
@@ -93,10 +99,12 @@ export type SpecialTrigger =
   | { type: 'strafe_through'; ship: ShipRef; target: ShipRef; seconds: number };
 
 export type BeatEvent =
-  | { kind: 'spawn_wave'; fleetId: string; stagger?: number; run?: Partial<ArrivalProfile> }
+  /** Deploys `arrivalMode: 'beat'` fleets: by id, or by selector (`{ side, wave }` picks the n-th wave by faction order). */
+  | { kind: 'spawn_wave'; fleetId?: string; fleets?: FleetSel; stagger?: number; run?: Partial<ArrivalProfile> }
   | { kind: 'set_fleet_order'; fleets: FleetSel; patch: Partial<FleetOrders> }
   | { kind: 'fleet_volley'; fleets: FleetSel; window?: number; lead?: number; mounts?: VolleyMounts; target?: ShipRef; anchor?: ShipRef; syncArrival?: boolean }
-  | { kind: 'force_target'; ships?: ShipRef[]; fleets?: FleetSel; target: ShipRef; forceNextShot?: 'hit' | 'hit_penetrating'; mounts?: VolleyMounts }
+  /** `seconds` (scene seconds, × beatScale; default `FORCE_TARGET_SECONDS`) is how long the scripted target holds. */
+  | { kind: 'force_target'; ships?: ShipRef[]; fleets?: FleetSel; target: ShipRef; forceNextShot?: 'hit' | 'hit_penetrating'; mounts?: VolleyMounts; seconds?: number }
   | { kind: 'launch_drones'; fleets?: FleetSel; ships?: ShipRef[]; burst?: number }
   | { kind: 'trigger_special'; special: SpecialTrigger }
   | { kind: 'caption'; text: string; duration: number; style: CaptionStyle; speaker?: string; au?: boolean }
@@ -108,9 +116,18 @@ export interface Beat {
   /** Scene seconds before `beatScale`. */
   at: number;
   event: BeatEvent;
-  /** Only fire if every referenced ship is alive and present; otherwise emit `beat_skipped`. Default true for ship-referencing beats. */
+  /**
+   * Strict references. By default `anchor` and `target` are soft (WORK_BREAKDOWN.md §1.3.6): one that resolves to
+   * nothing is dropped and the beat fires with `beat_fired.note`; with `true` the beat is skipped instead
+   * (`beat_skipped`). Empty `ships` / `fleets` selectors and an unresolved special's ship skip the beat either way.
+   */
   requireAlive?: boolean;
   label?: string;
+  /**
+   * World-state condition: the beat belongs to the battle (and to the briefing's preview) only when, for every key,
+   * `worldState[key]` is one of the listed choices (e.g. `{ cerberus: ['allied'] }`). Absent: always.
+   */
+  when?: Record<string, string[]>;
 }
 
 export interface BeatScript {
@@ -243,7 +260,11 @@ export interface FleetOrders {
   holdFire?: HoldFire;
   /** Keep HADES rounds in the magazine (ordinary slugs only). */
   holdSpecialAmmo?: boolean;
-  /** The formation anchor drifts to this point at the heading-rate limit (the Reaper climb). */
+  /**
+   * The formation anchor drifts to this point (nominal km like `position`; the components it names) at the fleet's
+   * anchor speed, never sweeping the line of sight from its aim point faster than the heading-rate limit — the Reaper
+   * climb of the Final Battle (AP §4.2). Dropped once reached.
+   */
   anchorGoal?: Partial<Vec3>;
   /** Target reference resolved at issue time. */
   targetRef?: ShipRef;
@@ -359,6 +380,9 @@ export interface WeaponState {
   arrivalHold?: boolean;
   /** A flight's beam burst: how many members' beams hit (the burst's damage multiplier; undefined = one beam). */
   beamMembers?: number;
+  /** A mount-level target (volley target resolved per mount, `force_target.mounts`, a HADES salvo) until `assignedUntil`. */
+  assignedTargetId?: string;
+  assignedUntil?: number;
 }
 
 export interface Subsystems {
@@ -483,6 +507,12 @@ export interface Projectile {
   special: boolean;
   /** Closest approach to the intended target for a deliberate miss (km). */
   missDistance?: number;
+  /**
+   * A scripted shot (`WeaponState.forcedShot`: `Specials.hadesStrike`, `forceTarget`, `force_target.forceNextShot`):
+   * with `hit` the round steers onto its intended target and can strike nothing else; with `penetrate` a penetrator's
+   * warhead arms whatever the barrier held; `outage` names the subsystem the warhead knocks out.
+   */
+  forced?: { hit: boolean; penetrate: boolean; outage?: 'weapons' | 'engines' };
 }
 
 export interface Missile {
@@ -497,6 +527,8 @@ export interface Missile {
   hp: number;
   ttl: number;
   alive: boolean;
+  /** A scripted forced hit (`forcedShot.hit`): it cannot miss once it arrives; point defence can still kill it on the way. */
+  forced?: boolean;
 }
 
 export interface BeamVisual {
@@ -554,8 +586,18 @@ export type BattleEvent =
   | { t: number; type: 'battle_start'; name: string }
   | { t: number; type: 'ship_deployed'; shipId: string; classId: string; faction: FactionId; side: Side; name: string }
   | { t: number; type: 'fleet_arrived'; fleetId: string }
-  | { t: number; type: 'weapon_fired'; shipId: string; weaponId: string; targetId: string; weaponIndex: number; kind: string; shots?: number; special?: boolean; volley?: boolean }
-  | { t: number; type: 'projectile_impact'; shipId: string; targetId: string; damage: number; damageType: DamageType; barrierDamage: number; hullDamage: number; pos: Vec3 }
+  /**
+   * `muzzle`: world position the shot left from (`mountWorldPosition`); `projectileId`: the first round's id (a volley of
+   * `shots` rounds carries consecutive ids; mass accelerators and torpedoes); `volley` / `salvo`: a fleet volley's or a
+   * coordinated HADES salvo's shot; `forced`: a scripted forced shot (brief §20, CINEMATIC_DESIGN.md §1.6).
+   */
+  | { t: number; type: 'weapon_fired'; shipId: string; weaponId: string; targetId: string; weaponIndex: number; kind: string; shots?: number; special?: boolean; volley?: boolean; salvo?: boolean; forced?: boolean; muzzle?: Vec3; projectileId?: number }
+  /**
+   * `armourDamage`: energy the armour stopped after the barrier; `penetrated`: some of the round passed the barrier;
+   * `projectileId` links the impact to its `weapon_fired`; `special`: a HADES penetrator (its warhead, if the fuse armed,
+   * follows as `hades_detonation`) — brief §20.
+   */
+  | { t: number; type: 'projectile_impact'; shipId: string; targetId: string; damage: number; damageType: DamageType; barrierDamage: number; hullDamage: number; armourDamage?: number; penetrated?: boolean; weaponId?: string; projectileId?: number; special?: boolean; pos: Vec3 }
   | { t: number; type: 'projectile_near_miss'; shooterId: string; targetId: string; pos: Vec3; miss: number }
   | { t: number; type: 'barrier_damaged'; shipId: string; remaining: number }
   | { t: number; type: 'barriers_down'; shipId: string }
@@ -579,9 +621,9 @@ export type BattleEvent =
   | { t: number; type: 'ship_arrival_flash'; shipId: string; pos: Vec3; heading: Vec3; lengthKm: number }
   | { t: number; type: 'drive_run_started'; runnerId: string; targetId: string; endsAt: number }
   | { t: number; type: 'drive_run_impact'; runnerId: string; targetId: string; pos: Vec3; dir: Vec3; success: boolean }
-  | { t: number; type: 'hades_detonation'; shipId: string; targetId: string; pos: Vec3; damage: number; outage: keyof Subsystems }
+  | { t: number; type: 'hades_detonation'; shipId: string; targetId: string; pos: Vec3; damage: number; outage: keyof Subsystems; projectileId?: number }
   | { t: number; type: 'strike_scheduled'; shipId: string; weaponId: string; at: number; kind: 'hades' | 'nova' | 'nova_legacy' }
-  | { t: number; type: 'weapon_charging'; shipId: string; weaponIndex: number; seconds: number }
+  | { t: number; type: 'weapon_charging'; shipId: string; weaponIndex: number; weaponId?: string; seconds: number }
   | { t: number; type: 'mission_kill'; shipId: string }
   | { t: number; type: 'scripted_event'; beatId?: string; special: string; shipIds: string[]; forced: boolean; detail?: Record<string, number> }
   | { t: number; type: 'forced_shot_expired'; shipId: string; weaponIndex: number }

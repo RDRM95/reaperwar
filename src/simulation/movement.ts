@@ -52,6 +52,8 @@ const CARRIER_WEAVE_KM = 2;
 const CARRIER_WEAVE_PERIOD = 40;
 /** A Reaper whose anchor has stopped and that has no target in range advances at this speed fraction (AP §10). */
 const REAPER_ADVANCE_FRACTION = 0.6;
+/** An anchor goal is dropped once the anchor is within this distance of it (compressed km; every step stays rate-limited). */
+export const ANCHOR_GOAL_REACHED_KM = 1e-4;
 
 const ZERO: Vec3 = Object.freeze(v3()) as Vec3;
 /** The fixed simulation step (SIM_DT, battle.ts) for rate limits computed outside the step loop. */
@@ -297,6 +299,23 @@ export function steerFleet(ctx: AiContext, fleet: FleetState, view: FleetView, d
       else if (aim) moveToward(aim, speed);
       break;
     }
+  }
+  // An ordered anchor goal (`FleetOrders.anchorGoal`, the Final Battle's Reaper climb into the coalition's plane, AP
+  // §4.2): each component it names leaves the order's movement and drifts toward the goal at the fleet's anchor speed,
+  // never sweeping the line of sight from the aim point faster than the formation may turn (the heading-rate limit) —
+  // the formation rises (or slides) as a whole; it never pitches or wheels. The goal is dropped once reached.
+  const g = o.anchorGoal;
+  if (g) {
+    const cur = v3(g.x !== undefined ? ax : fleet.anchor.x, g.y !== undefined ? ay : fleet.anchor.y, g.z !== undefined ? az : fleet.anchor.z);
+    const dx = g.x !== undefined ? g.x - cur.x : 0;
+    const dy = g.y !== undefined ? g.y - cur.y : 0;
+    const dz = g.z !== undefined ? g.z - cur.z : 0;
+    const d = Math.hypot(dx, dy, dz);
+    let sp = speed;
+    if (aim) sp = Math.min(sp, rate * Math.hypot(aim.x - cur.x, aim.y - cur.y, aim.z - cur.z));
+    const step = d > 1e-9 ? Math.min(d, sp * dt) : 0;
+    fleet.anchor = d > 1e-9 ? v3(cur.x + (dx / d) * step, cur.y + (dy / d) * step, cur.z + (dz / d) * step) : cur;
+    if (d - step <= ANCHOR_GOAL_REACHED_KM) delete o.anchorGoal;
   }
   // Keep the anchor from drifting too far from the actual fleet (ships lag behind).
   const lx = fleet.anchor.x - view.myCentre.x;
