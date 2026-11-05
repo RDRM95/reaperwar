@@ -304,3 +304,38 @@ Owner's words, condensed: battles feel too fast and ships fight far too close to
 ### 19.4 How it is run (lead)
 1. **Playback workstream** (`docs/apex/workflows/playback-fastforward.js`, worktree `stage/P-playback`, after the timelines workflow): an adaptive per-frame simulation budget with an achieved-speed readout, render and overlay throttling and batched effects at high speed, Fast-forward to result as time-sliced stepping with progress and cancel, a performance HUD, the seed-42 determinism tests in Node and an end-to-end test, a playback benchmark. The worker seam is defined here; moving the live simulation into a worker needs the snapshot protocol of the extreme-scale programme (§17.2 item 2) and is done there.
 2. **Pacing design** (`docs/apex/workflows/pacing-plan.js`): lore research on ranges and speeds from the repository's lore documents and reference packs, the scale model, pacing targets, the anti-queueing rules, render-visibility and camera consequences, and acceptance tests, written to `docs/apex/PACING_PLAN.md` and critiqued. CORE applies it as a pacing pass before calibration pass 2 (T19); stages A and B carry the visibility and camera parts.
+
+## 20. Gunnery POV and audio overhaul (owner's requirement, 5 Nov; binding for 1.0.0)
+
+Owner's words, condensed: a functional, cinematic, first-person weapon targeting and observation system for all major warships, with an audio overhaul. The priority is making it feel good to watch ships fight. Everything the cameras, HUDs, effects and audio show comes from the existing battle simulation. There are no fake shots and no separate combat logic.
+
+### 20.1 Cameras
+- Modes **Fleet View**, **Gunnery POV**, **Target POV**, **Reaper POV**. Any active ship can be selected and its targeting computer observed; one key switches between the attacker and the ship it is shooting at (attacking and defending vessels).
+- Gunnery cameras sit at the actual weapon muzzle or sensor array (from the model's mount anchors) with an unobstructed forward view; they show acquisition, tracking, predictive interception, charging, firing, projectile flight and impact.
+- Cameras stay synchronised with the simulation; switching cameras never interrupts or resets weapon behaviour.
+
+### 20.2 Alliance tactical HUD (blue-white holographic)
+Target brackets that follow the real enemy ships; predicted-interception markers and target-leading indicators; enemy classification, range, relative velocity, hull integrity and barrier strength; main-gun charge indicator, ammunition, weapon temperature and reload countdown; small notifications TARGET ACQUIRED, FIRING SOLUTION, CAPACITORS CHARGING, WEAPON RELEASE, HIT CONFIRMED, each raised by the matching simulation event.
+
+### 20.3 Reaper targeting perception (red synthetic cognition, not a cockpit)
+Scanning lines and geometric target analysis; several concurrent target tracks with priority assessments; rapid identification of hull, barrier, propulsion and weapon systems; predictive firing trajectories and interception calculations; cold, efficient transitions from evaluation to discharge; distinct sensory audio (deep mechanical resonance, low-frequency pulses, synthetic processing signals, massive discharges).
+
+### 20.4 Cerberus and HADES systems (amber-and-white classified interface)
+HADES penetrator telemetry (the round is a penetrator with a nuclear warhead; the interface never calls it a nuclear mass round): magazine, yield class, target vulnerability (barrier gate state from the simulation), weapon status; a distinct charge-up animation for SSV Omaha's spinal weapon (AU); synchronised firing solutions for coordinated Black Fleet salvos (the simulation's volley/salvo coordination); impact confirmation showing the actual barrier and hull damage from the impact event.
+
+### 20.5 Sound design
+Original layered audio with the weight and atmosphere of Mass Effect 3 (no game audio). For every large weapon: (1) quiet electronic target lock and acquisition; (2) rising reactor and capacitor charge; (3) a powerful, distinctive discharge; (4) projectile or beam-trace sound; (5) impact audio delayed until the projectile actually strikes; (6) barrier resonance, armour fracture or structural destruction; (7) mechanical cooldown and recharge. Alliance guns: industrial, magnetic, violent. Reaper weapons: overwhelmingly powerful, alien, mechanical, with deep resonances. No constant overlap: a voice budget prioritises nearby weapons, capital ships and the currently observed target.
+
+### 20.6 Synchronisation (critical)
+The AI picks targets in the simulation; reticles track world-space target positions; firing animations follow the real weapon state; charge-up precedes the actual shot; projectiles leave the correct muzzle and follow the simulated trajectory; impact VFX and damage appear together when the collision resolves; capital discharges are far heavier, visually and acoustically, than secondary weapons; travel time follows target motion, weapon velocity and distance; audio, VFX and HUD all read **one authoritative weapon-event timeline** produced by the simulation.
+
+### 20.7 Cinematic presentation
+Subtle camera recoil and hull vibration; weapon glow building before discharge; shock effects, barrier flashes, molten armour and visible damage; optional automated camera tracking of important engagements; optional slow-motion replay of major capital-ship kills from a render-side history buffer, never changing the simulation.
+
+### 20.8 Owners
+| Part | Owner |
+| --- | --- |
+| Weapon-event timeline: per-mount telemetry (target, solution quality, predicted intercept point and time, charge progress, cooldown, heat, magazine and special ammunition, last shot) and complete event payloads (charge start, fire with muzzle position and projectile id, impact with barrier/armour/hull damage, penetration and warhead), a `mountWorldPosition(ship, mount)` helper | CORE (T13/T18 scope; INTEGRATION_NOTES bullet of 5 Nov) |
+| Mount and sensor anchors on every model; muzzle-accurate projectile origins; charge glow, discharge, trace, impact, barrier flash, molten armour, recoil and hull vibration; the layered audio with its voice budget; the history buffer for kill replays | A |
+| The four camera modes, attacker/defender switching, the Alliance HUD, the Reaper perception interface, the Cerberus/HADES interface, notifications, automated engagement tracking, the slow-motion kill replay player | B |
+| Codex and README entries for the views, e2e coverage of every camera mode and HUD (reticles on real targets, notifications raised by events), screenshots in the shot list | D |
