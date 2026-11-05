@@ -23,6 +23,7 @@ import {
   type FleetView,
 } from './movement';
 import { REAPER_AI, coverDamagedCapital, interposeGoal, rotateProtection, transferGoal } from './reaperAi';
+import { scriptedGoal } from './scriptedMoves';
 import { solutionFor } from './solutions';
 import { detectable, hunterGoal, hunterTarget } from './stealth';
 import type { FleetState, ShipState, TargetPriority } from './types';
@@ -355,8 +356,11 @@ export function fleetDecision(ctx: AiContext, fleet: FleetState, dt: number): vo
     FLEET_SLOW.set(fleet, slow);
   }
   const motion = fleetMotion(fleet);
-  if (slow.mine.length === 0 || fleet.static) {
-    // A static fleet (fixed platforms) never moves its anchor or turns its formation; its hulls slew on their own.
+  // A static fleet (fixed platforms) never moves its anchor or turns its formation; its hulls slew on their own. A wave
+  // still dropping in (`fleet.arrived` false: hulls waiting for their flash or running in on their scripted curve,
+  // CINEMATIC_DESIGN.md §1.5) holds its anchor and heading until every hull has settled into its slot — the anchor's
+  // lag clamp would otherwise chase the centroid of whichever hulls happen to be in already.
+  if (slow.mine.length === 0 || fleet.static || !fleet.arrived) {
     motion.anchorVel = v3();
     return;
   }
@@ -414,6 +418,10 @@ export function shipDecision(ctx: AiContext, ship: ShipState, fleet: FleetState)
 export function movementGoal(ctx: AiContext, ship: ShipState, fleet: FleetState): MovementGoal {
   const target = ship.targetId ? ctx.getShip(ship.targetId) : undefined;
   const slotVel = fleetMotion(fleet).anchorVel;
+
+  // A scripted move (`Specials.approach`, `Specials.strafeThrough`) overrides every other goal while it lasts.
+  const scripted = scriptedGoal(ctx, ship);
+  if (scripted) return scripted;
 
   // Fighters and Oculi: recall and rearm at the carrier, else strafing passes.
   if (ship.role === 'fighter') {

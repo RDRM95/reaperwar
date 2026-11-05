@@ -7,8 +7,8 @@ import type { ShipState, WeaponState } from '@/simulation/types';
 
 /**
  * Project Titan and HADES (ADOPTION_PLAN.md §7; WORK_BREAKDOWN.md §1.6.3 `tests/hades.test.ts`):
- * the residual fuse, the magazine, the AI gate and the hold order. The forced-strike cases
- * (`special.hadesStrike({ force })`) land with the Specials in T13.
+ * the residual fuse, the magazine, the AI gate and the hold order; the scripted strikes
+ * (`special.hadesStrike`, with and without `force`) since the Specials of T13.
  */
 
 /** A Titan-armed dreadnought and a muted Reaper target, far enough apart that nothing else happens for a while. */
@@ -217,4 +217,67 @@ describe('the HADES gate and magazine', () => {
     // Every penetrator that detonated killed through the warhead or was followed by kinetic work: at least one Reaper loss by cause 'warhead' or 'kinetic'.
     expect(full.events.some((e) => e.type === 'ship_destroyed' && e.faction === 'reaper' && (e.cause === 'warhead' || e.cause === 'kinetic'))).toBe(true);
   }, 120_000);
+});
+
+describe('scripted strikes (Specials.hadesStrike, T13)', () => {
+  /** Steps until a `hades_detonation` (or a Titan shot, with `untilShot`) appears; fails after `seconds`. */
+  const stepUntil = (sim: BattleSimulation, pred: () => boolean, seconds = 10): void => {
+    const end = sim.time + seconds;
+    while (!pred() && sim.time < end) sim.step();
+    expect(pred()).toBe(true);
+  };
+
+  it("force 'hit_penetrating' detonates against an intact barrier, honours outage 'weapons' and is logged as forced", () => {
+    const { sim, dn, target, titan } = duel('reaper_capital', 40);
+    sim.step();
+    expect(target.barriers).toBe(target.maxBarriers);
+    expect(sim.special.hadesStrike(dn.id, target.id, { force: 'hit_penetrating', outage: 'weapons', beatId: 'strike' })).toBe('applied');
+    expect(sim.events.some((e) => e.type === 'scripted_event' && e.special === 'hades_strike' && e.forced && e.beatId === 'strike')).toBe(true);
+    expect(sim.events.some((e) => e.type === 'strike_scheduled' && e.shipId === dn.id && e.kind === 'hades')).toBe(true);
+    stepUntil(sim, () => sim.events.some((e) => e.type === 'hades_detonation'));
+    const shot = titanShots(sim, dn).at(-1)!;
+    expect(shot.type === 'weapon_fired' && shot.special && shot.forced).toBe(true);
+    const det = sim.events.find((e) => e.type === 'hades_detonation')!;
+    expect(det.type === 'hades_detonation' && det.outage).toBe('weapons');
+    expect(det.type === 'hades_detonation' && shot.type === 'weapon_fired' && det.projectileId).toBe(shot.type === 'weapon_fired' ? shot.projectileId : -1);
+    expect(titan.specialAmmo).toBe(11);
+    expect(target.subsystems.weapons).toBeLessThan(1);
+  });
+
+  it('without force the gate and the fuse still decide: an intact capital draws a slug and the magazine stays full', () => {
+    const { sim, dn, target, titan } = duel('reaper_capital', 40);
+    sim.step();
+    expect(sim.special.hadesStrike(dn.id, target.id)).toBe('applied');
+    expect(sim.events.some((e) => e.type === 'scripted_event' && e.special === 'hades_strike' && !e.forced)).toBe(true);
+    const shot = nextTitanShot(sim, dn, 200);
+    expect(shot.type === 'weapon_fired' && shot.special).toBeUndefined();
+    expect(shot.type === 'weapon_fired' && shot.forced).toBe(true);
+    expect(titan.specialAmmo).toBe(12);
+    sim.skipTo(sim.time + 3);
+    expect(sim.events.some((e) => e.type === 'hades_detonation')).toBe(false);
+  });
+
+  it('without force, against a gated capital the order sends a penetrator even under holdSpecialAmmo (the order lifts the hold)', () => {
+    const { sim, dn, target, titan } = duel('reaper_capital', 40);
+    sim.issueOrders(dn.fleetId, { holdSpecialAmmo: true });
+    target.barriers = 0.1 * target.maxBarriers;
+    target.regenSuppressedUntil = 1e9;
+    expect(hadesGateOpen(target)).toBe(true);
+    sim.step();
+    expect(sim.special.hadesStrike(dn.id, target.id, { rounds: 2 })).toBe('applied');
+    const first = nextTitanShot(sim, dn, 200);
+    expect(first.type === 'weapon_fired' && first.special).toBe(true);
+    expect(titan.specialAmmo).toBe(11);
+    // The second round is queued on the mount and leaves once the gun has reloaded.
+    const second = nextTitanShot(sim, dn, 400);
+    expect(second.type === 'weapon_fired' && second.special && second.forced).toBe(true);
+    expect(second.t - first.t).toBeGreaterThanOrEqual(0.95 * titan.def.cooldown - 1e-9);
+    expect(titan.specialAmmo).toBe(10);
+    expect(titan.forcedShot).toBeUndefined();
+  });
+
+  it('a hull without penetrators cannot be ordered to strike', () => {
+    const canon = duel('reaper_capital', 40, 'canon_me3');
+    expect(canon.sim.special.hadesStrike(canon.dn.id, canon.target.id, { force: 'hit_penetrating' })).toBe('skipped');
+  });
 });

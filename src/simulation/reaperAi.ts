@@ -44,7 +44,8 @@ export const REAPER_AI = {
 
 /** The cover states the Reaper AI set itself; a scripted `interpose` (`Specials.interpose`) is never released by the AI. */
 const AI_COVERS = new WeakSet<InterposeState>();
-const aiCover = (s: ShipState): boolean => s.interpose !== undefined && AI_COVERS.has(s.interpose);
+/** Whether a hull's `interpose` is a cover the Reaper AI set (a scripted interpose is not). */
+export const aiCover = (s: ShipState): boolean => s.interpose !== undefined && AI_COVERS.has(s.interpose);
 const setCover = (d: ShipState, cover: InterposeState): void => {
   d.interpose = cover;
   AI_COVERS.add(cover);
@@ -153,7 +154,7 @@ export function transferGoal(ctx: AiContext, ship: ShipState, slotPos: Vec3, slo
  * The enemy pressing a capital hardest: the one targeting it with the most recent damage, else the nearest combatant.
  * Candidates are the capital's targeting set (rogue hulls included, AP §4.1), hulls only, never a silent stealth hull.
  */
-function attackerOf(ctx: AiContext, capital: ShipState): ShipState | undefined {
+export function attackerOf(ctx: Pick<AiContext, 'enemiesOfShip'>, capital: ShipState): ShipState | undefined {
   let best: ShipState | undefined;
   let top = -1;
   let nearest: ShipState | undefined;

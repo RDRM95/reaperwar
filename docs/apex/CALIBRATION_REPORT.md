@@ -100,6 +100,25 @@ Still not pass 2 (T19). The adversarial verification of chunk 3 found two regres
 | 8 | B / 360 / 34 / 2 / 9.5 % | A / 229 / 13 / 5 (all 12) / 59.8 % |
 | 9 | B / 360 / 37 / 2 / 8.2 % | A / 111 / 8 / 4 (all 12) / 71.5 % |
 
+## 1d. Re-measure after beats, volleys, arrivals and the coordinated HADES salvos (CORE T13, 5 November 2026)
+
+Still not pass 2 (T19). T13 adds scripted machinery (beats, volleys, arrival waves, forced shots, specials) that does nothing in a battle without a script, plus one mechanic that acts in every Apex battle: the owner's **coordinated HADES salvos** (INTEGRATION_NOTES.md, 2 Nov) — a Titan mount ready to send a penetrator at a gated Reaper capital opens a salvo for its fleet; every Titan mount of the fleet with penetrators, the capital in range and a reload ending within 3 s joins, and all of them release inside one 1.5 s window once the slowest member has reloaded. Nothing is ever reloaded early, so the salvo groups rounds in time and adds no firepower (the battery's cycle stretches from 6.0 to about 6.7 s). The flagship banner draws its text from a fork of `sim.rng` (deviation from AP §22.2's "from `sim.rng`", CORE_PROGRESS T13), so a flagship's death changes nothing that follows. Measured with scratch probes running the test helpers (deleted at the end of the chunk).
+
+**Unchanged.** Canon 7 / 8 / 9, the Battle of Earth canon 42 and the Oculus screen 1–3 are bit-identical to T12: B at 324 / 360 / 360 s with 1 / 1 / 2 capitals lost and 4.9 / 5.0 / 5.7 % Alliance survival; Earth B at 241 s, 1 capital, Trident median life 235 s, 46 of 52 Oculi lost; last small-craft death 73.0 / 80.5 / 73.0 s.
+
+**The salvo design and the Apex pins.** A first salvo that released only the members whose reload ended inside the 1.5 s window after the opener had fired dropped Apex seed 8 to 6 Alliance losses (pin 7–19; seeds 10–12, unpinned, 6 / 6 / 6). The AP §1.3 lever order was tried on it: `kineticBarrierStrength` 1.3 → 1.25 restored seeds 7–9 but left 11 and 12 at 5 and 6; `HADES_WARHEAD.damage` 2,260 → 2,000 restored 7–9, 10 and 12. Neither was needed in the end: the final design (the opener holds too and the battery gathers for up to 3 s) passes all six seeds with the shipped values, so **no lever moved** in T13. For reference, the T12 tree (no salvo) gave 6 / 6 / 9 losses on the unpinned seeds 10–12.
+
+| Apex core seed | result | A lost (dreadnoughts) | A survival | HADES fired / held by the gate / detonated | salvos (members scheduled) | penetrators fired inside a salvo | Reaper losses by cause |
+| --- | --- | --- | ---: | --- | --- | ---: | --- |
+| 7 | A at 118 s, all 12 Reapers | 9 (3) | 74.9 % | 19 / 88 / 6 | 8 (35) | 18 of 19 | kinetic 5, warhead 6, thanix 1 |
+| 8 | A at 164 s, all 12 | 13 (5) | 58.1 % | 21 / 100 / 3 | 12 (40) | 20 of 21 | kinetic 6, warhead 5, thanix 1 |
+| 9 | A at 128 s, all 12 | 10 (5) | 63.1 % | 14 / 79 / 5 | 5 (19) | 13 of 14 | kinetic 4, warhead 4, thanix 4 |
+| 10 (unpinned) | A at 140 s, all 12 | 13 (5) | 59.3 % | 12 / 99 / 7 | 5 (19) | 10 of 12 | kinetic 6, warhead 4, thanix 2 |
+| 11 (unpinned) | A at 127 s, all 12 | 9 (3) | 76.1 % | 14 / 105 / 6 | 7 (29) | 14 of 14 | kinetic 3, warhead 9 |
+| 12 (unpinned) | A at 129 s, all 12 | 7 (3) | 74.4 % | 21 / 98 / 7 | 4 (24) | 17 of 21 | kinetic 6, warhead 5, thanix 1 |
+
+T12 had Apex 7 / 8 / 9 at 9 / 8 / 10 lost and 64.8 / 70.2 / 69.4 % survival. "Held by the gate" counts Titan shots at a Reaper capital fired as slugs while the mount still had penetrators. A member scheduled into a salvo fires a penetrator only if the gate is still open at its release and the capital is in its arc, which is why members outnumber the penetrators.
+
 ## 1. Calibration pass 1 — before the movement rewrite (3 November 2026)
 
 Catalogue state: AP §3.2 values (T5), M1 recovery under fire, M2 load threshold, M3 heat by hull, the re-based Titan gun with the HADES magazine, gate (0.2) and residual fuse (0.5) in force (T6). Movement, withdrawal and firing solutions are still the v0.11 model; the Reaper AI is v0.11; Oculi launch through the generic carrier path and the fighter AI has no stand-off-by-weapon rule yet (T10–T12). Script wall time 53 s on the 4-CPU dev container.
