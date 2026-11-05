@@ -1,9 +1,12 @@
 import type { App } from '../app';
 import { el } from '../dom';
 import { storage } from '@/core/storage';
+import { QUALITY_ORDER, QUALITY_PRESETS, withQuality, type GraphicsQuality } from '@/rendering/quality';
+import { gpuRenderer, isLocalEdition, localEditionDetails, localEditionStatus } from '@/rendering/localHardware';
 
 export function renderSettings(app: App): HTMLElement {
   const p = app.prefs;
+  const local = isLocalEdition();
   const slider = (label: string, get: () => number, set: (v: number) => void) =>
     el('label', { class: 'field' }, [`${label}: ${Math.round(get() * 100)}%`, el('input', { type: 'range', min: 0, max: 1, step: 0.05, value: get(), oninput: (e: Event) => {
       set(Number((e.target as HTMLInputElement).value));
@@ -15,24 +18,34 @@ export function renderSettings(app: App): HTMLElement {
     el('div', { class: 'grid3' }, [
       el('div', { class: 'panel' }, [
         el('div', { class: 'panel-title' }, 'GRAPHICS'),
-        el('label', { class: 'field' }, ['Quality', el('select', { onchange: (e: Event) => {
-          p.graphics.quality = (e.target as HTMLSelectElement).value as typeof p.graphics.quality;
-          p.graphics.pixelRatioCap = p.graphics.quality === 'high' ? 2 : p.graphics.quality === 'medium' ? 1.5 : 1;
+        el('label', { class: 'field' }, ['Quality', el('select', { 'data-setting': 'quality', onchange: (e: Event) => {
+          const glowBefore = p.graphics.showEngineGlow;
+          // Any graphics change is the player's choice: the Local Edition stops defaulting to Ultra.
+          p.graphics = { ...withQuality(p.graphics, (e.target as HTMLSelectElement).value as GraphicsQuality), chosen: true };
           void app.savePrefs();
-        } }, ['low', 'medium', 'high'].map((q) => el('option', { value: q, selected: p.graphics.quality === q }, q)))]),
-        el('label', { class: 'field' }, ['Engine glow sprites', el('select', { onchange: (e: Event) => {
+          if (p.graphics.showEngineGlow !== glowBefore) app.show('settings'); // Ultra switched engine glow on
+        } }, QUALITY_ORDER.map((q) => el('option', { value: q, selected: p.graphics.quality === q }, QUALITY_PRESETS[q].label)))]),
+        el('label', { class: 'field' }, ['Engine glow sprites', el('select', { 'data-setting': 'engine-glow', onchange: (e: Event) => {
           p.graphics.showEngineGlow = (e.target as HTMLSelectElement).value === 'on';
+          p.graphics.chosen = true;
           void app.savePrefs();
         } }, [el('option', { value: 'on', selected: p.graphics.showEngineGlow }, 'On'), el('option', { value: 'off', selected: !p.graphics.showEngineGlow }, 'Off')])]),
-        el('label', { class: 'field' }, ['Level of detail', el('select', { onchange: (e: Event) => {
+        el('label', { class: 'field' }, ['Level of detail', el('select', { 'data-setting': 'lod', onchange: (e: Event) => {
           p.graphics.lod = (e.target as HTMLSelectElement).value === 'on';
+          p.graphics.chosen = true;
           void app.savePrefs();
         } }, [el('option', { value: 'on', selected: p.graphics.lod !== false }, 'On: distant ships simplify to hull and points'), el('option', { value: 'off', selected: p.graphics.lod === false }, 'Off: full detail at any distance')])]),
         el('label', { class: 'field' }, ['Tactical overlay', el('select', { onchange: (e: Event) => {
           p.showOverlay = (e.target as HTMLSelectElement).value === 'on';
           void app.savePrefs();
         } }, [el('option', { value: 'on', selected: p.showOverlay }, 'On'), el('option', { value: 'off', selected: !p.showOverlay }, 'Off')])]),
-        el('p', { class: 'dim', style: { fontSize: '12px' } }, 'Changes apply to the next battle. Low quality disables antialiasing and caps the render resolution.'),
+        el('p', { class: 'dim', style: { fontSize: '12px' } }, 'Changes apply to the next battle. Low quality disables antialiasing and caps the render resolution. Ultra renders at your display’s native resolution, keeps full detail 2.5× farther out and doubles the effect budgets: it is meant for a dedicated GPU, and the battle HUD shows its frame rate.'),
+        local
+          ? el('div', { class: 'local-edition', 'data-local-edition': '' }, [
+              el('p', { style: { fontSize: '12px', color: 'var(--cyan)', marginBottom: '2px' } }, localEditionStatus(gpuRenderer())),
+              el('p', { class: 'dim', style: { fontSize: '11px', marginTop: '0' } }, localEditionDetails()),
+            ])
+          : null,
       ]),
       el('div', { class: 'panel orange' }, [
         el('div', { class: 'panel-title' }, 'AUDIO'),

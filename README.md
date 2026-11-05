@@ -16,6 +16,77 @@ npm install
 npm run dev        # http://localhost:5173
 ```
 
+To play on your own graphics card with the best settings, use the Local Edition below.
+
+## Run it locally on your own GPU (Local Edition)
+
+The web version already draws on your graphics card through WebGL, but a browser tab holds it back: the render resolution is capped, the frame rate is locked to the monitor, and detail distances and effect budgets are tuned for average machines. The Local Edition builds the game on your computer, serves it to that computer only, and opens it in Chrome or Edge with settings meant for a dedicated GPU such as an RTX 5090.
+
+**You need:** [Node.js](https://nodejs.org/en/download) 20.19 or newer (on the 22 line, 22.12 or newer; the current LTS is fine), [Git](https://git-scm.com/downloads), and Google Chrome or Microsoft Edge (every Windows 10 and 11 PC has Edge).
+
+**Windows**
+
+1. Install Node.js (LTS) and Git.
+2. In a terminal: `git clone https://github.com/<owner>/reaperwar.git`
+3. Open the `reaperwar` folder and double-click **`run-local.cmd`**.
+
+The first run installs the dependencies (`npm ci`) and builds the game, which takes a minute or two; after that it starts in seconds. The game opens in its own window. Close the window, or press Ctrl+C in the console, to stop it.
+
+**macOS and Linux**
+
+```bash
+git clone https://github.com/<owner>/reaperwar.git
+cd reaperwar
+./run-local.sh                 # or: npm run local
+```
+
+On macOS the browser stays open after its window closes: quit it (⌘Q) or press Ctrl+C in the terminal.
+
+**Updating:** `git pull`, then start it again. The launcher reinstalls the dependencies when `package-lock.json` changed and rebuilds whenever the sources are newer than the last build.
+
+**Options** (after `run-local.cmd`, `./run-local.sh` or `npm run local --`):
+
+| Option | What it does |
+| --- | --- |
+| `--fullscreen` | Start full screen (F11 toggles it). |
+| `--vsync` | Keep the frame rate locked to the monitor's refresh rate: smoother, no tearing, and a cooler, quieter GPU. |
+| `--port <n>` | Serve on another port (default 4180). Saves belong to the address, so keep using the port you pick. |
+| `--browser <path>` | Use this Chrome, Edge or Chromium executable instead of the one found automatically. |
+| `--rebuild` | Rebuild even when the build is up to date. |
+| `--gpu-info` | Open `chrome://gpu` on the game's browser profile, with the same flags (works while the game is running). |
+| `--no-browser` | Only serve, and print the address and the browser command line to use. |
+
+**What the launcher does**
+
+`scripts/local/launch.mjs` runs `npm ci` when the dependencies are missing or out of date and `npm run build` when `dist/` is missing or older than the sources, serves `dist/` with `scripts/local/serve.mjs` on `http://127.0.0.1:4180/` (loopback only: nothing on your network can reach it, and it needs no extra packages), and starts the browser with these flags:
+
+| Browser flag | Why |
+| --- | --- |
+| `--app=http://127.0.0.1:4180/?local=1` | A game window without tabs or an address bar; `?local=1` switches the game to the Local Edition. |
+| `--user-data-dir=<repository>/.local-profile` | A separate browser profile inside the repository (gitignored), so the flags apply even while your normal browser is open and your own profile, extensions and history are untouched. Local Edition saves live in this profile. |
+| `--ignore-gpu-blocklist` | Use the GPU even if its driver is on the browser's blocklist. |
+| `--enable-gpu-rasterization` | Draw page content on the GPU. |
+| `--enable-zero-copy` | Let rasterisation write straight into GPU memory. |
+| `--force-high-performance-gpu` | Pick the dedicated GPU on machines that also have integrated graphics. |
+| `--disable-gpu-vsync`, `--disable-frame-rate-limit` | Remove the frame-rate cap (left out with `--vsync`). |
+| `--start-fullscreen` | Only with `--fullscreen`. |
+| `--no-first-run`, `--no-default-browser-check` | Keep the fresh profile from showing a welcome page or a default-browser prompt. |
+
+**Confirm it runs on your GPU.** Settings → Graphics shows `Local Edition: running on this machine's GPU (…)` with the renderer the browser reports, for example `ANGLE (NVIDIA, NVIDIA GeForce RTX 5090 … Direct3D11 …)`. For the full picture run `run-local.cmd --gpu-info` (or `./run-local.sh --gpu-info`), which opens `chrome://gpu` on the game's own browser profile (Edge shows it as `edge://gpu`): under *Graphics Feature Status*, WebGL and WebGL2 should read *Hardware accelerated*; *GL_RENDERER* should name your card; *Command Line* lists the flags above. If Settings shows `Local Edition: software rendering (…)`, or `chrome://gpu` shows *SwiftShader*, *Software only* or *Microsoft Basic Render Driver*, the GPU is not in use: update the graphics driver, and on a laptop set Chrome or Edge to *High performance* in Windows Settings → System → Display → Graphics.
+
+**What the Local Edition changes compared with the web version**
+
+- **Ultra — local GPU** graphics quality, selected on the first run (change it in Settings; your choice is kept): native resolution (your display's full pixel density, up to 3×, instead of High's 2× cap) with antialiasing, full detail and hull meshes kept 2.5× farther away before ships become points, doubled effect budgets (sparks, tracers, barrier flashes, debris, point-defence lines), maximum anisotropic filtering on the generated planet and sky textures, a larger environment map for hull reflections, and a frames-per-second readout beside the draw-call count on the battle HUD. Ultra can be picked in the web version too.
+- **Uncapped frame rate**: the battle view draws as many frames as the GPU can, so a high-refresh monitor is never the limit and the FPS readout shows the real headroom (`--vsync` restores the cap).
+- **Cross-origin isolation**: the server sends `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp`, which unlock `SharedArrayBuffer` for a later multi-threaded simulation.
+- The main menu shows *Local Edition* next to the version.
+
+**What it does not change yet**
+
+- The simulation still runs on one CPU core, on the browser's main thread: very large battles are limited by that core, not by the GPU. Fixing 8× playback and moving the simulation to a worker thread are separate work.
+- Battle results are identical at every graphics quality and in both editions: everything above is drawing only.
+- Saves are kept per address, so the Local Edition starts with its own saves. Move them with Settings → Export save data (web version) and Import save data (Local Edition).
+
 ## What works today (v0.4.0)
 
 - **Galactic campaign**: interactive galaxy map with 15 systems and relay corridors, weekly turns, Reaper offensives and harvest, a ground war per system (ground forces slow the harvest; krogan reinforce Earth and Palaven when the genophage is cured), allied production from intact industry, eight research projects that change fleet technology in engagements, refugee pressure on the Citadel, Council war summits with decisions, political events (indoctrinated officials, shipyard sabotage, Terminus mercenaries, STG intelligence), 2183 world states (Destiny Ascension and Council composition, rachni queen), fleet movement with cooperation constraints, Crucible construction, indoctrination pressure, morale, Reaper strategic assessment, autosave and Load Game. Engagements involving your fleets can be fought in the 3D simulator or auto-resolved; outcomes feed back into the war.
@@ -61,6 +132,7 @@ npm run typecheck   # tsc
 npm test            # vitest unit + regression tests
 npm run build       # production build (dist/)
 npm run test:e2e    # Playwright (builds and serves dist, software WebGL)
+npm run local       # Local Edition: build if needed, serve on 127.0.0.1:4180, open Chrome or Edge (see above)
 npm run sim -- battle_of_earth prime_apex 42 fixed   # headless battle for balance work
 ```
 

@@ -48,8 +48,38 @@ interface ShieldFlash {
   follow?: () => THREE.Vector3 | undefined;
 }
 
+/** Effect pool sizes and caps at budget scale 1 (Low to High). Ultra doubles every one. */
+export const BASE_EFFECT_BUDGETS = {
+  /** Live sprite sparks (flashes, fire, smoke). */
+  sparks: 900,
+  /** Live barrier-shimmer shells. */
+  shields: 60,
+  /** Instanced tracer slots. */
+  tracers: 1024,
+  /** Instanced missile slots. */
+  missiles: 512,
+  /** Point-defence line segments. */
+  pdLines: 512,
+  /** Generic debris fragments per explosion (on top of the ship's own pieces). */
+  debrisFragments: 40,
+  /** Hot sparks per hull impact. */
+  impactSparks: 10,
+} as const;
+
+export type EffectBudgets = { readonly [K in keyof typeof BASE_EFFECT_BUDGETS]: number };
+
+/** Budgets at a scale (1 = today's budgets, 2 = Ultra). */
+export function effectBudgets(scale = 1): EffectBudgets {
+  const s = Number.isFinite(scale) && scale > 0 ? scale : 1;
+  const out = {} as Record<keyof typeof BASE_EFFECT_BUDGETS, number>;
+  for (const k of Object.keys(BASE_EFFECT_BUDGETS) as (keyof typeof BASE_EFFECT_BUDGETS)[]) out[k] = Math.round(BASE_EFFECT_BUDGETS[k] * s);
+  return out;
+}
+
 export class EffectsSystem {
   readonly group = new THREE.Group();
+  /** Pool sizes and caps in force (render-side only; the simulation never reads them). */
+  readonly budgets: EffectBudgets;
   private readonly rng = new Rng('fx');
   private readonly flashTex = radialTexture('rgba(255,255,255,1)', 'rgba(255,220,160,0.7)', 'rgba(255,120,40,0)');
   private readonly fireTex = radialTexture('rgba(255,250,230,1)', 'rgba(255,150,60,0.8)', 'rgba(120,30,10,0)');
@@ -63,7 +93,7 @@ export class EffectsSystem {
   private spritePool: THREE.Sprite[] = [];
 
   // Tracers (instanced).
-  private readonly tracerMax = 1024;
+  private readonly tracerMax: number;
   private readonly tracerMesh: THREE.InstancedMesh;
   private readonly tracerDummy = new THREE.Object3D();
 
@@ -76,8 +106,8 @@ export class EffectsSystem {
 
   // Point defence lines.
   private readonly pdGeometry = new THREE.BufferGeometry();
-  private readonly pdPositions = new Float32Array(512 * 6);
-  private readonly pdColors = new Float32Array(512 * 6);
+  private readonly pdPositions: Float32Array;
+  private readonly pdColors: Float32Array;
   private readonly pdLines: THREE.LineSegments;
 
   // Missiles (instanced points).
@@ -101,7 +131,12 @@ export class EffectsSystem {
   readonly flashLight = new THREE.PointLight(0xffa060, 0, 400 * KM, 1.5);
   private flashLightLife = 0;
 
-  constructor() {
+  /** `budgetScale` multiplies every pool and cap in BASE_EFFECT_BUDGETS (Ultra: 2). */
+  constructor(budgetScale = 1) {
+    this.budgets = effectBudgets(budgetScale);
+    this.tracerMax = this.budgets.tracers;
+    this.pdPositions = new Float32Array(this.budgets.pdLines * 6);
+    this.pdColors = new Float32Array(this.budgets.pdLines * 6);
     const tracerGeo = new THREE.BoxGeometry(0.1, 0.1, 1);
     const tracerMat = new THREE.MeshBasicMaterial({ color: 0xffd080, transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending, depthWrite: false });
     this.tracerMesh = new THREE.InstancedMesh(tracerGeo, tracerMat, this.tracerMax);
@@ -119,13 +154,18 @@ export class EffectsSystem {
 
     const mGeo = new THREE.SphereGeometry(0.12, 6, 4);
     const mMat = new THREE.MeshBasicMaterial({ color: 0x9fd0ff, transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending, depthWrite: false });
-    this.missileMesh = new THREE.InstancedMesh(mGeo, mMat, 512);
+    this.missileMesh = new THREE.InstancedMesh(mGeo, mMat, this.budgets.missiles);
     this.missileMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.missileMesh.frustumCulled = false;
     this.missileMesh.count = 0;
     this.group.add(this.missileMesh);
 
     this.group.add(this.flashLight);
+  }
+
+  /** Anisotropic filtering for the generated effect textures (Ultra: the GPU maximum). */
+  setAnisotropy(anisotropy: number): void {
+    for (const t of [this.flashTex, this.fireTex, this.smokeTex, this.blueTex, this.redTex]) t.anisotropy = anisotropy;
   }
 
   // ------------------------------------------------------------ primitives
@@ -151,7 +191,7 @@ export class EffectsSystem {
   }
 
   private spark(pos: THREE.Vector3, vel: THREE.Vector3, life: number, startScale: number, endScale: number, tex: THREE.Texture, color: number): void {
-    if (this.sparks.length > 900) return;
+    if (this.sparks.length > this.budgets.sparks) return;
     const sprite = this.getSprite(tex, color);
     sprite.position.copy(pos);
     sprite.scale.setScalar(startScale);
@@ -171,7 +211,7 @@ export class EffectsSystem {
     const size = Math.min(8, 0.4 + Math.sqrt(total) * 0.09);
     if (barrierDamage > hullDamage && barrierDamage > 3) {
       // Barrier shimmer around the ship (fresnel shell).
-      if (this.shields.length < 60) {
+      if (this.shields.length < this.budgets.shields) {
         const mat = this.shieldMat.clone();
         mat.uniforms = { color: { value: new THREE.Color(0x6fb0ff) }, opacity: { value: Math.min(0.9, 0.3 + barrierDamage / 2500) } };
         const m = new THREE.Mesh(this.shieldGeo, mat);
@@ -185,7 +225,7 @@ export class EffectsSystem {
     } else if (total > 0) {
       const tex = damageType === 'reaper_beam' ? this.redTex : this.fireTex;
       this.spark(pos, new THREE.Vector3(), 0.25, size * 0.7, size * 1.6, tex, 0xffffff);
-      const n = Math.min(10, 2 + Math.floor(hullDamage / 120));
+      const n = Math.min(this.budgets.impactSparks, 2 + Math.floor(hullDamage / 120));
       for (let i = 0; i < n; i++) {
         const v = new THREE.Vector3(this.rng.gaussian(0, 1), this.rng.gaussian(0, 1), this.rng.gaussian(0, 1)).multiplyScalar(size * 2.5);
         this.spark(pos, v, 0.5 + this.rng.next() * 0.5, size * 0.25, size * 0.04, this.fireTex, 0xffb060);
@@ -214,7 +254,7 @@ export class EffectsSystem {
       this.spark(pos, v, 4 + this.rng.next() * 4, size * 0.4, size * 2.2, this.smokeTex, 0x9a9a9a);
     }
     // Debris: fling the ship's own mesh pieces plus generic fragments.
-    const fragments = Math.min(40, Math.floor(size * 3));
+    const fragments = Math.min(this.budgets.debrisFragments, Math.floor(size * 3));
     for (let i = 0; i < fragments; i++) {
       const g = this.debrisGeo[i % this.debrisGeo.length];
       const m = new THREE.Mesh(g, this.debrisMat);
@@ -287,7 +327,7 @@ export class EffectsSystem {
   setMissiles(items: { pos: { x: number; y: number; z: number }; vel: { x: number; y: number; z: number } }[], alpha: number, dt: number): void {
     let n = 0;
     for (const it of items) {
-      if (n >= 512) break;
+      if (n >= this.budgets.missiles) break;
       this.tracerDummy.position.set((it.pos.x + it.vel.x * alpha * dt) * KM, (it.pos.y + it.vel.y * alpha * dt) * KM, (it.pos.z + it.vel.z * alpha * dt) * KM);
       this.tracerDummy.rotation.set(0, 0, 0);
       this.tracerDummy.scale.setScalar(2.2);
@@ -342,7 +382,7 @@ export class EffectsSystem {
   setPointDefence(lines: { from: THREE.Vector3; to: THREE.Vector3; reaper: boolean }[]): void {
     let n = 0;
     for (const l of lines) {
-      if (n >= 512) break;
+      if (n >= this.budgets.pdLines) break;
       const i = n * 6;
       this.pdPositions[i] = l.from.x;
       this.pdPositions[i + 1] = l.from.y;
