@@ -109,6 +109,9 @@ td.num { font-family: var(--mono); text-align: right; }
 
 /* ---------- battle HUD ---------- */
 .hud { position: absolute; inset: 0; pointer-events: none; }
+/* The HUD root is a child of #ui, whose `#ui > *` rule (an id selector) outranks `.hud`: without this the full-screen
+   HUD layer took every pointer and wheel event over the battle view, so a drag or wheel never reached the camera. */
+#ui > .hud { pointer-events: none; }
 .hud > * { pointer-events: auto; }
 .hud-top { position: absolute; top: 12px; left: 12px; right: 12px; display: flex; gap: 10px; align-items: flex-start; pointer-events: none; }
 .hud-top > * { pointer-events: auto; }

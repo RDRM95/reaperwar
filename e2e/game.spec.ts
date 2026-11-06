@@ -124,4 +124,48 @@ test.describe('Reaper War Simulator', () => {
     await page.click('[data-action="launch-custom"]');
     await expect(page.locator('[data-action="pause"]')).toBeVisible();
   });
+
+  // Brief §22 "free camera rotation and zoom" (0ab870b): a real drag and wheel over the battle view — not events
+  // dispatched on the canvas — must reach the camera through the full-screen HUD layer and hand a director-driven view
+  // over to a free orbit.
+  test('a mouse drag and wheel over the battle view hand the cinematic camera to a free orbit', async ({ page }) => {
+    await page.goto('/');
+    await page.click('[data-menu="quick-battle"]');
+    await page.click('[data-action="launch"]');
+    await expect(page.locator('[data-action="pause"]')).toBeVisible();
+    await page.click('[data-action="pause"]');
+    await page.click('[data-camera="cinematic"]');
+    await page.waitForTimeout(400);
+    type Rig = { mode: string; yaw: number; distance: number };
+    const rig = (): Promise<Rig> =>
+      page.evaluate(() => {
+        const r = (window as unknown as { reaperwar: { battle: { view: { rig: Rig } } } }).reaperwar.battle.view.rig;
+        return { mode: r.mode, yaw: r.yaw, distance: r.distance };
+      });
+    const vp = page.viewportSize()!;
+    const cx = vp.width / 2;
+    const cy = vp.height / 2;
+    // What sits under the centre of the view is the battle canvas, not the HUD layer.
+    const hit = await page.evaluate(([x, y]) => document.elementFromPoint(x, y)?.id ?? '', [cx, cy]);
+    expect(hit).toBe('battle-canvas');
+    expect((await rig()).mode).toBe('cinematic');
+    await page.mouse.move(cx, cy);
+    await page.mouse.down();
+    await page.mouse.move(cx + 60, cy + 10, { steps: 6 });
+    await page.mouse.move(cx + 140, cy + 20, { steps: 6 });
+    await page.mouse.up();
+    const dragged = await rig();
+    expect(dragged.mode).toBe('tactical');
+    await page.mouse.wheel(0, -300);
+    await page.waitForTimeout(200);
+    const zoomed = await rig();
+    expect(zoomed.mode).toBe('tactical');
+    expect(Math.abs(zoomed.distance - dragged.distance)).toBeGreaterThan(1);
+    // The drag turned the orbit (the handover itself keeps the view where it was; the drag then moves it).
+    await page.mouse.move(cx, cy);
+    await page.mouse.down();
+    await page.mouse.move(cx + 120, cy, { steps: 8 });
+    await page.mouse.up();
+    expect(Math.abs((await rig()).yaw - zoomed.yaw)).toBeGreaterThan(0.1);
+  });
 });
