@@ -235,7 +235,7 @@ export function createHud(app: App, ctrl: BattleController): Hud {
 
   const renderLists = () => {
     const s = sim();
-    if (s.ships.length > 64) {
+    if (s.ships.reduce((count, ship) => count + (ship.alive && !ship.escaped ? 1 : 0), 0) > 64) {
       const fleets = new Map<string, { id: string; name: string; side: ShipState['side']; count: number; lead?: ShipState }>();
       let fighters = 0;
       for (const ship of s.ships) {
