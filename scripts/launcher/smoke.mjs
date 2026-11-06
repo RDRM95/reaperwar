@@ -21,6 +21,11 @@ try {
   await page.waitForSelector('[data-menu="quick-battle"]', { timeout: 60_000 });
   const tag = page.locator('[data-local-edition]');
   if ((await tag.count()) === 0 || !/Local Edition/.test(await tag.first().innerText())) throw new Error('the menu does not show the Local Edition tag');
+  // Nothing may animate forever on the menu: with the launchers' uncapped frame rate the browser would
+  // draw frames back to back and keep the CPU and GPU busy (a hidden loading-screen pulse once did).
+  await page.waitForTimeout(1500);
+  const endless = await page.evaluate(() => document.getAnimations().filter((a) => a.playState === 'running' && a.effect?.getComputedTiming().iterations === Infinity).map((a) => `${a.animationName ?? 'animation'} on ${a.effect?.target?.className ?? '?'}`));
+  if (endless.length) throw new Error(`endless animations run on the menu: ${endless.join(', ')}`);
   await page.click('[data-menu="quick-battle"]');
   await page.click('[data-action="launch"]');
   await page.waitForSelector('[data-action="pause"]', { timeout: 90_000 });

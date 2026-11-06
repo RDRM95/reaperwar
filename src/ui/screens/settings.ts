@@ -2,7 +2,7 @@ import type { App } from '../app';
 import { el } from '../dom';
 import { storage } from '@/core/storage';
 import { QUALITY_ORDER, QUALITY_PRESETS, withQuality, type GraphicsQuality } from '@/rendering/quality';
-import { gpuRenderer, isLocalEdition, localEditionDetails, localEditionStatus } from '@/rendering/localHardware';
+import { gpuRenderer, isLocalEdition, localEditionDetails, localEditionStatus, webglAvailable } from '@/rendering/localHardware';
 import { timelineTagById } from '@/timelines/alternates';
 
 export function renderSettings(app: App): HTMLElement {
@@ -43,7 +43,7 @@ export function renderSettings(app: App): HTMLElement {
         el('p', { class: 'dim', style: { fontSize: '12px' } }, 'Changes apply to the next battle. Low quality disables antialiasing and caps the render resolution. Ultra renders at your display’s native resolution, keeps full detail 2.5× farther out and doubles the effect budgets: it is meant for a dedicated GPU, and the battle HUD shows its frame rate.'),
         local
           ? el('div', { class: 'local-edition', 'data-local-edition': '' }, [
-              el('p', { style: { fontSize: '12px', color: 'var(--cyan)', marginBottom: '2px' } }, localEditionStatus(gpuRenderer())),
+              el('p', { style: { fontSize: '12px', color: 'var(--cyan)', marginBottom: '2px' } }, localEditionStatus(gpuRenderer(), webglAvailable())),
               el('p', { class: 'dim', style: { fontSize: '11px', marginTop: '0' } }, localEditionDetails()),
             ])
           : null,

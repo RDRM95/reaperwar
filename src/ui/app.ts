@@ -2,7 +2,7 @@ import { audio, type SoundId } from '@/audio/engine';
 import { DEFAULT_PREFERENCES, storage, type Preferences } from '@/core/storage';
 import { DEFAULT_PERF_BUDGET, type PerfBudget } from '@/core/perfGovernor';
 import { BattleView } from '@/rendering/battleView';
-import { startupGraphics } from '@/rendering/localHardware';
+import { startupGraphics, webglAvailable } from '@/rendering/localHardware';
 import type { CameraMode } from '@/rendering/cameras';
 import { BattleSimulation, SIM_DT } from '@/simulation/battle';
 import type { BattleConfig, BattleEvent, BattleResult, FleetOrders } from '@/simulation/types';
@@ -656,11 +656,30 @@ export class App {
   }
 
   startBattle(config: BattleConfig, opts: { replay?: boolean; comparison?: ComparisonReport; comparisonSide?: 'a' | 'b'; campaign?: CampaignBattleLink } = {}): void {
-    if (this.battle) this.battle.dispose();
+    if (this.battle) {
+      this.battle.dispose();
+      this.battle = undefined;
+    }
     clear(this.ui);
     this.screen = 'battle';
     this.canvas.style.visibility = 'visible';
-    const controller = new BattleController(this, config, this.canvas, this.overlayCanvas, !!opts.replay);
+    let controller: BattleController;
+    try {
+      controller = new BattleController(this, config, this.canvas, this.overlayCanvas, !!opts.replay);
+    } catch (err) {
+      // Without WebGL (graphics acceleration off, a crashed GPU process, a remote desktop) the 3D view
+      // cannot be created: go back to the menu and say why, instead of leaving a blank screen.
+      console.error(err);
+      this.canvas.style.visibility = 'hidden';
+      this.show('menu');
+      this.toast(
+        webglAvailable()
+          ? 'THE BATTLE COULD NOT START: SEE THE BROWSER CONSOLE (F12)'
+          : 'NO WEBGL: BATTLES CANNOT BE DRAWN. TURN ON GRAPHICS ACCELERATION IN THE BROWSER OR UPDATE THE GRAPHICS DRIVER',
+        10_000,
+      );
+      return;
+    }
     this.battle = controller;
     this.ui.appendChild(controller.hud.root);
     controller.hud.setComparison(opts.comparison, opts.comparisonSide);
@@ -690,10 +709,10 @@ export class App {
     this.show('results');
   }
 
-  toast(text: string): void {
+  toast(text: string, ms = 2200): void {
     const t = el('div', { class: 'toast' }, text);
     this.ui.appendChild(t);
     window.clearTimeout(this.toastTimer);
-    this.toastTimer = window.setTimeout(() => t.remove(), 2200);
+    this.toastTimer = window.setTimeout(() => t.remove(), ms);
   }
 }

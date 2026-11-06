@@ -32,6 +32,8 @@ button, input, select, textarea { font-family: inherit; }
 
 #boot { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background: var(--bg); z-index: 50; transition: opacity 0.6s; }
 #boot.hidden { opacity: 0; pointer-events: none; }
+/* A hidden loading screen must not keep animating: with the frame-rate cap off (the launchers' default) the browser would draw frames back to back on every menu screen. */
+#boot.hidden .boot-sub { animation-play-state: paused; }
 .boot-title { font-size: 42px; letter-spacing: 0.3em; text-align: center; color: var(--text); font-weight: 300; }
 .boot-title span { color: var(--blue); font-size: 24px; letter-spacing: 0.5em; }
 .boot-sub { margin-top: 24px; font-family: var(--mono); font-size: 12px; letter-spacing: 0.3em; color: var(--text-dim); animation: pulse 1.4s infinite; }

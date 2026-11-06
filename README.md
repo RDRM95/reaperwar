@@ -36,15 +36,17 @@ If setup fails, the command window stays open with the error message. Files are 
 
 ## Play on your own PC (no install)
 
-Download the latest **ReaperWar-v….zip** from the [Releases page](https://github.com/RDRM95/reaperwar/releases) (or build it with `npm run package:launcher`; it lands in `release/`), unzip it anywhere, and double-click the launcher for your system:
+Download **ReaperWar-v….zip** (the release asset, not "Source code") from the [latest release](https://github.com/RDRM95/reaperwar/releases/latest), unzip it anywhere, and start the launcher for your system:
 
 | System | Launcher | Needs |
 | --- | --- | --- |
-| Windows | `Play Reaper War (Windows).cmd` | Microsoft Edge (built in) or Google Chrome |
-| macOS | `Play Reaper War (macOS).command` (right-click → Open the first time) | Google Chrome or Microsoft Edge |
-| Linux | `./play-reaper-war-linux.sh` | Google Chrome, Chromium or Microsoft Edge |
+| Windows | double-click `Play Reaper War (Windows).cmd` | Microsoft Edge (built in) or Google Chrome |
+| macOS | double-click `Play Reaper War (macOS).command`; the first time, allow it in System Settings → Privacy & Security → Open Anyway (macOS 14 and earlier: right-click → Open) | Google Chrome or Microsoft Edge |
+| Linux | run `./play-reaper-war-linux.sh` in a terminal | Google Chrome, Chromium or Microsoft Edge (Snap Store and Flathub installs work too) |
 
-The whole game is one self-contained file, so nothing is installed and no internet or server is needed. The launcher opens it as its own window on a separate browser profile, with flags that use your graphics card fully and switch the frame-rate cap off (add `--vsync` to keep it), and the game starts on the Ultra graphics quality. Settings → Graphics names the graphics chip in use. Saves live in that profile and carry over to newer versions. A new zip is built, smoke-tested and attached to a release whenever the game is updated on `main` (`.github/workflows/launcher.yml`); `npm run test:launcher` runs the same smoke test locally: it opens the game from disk in Chromium and runs a battle. Unlike the one-click Windows launcher above, this package needs no internet, no Node.js download and no build, and it does not update itself: download a newer zip to update.
+The whole game is one self-contained file, so nothing is installed and no internet or server is needed. The launcher opens it as its own window on a separate browser profile (with its own saves), with flags that use your graphics card fully and switch the frame-rate cap off (add `--vsync` to keep it), and the game starts on the Ultra graphics quality. Settings → Graphics names the graphics chip in use. Saves carry over to newer versions; saves from this web version or the one-click launcher move over with Settings → Export save data / Import save data. If Windows Smart App Control or S mode blocks the `.cmd`, open `game\index.html` in Edge directly (without the launcher's graphics flags). `README.txt` in the zip covers each system.
+
+Each new version on `main` is packaged, checked and published as a release by `.github/workflows/launcher.yml`: the smoke test opens the game from disk in Chromium and runs a battle, and the launcher check unzips the release with each system's own tool (on Windows, macOS and Linux runners) into a folder named with spaces, accents and Cyrillic, starts the real launcher as a player would, checks the browser arguments and opens the game in Edge or Chromium. Locally: `npm run package:launcher`, then `npm run test:launcher` and `node scripts/launcher/check-launchers.mjs` (the zip is made on Linux or macOS; on Windows the command builds the playable folder in `release/`). Unlike the one-click Windows launcher above, this package needs no internet, no Node.js download and no build, and it does not update itself: download a newer zip to update.
 
 ## Run it locally on your own GPU (Local Edition)
 

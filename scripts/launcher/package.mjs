@@ -31,20 +31,35 @@ const html = readFileSync(gameHtml, 'utf8');
 const external = [...html.matchAll(/<(?:script|link)\b[^>]*\b(?:src|href)="(?!data:)([^"]+)"/g)].map((m) => m[1]);
 if (external.length) throw new Error(`the launcher build is not self-contained; it loads ${external.join(', ')}`);
 
-// 3. Launchers and README (Windows files with CRLF line ends; Unix scripts executable).
+// 3. Launchers and README: Windows files with CRLF line ends; the Unix scripts with LF whatever the
+// checkout did to them (a CRLF shebang cannot run) and executable.
 const template = (file) => readFileSync(path.join(root, 'scripts', 'launcher', 'templates', file), 'utf8').replaceAll('{{VERSION}}', version);
 const crlf = (text) => text.replace(/\r?\n/g, '\r\n');
+const lf = (text) => text.replace(/\r\n?/g, '\n');
 writeFileSync(path.join(pkgDir, 'Play Reaper War (Windows).cmd'), crlf(template('play-windows.cmd')));
 const mac = path.join(pkgDir, 'Play Reaper War (macOS).command');
-writeFileSync(mac, template('play-macos.command'));
+writeFileSync(mac, lf(template('play-macos.command')));
 chmodSync(mac, 0o755);
 const linux = path.join(pkgDir, 'play-reaper-war-linux.sh');
-writeFileSync(linux, template('play-linux.sh'));
+writeFileSync(linux, lf(template('play-linux.sh')));
 chmodSync(linux, 0o755);
 writeFileSync(path.join(pkgDir, 'README.txt'), crlf(template('README.txt')));
 
-// 4. The zip keeps the Unix permissions, so the macOS and Linux launchers stay executable.
-execFileSync('zip', ['-r', '-X', '-q', `${name}.zip`, name], { cwd: outRoot, stdio: 'inherit' });
+// 4. The zip keeps the Unix permissions, so the macOS and Linux launchers stay executable. Windows
+// cannot store them (and has no zip command): there the folder is the result; the release zip is
+// built on Linux (the Launcher package workflow) or macOS.
+const done = `Launcher folder: ${path.relative(root, pkgDir)} (play it from there)`;
+if (process.platform === 'win32') {
+  console.log(`${done}. The release zip is built on Linux or macOS, which keep the macOS and Linux launchers executable.`);
+  process.exit(0);
+}
+try {
+  execFileSync('zip', ['-r', '-X', '-q', `${name}.zip`, name], { cwd: outRoot, stdio: 'inherit' });
+} catch (e) {
+  if (e.code !== 'ENOENT') throw e;
+  console.log(`${done}. No zip command was found, so no zip was made.`);
+  process.exit(0);
+}
 
 const mb = (bytes) => `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 console.log(`Launcher package: ${path.relative(root, zipPath)} (${mb(statSync(zipPath).size)}); game/index.html ${mb(statSync(gameHtml).size)}`);

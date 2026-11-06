@@ -1,5 +1,6 @@
 # Windows batch files need CRLF line endings to parse reliably; shell scripts need LF.
 *.cmd text eol=crlf
 *.sh text eol=lf
+*.command text eol=lf
 # The one-click starter is downloaded raw from GitHub: keep its committed CRLF bytes exactly as they are.
 PLAY-REAPERWAR.cmd -text

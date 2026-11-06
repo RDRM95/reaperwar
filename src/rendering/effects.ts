@@ -455,7 +455,8 @@ export class EffectsSystem {
       if (p) s.mesh.position.copy(p);
       const t = s.life / s.maxLife;
       const mat = s.mesh.material as THREE.ShaderMaterial;
-      if (mat.uniforms?.opacity) mat.uniforms.opacity.value *= 0.88;
+      // Fade by time, not per frame: the same at 60 fps and with the frame-rate cap off.
+      if (mat.uniforms?.opacity) mat.uniforms.opacity.value *= Math.pow(0.88, dt * 60);
       s.mesh.scale.multiplyScalar(1 + dt * 0.3 * t);
       keepS.push(s);
     }
