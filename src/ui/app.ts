@@ -65,6 +65,9 @@ export class BattleController {
   private accumulator = 0;
   private lastFrame = performance.now();
   private nextPresentAt = 0;
+  /** Recent main-thread costs; excludes GPU execution time. */
+  simStepMs = 0;
+  renderCpuMs = 0;
   private raf = 0;
   private disposed = false;
   private keys = new Set<string>();
@@ -241,6 +244,7 @@ export class BattleController {
     const dtReal = Math.min(0.1, (now - this.lastFrame) / 1000);
     this.lastFrame = now;
     this.handleKeys(dtReal);
+    const simulationStarted = performance.now();
     if (!this.paused && !this.sim.finished) {
       this.accumulator += dtReal * this.speed;
       // Step until caught up, but never spend more than ~40 ms of wall time
@@ -255,12 +259,17 @@ export class BattleController {
         }
       }
     }
+    const simulatedMs = performance.now() - simulationStarted;
+    this.simStepMs = this.simStepMs === 0 ? simulatedMs : this.simStepMs * 0.85 + simulatedMs * 0.15;
+    const drawingStarted = performance.now();
     const alpha = this.paused ? 1 : Math.min(1, this.accumulator / SIM_DT);
     this.view.update(dtReal, alpha);
     this.view.render();
     const w = this.canvas.clientWidth;
     const h = this.canvas.clientHeight;
     this.overlay.draw(this.view, w, h, this.view.rig.mode);
+    const drawnMs = performance.now() - drawingStarted;
+    this.renderCpuMs = this.renderCpuMs === 0 ? drawnMs : this.renderCpuMs * 0.85 + drawnMs * 0.15;
     this.hudTimer -= dtReal;
     this.hud.tick(dtReal, this.pendingEvents);
     this.pendingEvents = [];
