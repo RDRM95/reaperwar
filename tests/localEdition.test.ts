@@ -405,6 +405,16 @@ describe('Local Edition launcher: arguments and plan', () => {
     expect(plan.browser).toBe('C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe');
     expect(plan.args).toContain('--user-data-dir=C:\\Games\\reaperwar\\.local-profile');
     expect(plan.args).toContain('--app=http://127.0.0.1:4190/?local=1');
+    expect(plan.args).toContain('--start-maximized');
+    expect(plan.args).not.toContain('--start-fullscreen');
+  });
+
+  it('maximizes the Windows game window without affecting fullscreen or GPU diagnostics', () => {
+    const winHost = { platform: 'win32', env: {}, exists: (p: string) => p.endsWith('msedge.exe'), repoRoot: 'C:\\Games\\reaperwar' };
+    expect(planLaunch(parseLaunchArgs(['--fullscreen']), winHost).args).toContain('--start-fullscreen');
+    expect(planLaunch(parseLaunchArgs(['--fullscreen']), winHost).args).not.toContain('--start-maximized');
+    expect(planLaunch(parseLaunchArgs(['--gpu-info']), winHost).args).not.toContain('--start-maximized');
+    expect(planLaunch(parseLaunchArgs([]), host).args).not.toContain('--start-maximized');
   });
 
   it('parses every option and rejects bad ones', () => {
