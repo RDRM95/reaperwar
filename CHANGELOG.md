@@ -20,7 +20,9 @@
 - **Menus no longer keep the CPU and GPU busy** when the frame rate is uncapped (the launchers' default): a hidden loading-screen animation kept the browser drawing frames back to back. In a test the main menu went from about 1.7 CPU cores to about 1 % of one.
 - The barrier-hit shimmer and the fallback camera's easing now run on time rather than per frame, so they look the same at 60 fps and at hundreds of fps.
 - **No WebGL** (graphics acceleration off, a crashed GPU process, a remote desktop): starting a battle goes back to the menu with an explanation instead of a blank screen, and Settings says WebGL is not available instead of "running on this machine's GPU". The software-rendering hint now says what to do without pointing to a README section.
-- Release gate: GATE_LINE
+- Release gate: typecheck clean; 505 unit tests in 44 files; build clean; 12/12 end-to-end tests (the complete Battle of Earth test now right-clicks the Reaper fleet's row: it had failed since the fleet-row HUD, so CI on `main` was red); launcher smoke test and launcher check on Linux, with Windows and macOS runners in the release workflow; screenshots inspected. Battle results are unchanged: nothing in the simulation changed, and the browser-equals-Node seed-42 test passes.
+
+Known limitations: the simulation runs on one CPU core (very large battles are limited by that core, not the GPU); new hull classes still use placeholder models; 8× playback still lags on large battles.
 
 ## 0.12.3 — Battlegroups instead of rows, free camera
 
