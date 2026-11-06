@@ -22,7 +22,7 @@ export const REAPER_AI = {
   rotateCooldown: 20,
   /** …and trades only with a capital whose slot is within this × the pair's minimum separation (a neighbour). */
   rotateReach: 1.25,
-  /** In the exchange each hull swings out by this × the pair's minimum separation, so they pass abeam. */
+  /** In the exchange each hull climbs or dives by this × the pair's minimum separation, so they pass over and under. */
   transferSwing: 0.6,
   /** Kill the active gun platform: score × this for the enemy with the highest recent damage (+40 %). */
   gunPlatformBonus: 1.4,
@@ -157,14 +157,14 @@ export function transferGoal(ctx: AiContext, ship: ShipState, slotPos: Vec3, slo
   const speedOf = (s: ShipState): number => s.maxSpeed * (0.25 + 0.75 * s.subsystems.engines);
   const own = speedOf(ship);
   const common = Math.min(own, speedOf(t.partner));
-  // The two pass abeam, not through each other (brief §22 clearances): each swings out to its own starboard of the
-  // line to its new slot by up to `transferSwing` × the pair's clearance, the swing tapering to nothing at the slot.
+  // The two pass over and under each other, not through each other (brief §22 clearances): the one with the lower id
+  // climbs and the other dives by up to `transferSwing` × the pair's clearance, the swing tapering to nothing at the
+  // slot. A vertical pass keeps the exchange free of any turn of the formation (a sideways one would wheel the pair).
   const p = t.partner;
-  const lx = slotPos.x - ship.pos.x;
-  const lz = slotPos.z - ship.pos.z;
-  const ll = Math.hypot(lx, lz);
-  const swing = ll > 1e-6 ? REAPER_AI.transferSwing * minSeparationKm(ship, p) * Math.min(1, ll / minSeparationKm(ship, p)) : 0;
-  const pos = ll > 1e-6 ? { x: slotPos.x - (lz / ll) * swing, y: slotPos.y, z: slotPos.z + (lx / ll) * swing } : slotPos;
+  const ll = Math.hypot(slotPos.x - ship.pos.x, slotPos.y - ship.pos.y, slotPos.z - ship.pos.z);
+  const clear = minSeparationKm(ship, p);
+  const swing = REAPER_AI.transferSwing * clear * Math.min(1, ll / clear) * (ship.id < p.id ? 1 : -1);
+  const pos = { x: slotPos.x, y: slotPos.y + swing, z: slotPos.z };
   return { position: pos, speedFraction: own > 0 ? common / own : 1, velocity: slotVel };
 }
 

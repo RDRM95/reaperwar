@@ -1707,8 +1707,10 @@ export class BattleSimulation implements AiContext {
             target = e;
           }
         }
-        // Spinal guns wait for the primary target rather than wasting a shot — except on a volley's or salvo's beat.
-        if (target && def.antiCapital && def.arc <= 20 && primary && primary.alive && target.id !== primary.id && !coordinated && this.rng.chance(0.6)) return undefined;
+        // Spinal guns wait for a primary target within range (turning onto it) rather than wasting a shot — except on a
+        // volley's or salvo's beat; a primary out of range is no reason to hold a gun that has something to shoot.
+        // (The roll is drawn as before whatever the range, so the battle's random stream is not reshuffled by it.)
+        if (target && def.antiCapital && def.arc <= 20 && primary && primary.alive && target.id !== primary.id && !coordinated && this.rng.chance(0.6) && within(primary)) return undefined;
       }
       if (!target) return undefined;
     }
@@ -2159,7 +2161,7 @@ export class BattleSimulation implements AiContext {
     ship.destroyedAt = this.time;
     // The gap it leaves in its fleet's formation, for a hull further back to fill (brief §22).
     const home = this.fleets.get(ship.fleetId);
-    if (home) noteLoss(home, ship);
+    if (home) noteLoss(home, ship, this.membersOf(ship.fleetId));
     if (ship.flight) {
       ship.hull = 0;
       this.noteFlightLosses(ship);

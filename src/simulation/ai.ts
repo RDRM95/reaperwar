@@ -66,6 +66,9 @@ export interface AiContext {
   largestHullKm(): number;
 }
 
+/** A craft farther than this from its carrier (else its fleet's anchor), chasing a target as far out, turns for home. */
+export const CRAFT_LEASH_KM = 100 * S;
+
 /** The expensive part of a fleet decision (member lists, centroids, ranges) is refreshed on this timer (AP §21.5 stagger). */
 export const FLEET_SLOW_INTERVAL = 0.25;
 
@@ -194,6 +197,9 @@ export function scoreTarget(ctx: AiContext, shooter: ShipState, fleet: FleetStat
   return score;
 }
 
+/** A target none of the line's capitals can reach still keeps this share of its focus score (it may come into reach). */
+export const MASS_FLOOR = 0.25;
+
 /** A rogue hull's weight against the other side (AP §4.1). */
 export const ROGUE_PREFERENCE = 1.5;
 
@@ -281,8 +287,10 @@ export function chooseTarget(ctx: AiContext, ship: ShipState, fleet: FleetState)
     // A silent stealth hull beyond its detection range cannot be targeted (brief §15.2).
     if (!detectable(ship, e)) continue;
     let s = scoreTarget(ctx, ship, fleet, e, mainRange);
-    // Slow-turning hulls prefer what their mounts can bear on (craft manoeuvre onto their targets instead).
-    if (!craftShooter) s *= slewFactor(ship, e, Math.hypot(e.pos.x - ship.pos.x, e.pos.y - ship.pos.y, e.pos.z - ship.pos.z));
+    // Slow-turning hulls prefer what their mounts can bear on (craft manoeuvre onto their targets instead) — except
+    // that a fleet's line turns onto its focus, the target it masses on (brief §22: the battlegroups fight as one line).
+    const massing = ship.faction !== 'reaper' && e.id === fleet.focusTargetId;
+    if (!craftShooter && !massing) s *= slewFactor(ship, e, Math.hypot(e.pos.x - ship.pos.x, e.pos.y - ship.pos.y, e.pos.z - ship.pos.z));
     if (s > bestScore) {
       bestScore = s;
       best = e;
@@ -347,11 +355,24 @@ function refreshFleetSlow(ctx: AiContext, fleet: FleetState): FleetSlowState {
     const cur = fleet.focusTargetId ? ctx.getShip(fleet.focusTargetId) : undefined;
     if (!cur || !cur.alive || cur.escaped || ctx.rng.chance(0.3)) {
       const representative = mine.reduce((a, b) => (a.pointValue >= b.pointValue ? a : b));
+      // The line masses on what it can reach: with the capitals spread across battlegroups (brief §22), each candidate
+      // is weighed by the share of the fleet's line capitals that have it within their main battery's range.
+      const line = mine.filter((s) => isCapitalRole(s.role) && s.role !== 'carrier' && !s.stealth);
       let best: ShipState | undefined;
       let bestScore = -Infinity;
       for (const e of ctx.enemyCombatants(fleet.spec.side)) {
         if (!detectable(representative, e)) continue;
-        const s = scoreTarget(ctx, representative, fleet, e, range);
+        let s = scoreTarget(ctx, representative, fleet, e, range);
+        if (line.length > 0) {
+          let mass = 0;
+          for (const c of line) {
+            const d = Math.hypot(e.pos.x - c.pos.x, e.pos.y - c.pos.y, e.pos.z - c.pos.z);
+            let reach = 0;
+            for (const w of c.weapons) if (!w.def.antiSmall && w.def.range > reach) reach = w.def.range;
+            if (d <= reach) mass++;
+          }
+          s *= MASS_FLOOR + mass / line.length;
+        }
         if (s > bestScore) {
           bestScore = s;
           best = e;
@@ -403,7 +424,11 @@ export function fleetStandoff(fleet: FleetState): number {
 export function beginWithdrawal(ctx: AiContext, ship: ShipState, fleet: FleetState): void {
   ship.withdrawing = true;
   ship.recoveryStation = recoveryStation(ship, fleet, fleetStandoff(fleet));
-  shipMotion(ship).withdrawnAt = ctx.time;
+  const m = shipMotion(ship);
+  m.withdrawnAt = ctx.time;
+  // Whatever point it had moved up to is stale once it falls back; it closes again from where it re-engages.
+  m.moveUp = undefined;
+  m.outSince = -1;
 }
 
 /** Ship-level decision: refresh target, decide on tactical withdrawal and re-engagement. */
@@ -473,6 +498,15 @@ function hullGoal(ctx: AiContext, ship: ShipState, fleet: FleetState): MovementG
       const carrier = ctx.getShip(ship.carrierId);
       if (carrier && carrier.alive) return { position: carrier.pos, speedFraction: 1, transit: true };
       if (ship.rearming) ship.rearming = false; // carrier lost: fight on with guns
+    }
+    // A craft that has chased its target far out of the battle breaks off and turns for home (its carrier, else its
+    // fleet): no conga line of fighters and drones flying on in a straight chase past every hull (brief §22).
+    const home = ship.carrierId ? ctx.getShip(ship.carrierId) : undefined;
+    const base = home && home.alive ? home.pos : fleet.anchor;
+    const out = Math.hypot(ship.pos.x - base.x, ship.pos.y - base.y, ship.pos.z - base.z);
+    if (out > CRAFT_LEASH_KM && (!target || Math.hypot(target.pos.x - base.x, target.pos.y - base.y, target.pos.z - base.z) > CRAFT_LEASH_KM)) {
+      ship.manoeuvre = undefined;
+      return { position: base, speedFraction: 1, transit: true };
     }
     if (target && target.alive) return fighterPassGoal(ctx, ship, target, ctx.candidates(ship, 3.2));
     ship.manoeuvre = undefined;
