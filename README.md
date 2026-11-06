@@ -100,7 +100,7 @@ On macOS the browser stays open after its window closes: quit it (⌘Q) or press
 **What the Local Edition changes compared with the web version**
 
 - **Ultra — local GPU** graphics quality, selected on the first run (change it in Settings; your choice is kept): native resolution (your display's full pixel density, up to 3×, instead of High's 2× cap) with antialiasing, full detail and hull meshes kept 2.5× farther away before ships become points, doubled effect budgets (sparks, tracers, barrier flashes, debris, point-defence lines), maximum anisotropic filtering on the generated planet and sky textures, a larger environment map for hull reflections, and a frames-per-second readout beside the draw-call count on the battle HUD. Ultra can be picked in the web version too.
-- **Uncapped frame rate**: the battle view draws as many frames as the GPU can, so a high-refresh monitor is never the limit and the FPS readout shows the real headroom (`--vsync` restores the cap).
+- **Selectable frame rate limit:** the launcher leaves Chrome/Edge uncapped, while the in-game Graphics setting defaults to **144 FPS** for Local Edition. You can change the cap or choose Unlimited; `--vsync` also allows the browser to synchronise to the monitor. The FPS readout reports frames actually drawn.
 - **Cross-origin isolation**: the server sends `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp`, which unlock `SharedArrayBuffer` for a later multi-threaded simulation.
 - The main menu shows *Local Edition* next to the version.
 
