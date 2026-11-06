@@ -35,7 +35,8 @@ function Compatible-Node([string]$executable) {
   if (-not (Test-Path -LiteralPath $executable -PathType Leaf)) { return $false }
   try {
     $version = (& $executable --version 2>$null | Select-Object -First 1)
-    if ($LASTEXITCODE -ne 0 -or $version -notmatch '^v([0-9]+)\.([0-9]+)\.') { return $false }
+    if ($LASTEXITCODE -ne 0) { return $false }
+    if (-not ($version -match '^v([0-9]+)\.([0-9]+)\.')) { return $false }
     $major = [int]$Matches[1]
     $minor = [int]$Matches[2]
     return ($major -ge 23) -or ($major -eq 22 -and $minor -ge 12) -or ($major -eq 20 -and $minor -ge 19)
