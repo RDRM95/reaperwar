@@ -1,0 +1,152 @@
+[
+  {
+    "id": "REF01",
+    "title": "Alliance dreadnought — multi-angle orthographic",
+    "ship": "ALL-004",
+    "type": "Fan reconstruction of on-screen hull",
+    "author": "Troodon80 / RPF reference",
+    "page": "https://www.therpf.com/forums/media/mass-effect-3-alliance-dreadnought-reference-by-troodon80-d524euo.22247/",
+    "image": "https://www.therpf.com/forums/media/mass-effect-3-alliance-dreadnought-reference-by-troodon80-d524euo.22247/full",
+    "use": "Hull profile, bow geometry, stern structure; compare against ME3"
+  },
+  {
+    "id": "REF02",
+    "title": "Normandy SR-1 and SR-2 — top views",
+    "ship": "ALL-001",
+    "type": "Fan reference comparison",
+    "author": "Community orthographic reference",
+    "page": "https://www.therpf.com/forums/threads/uss-normandy.146341/",
+    "image": "https://i.imgur.com/sURXe.jpg",
+    "use": "Silhouette differences and wing/engine placement"
+  },
+  {
+    "id": "REF03",
+    "title": "Cerberus cruiser — 3D model",
+    "ship": "CER-001",
+    "type": "Faithful fan 3D recreation of ME3 shape",
+    "author": "Paul Kiesling",
+    "page": "https://paulkiesling.weebly.com/mass-effect.html",
+    "image": "https://paulkiesling.weebly.com/uploads/2/9/6/4/29644259/6188711_orig.png",
+    "use": "Midbody panel design, bow/wing mass, Cerberus livery"
+  },
+  {
+    "id": "REF04",
+    "title": "Turian cruiser — licensed model photo",
+    "ship": "TUR-001",
+    "type": "Licensed replica / tabletop photograph",
+    "author": "Licensed model photographed by retailer",
+    "page": "https://www.fategate.com/archiv/i/7147-mass-effect-turian-cruiser",
+    "image": "https://www.fategate.com/res/photo/eshop_item/turiancruiser_04.jpg",
+    "use": "Feathered plates, angled red wing and turret geometry"
+  },
+  {
+    "id": "REF05",
+    "title": "Destiny Ascension — captured profile",
+    "ship": "ASA-001",
+    "type": "Game-derived visual repost",
+    "author": "Game capture, reposted to Pinterest",
+    "page": "https://www.pinterest.com/pin/20477373275838391/",
+    "image": "https://i.pinimg.com/originals/0f/dc/2c/0fdc2ca2c88c3ca527f12f6005222d67.png",
+    "use": "Wide bowl shape, rim, tapering extensions, scale impression"
+  },
+  {
+    "id": "REF06",
+    "title": "Quarian ring cruiser — fleet scene",
+    "ship": "QUR-001",
+    "type": "Mass Effect 3 scene / repost",
+    "author": "ME3 scene reposted to WallpaperSafari",
+    "page": "https://wallpapersafari.com/w/g4nks2",
+    "image": "https://cdn.wallpapersafari.com/63/80/g4nks2.jpg",
+    "use": "Ring intersection, front docking spine, side thrusters"
+  },
+  {
+    "id": "REF07",
+    "title": "Geth dreadnought — artist portfolio",
+    "ship": "GET-002",
+    "type": "Primary developer work (open page)",
+    "author": "Rion Swanson",
+    "page": "https://www.rion-art.com/mass-effect-3",
+    "image": "",
+    "use": "Direct game-artist reference. Prioritise over fan renders."
+  },
+  {
+    "id": "REF08",
+    "title": "Sovereign Reaper — 3D extracted model reference",
+    "ship": "REP-001",
+    "type": "Community extracted/ported asset",
+    "author": "SFMLab contributor; game mesh attribution subject to licence",
+    "page": "https://sfmlab.com/project/4bd54c6e-8304-48d9-8255-1aac7f636b2b/",
+    "image": "https://thumbcdn.open3dlab.com/projectfile/reaper4_s91fuHy_thumb.png",
+    "use": "Carapace segment profiles and leg attachment points"
+  },
+  {
+    "id": "REF09",
+    "title": "Collector vessel — multi-angle recon",
+    "ship": "COL-001",
+    "type": "Fan orthographic reference of game geometry",
+    "author": "Troodon80, mirror",
+    "page": "https://forum.blockland.us/index.php?topic=226515.30",
+    "image": "https://images-wixmp-ed30a86b8c4ca887773594c2.wixmp.com/f/ddc8d17f-0973-41dc-8401-638d3e540b83/d4i66f8-5707fc09-ce1f-439a-843b-4bdac417b817.jpg/v1/fill/w_900%2Ch_800%2Cq_75%2Cstrp/mass_effect_2__collector_particle_beam_reference__by_troodon80-d4i66f8.jpg?token=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJ1cm46YXBwOjdlMGQxODg5ODIyNjQzNzNhNWYwZDQxNWVhMGQyNmUwIiwiaXNzIjoidXJuOmFwcDo3ZTBkMTg4OTgyMjY0MzczYTVmMGQ0MTVlYTBkMjZlMCIsImF1ZCI6WyJ1cm46YXBwOjdlMGQxODg5ODIyNjQzNzNhNWYwZDQxNWVhMGQyNmUwIiwib2JqIjpbW3siaGVpZ2h0IjoiPD04MDAiLCJwYXRoIjoiL2YvZGRjOGQxN2YtMDk3My00MWRjLTg0MDEtNjM4ZDNlNTQwYjgzL2Q0aTY2ZjgtNTcwN2ZjMDktY2UxZi00MzlhLTg0YzJkN2I4MTcuanBnIiwid2lkdGgiOiI8PTkwMCJ9XV19.SZOCoX0-ZmAMRzh_BdHIrCtbyHdtq6puYHfw_gkDcAlQ",
+    "use": "Multi-angle insect-hive profile; source image may expire"
+  },
+  {
+    "id": "REF10",
+    "title": "Alliance fighter — ortho reference",
+    "ship": "ALL-005",
+    "type": "Fan orthographic reference",
+    "author": "Community / Pinterest rehost",
+    "page": "https://uk.pinterest.com/pin/70157706675451364/",
+    "image": "https://i.pinimg.com/736x/a4/47/2a/a4472a8480bf45bca6c072a29e496a6f.jpg",
+    "use": "Weapon hardpoints and engine panels; verify with in-game capture"
+  },
+  {
+    "id": "REF11",
+    "title": "Asari fleet comparison — fan expansions",
+    "ship": "ASA-002",
+    "type": "FAN DESIGNS — not canonical classes",
+    "author": "Euderion / Thomas Raube",
+    "page": "https://www.deviantart.com/euderion/art/Asari-Starship-Size-Comparison-633753493",
+    "image": "https://images-wixmp-ed30a86b8c4ca887773594c2.wixmp.com/f/14742e20-ac3e-4580-b025-163d5b8c6575/dahbjbp-9e5d7194-5fb9-400d-9c16-c4440d44e925.jpg/v1/fill/w_1168%2Ch_684%2Cq_70%2Cstrp/asari_starship_size_comparison_by_euderion_dahbjbp-pre.jpg",
+    "use": "Inspiration only for new Apex asari variants"
+  },
+  {
+    "id": "REF12",
+    "title": "Alliance and Cerberus comparative geometry",
+    "ship": "ALL-003",
+    "type": "Fan mesh comparison",
+    "author": "Nach77 / DeviantArt, Pinterest rehost",
+    "page": "https://www.pinterest.com/pin/comparison-alliance-cruiser-vs-cerberus-cruiser-by-nach77-on-deviantart--536913586809583819/",
+    "image": "https://i.pinimg.com/736x/0c/94/8b/0c948b5dc4f94aa0fd7e140c6973ab57.jpg",
+    "use": "Distinguish ship geometry from recolours"
+  },
+  {
+    "id": "REF13",
+    "title": "Geth cruiser — reconstructed physical model",
+    "ship": "GET-001",
+    "type": "Fan reproduction photograph",
+    "author": "Etsy community model",
+    "page": "https://www.etsy.com/listing/1427935908/3d-printed-geth-cruiser-from-mass-effect",
+    "image": "https://i.etsystatic.com/30228829/r/il/5d44d2/4783827595/il_fullxfull.4783827595_thr6.jpg",
+    "use": "Only secondary; compare against ME1 and model ship"
+  },
+  {
+    "id": "REF14",
+    "title": "Sovereign / 160 m destroyer codex",
+    "ship": "REP-003",
+    "type": "Primary textual reference",
+    "author": "Mass Effect 3 codex",
+    "page": "https://masseffect.fandom.com/wiki/Codex/The_Reapers",
+    "image": "",
+    "use": "Preserve 2 km vs 160 m scale separation and anatomy"
+  },
+  {
+    "id": "REF15",
+    "title": "Batarian warship reconstruction",
+    "ship": "BAT-002",
+    "type": "Concept interpretation / fan model",
+    "author": "Paul Kiesling, inspired by BioWare concept",
+    "page": "https://paulkiesling.weebly.com/mass-effect.html",
+    "image": "",
+    "use": "Concept direction only, NOT original game mesh"
+  }
+]
