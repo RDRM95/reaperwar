@@ -1,6 +1,7 @@
 import { audio, type SoundId } from '@/audio/engine';
 import { DEFAULT_PREFERENCES, storage, type Preferences } from '@/core/storage';
 import { DEFAULT_PERF_BUDGET, type PerfBudget } from '@/core/perfGovernor';
+import { schedulePresentation } from '@/core/frameLimiter';
 import { BattleView } from '@/rendering/battleView';
 import { startupGraphics } from '@/rendering/localHardware';
 import type { CameraMode } from '@/rendering/cameras';
@@ -63,6 +64,7 @@ export class BattleController {
   hudHidden = false;
   private accumulator = 0;
   private lastFrame = performance.now();
+  private nextPresentAt = 0;
   private raf = 0;
   private disposed = false;
   private keys = new Set<string>();
@@ -227,6 +229,15 @@ export class BattleController {
 
   private loop(now: number): void {
     if (this.disposed) return;
+    // Cap actual rendering, not the simulation's fixed timestep. A 144 Hz
+    // monitor presents at most 144 frames; spare main-thread time goes to the
+    // game's simulation rather than unnecessary offscreen frames.
+    const gate = schedulePresentation(now, this.nextPresentAt, this.app.prefs.graphics.frameCap ?? 0);
+    this.nextPresentAt = gate.nextAtMs;
+    if (!gate.present) {
+      this.raf = requestAnimationFrame(this.loop);
+      return;
+    }
     const dtReal = Math.min(0.1, (now - this.lastFrame) / 1000);
     this.lastFrame = now;
     this.handleKeys(dtReal);
