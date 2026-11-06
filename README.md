@@ -81,6 +81,14 @@ On macOS the browser stays open after its window closes: quit it (⌘Q) or press
 - **Cross-origin isolation**: the server sends `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp`, which unlock `SharedArrayBuffer` for a later multi-threaded simulation.
 - The main menu shows *Local Edition* next to the version.
 
+**Large-battle visibility and rendering (web and Local Edition)**
+
+- When more than 64 simulated ships/flights are active, tactical labels become **fleet name + current vessel count**, and the side panels show one selectable row per fleet instead of dozens of individual ship rows. As an engagement shrinks, individual ship details return automatically.
+- Zooming in, hovering or selecting a ship preserves its identity and status. Selecting a whole fleet no longer draws thousands of individual targeting lines.
+- The far-ship point cloud now grows beyond its former 2,048-vessel limit; distant ships share one GPU draw call rather than being silently omitted.
+- At very large ship counts, the camera keeps a bounded set of nearby detailed hulls and renders the rest as points. This controls draw calls without changing combat, AI, losses or replay results.
+- These are **rendering/UI optimisations**, not a promise of thousands of fully detailed hull meshes at a fixed frame rate. The single-thread simulation limit below remains.
+
 **What it does not change yet**
 
 - The simulation still runs on one CPU core, on the browser's main thread: very large battles are limited by that core, not by the GPU. Fixing 8× playback and moving the simulation to a worker thread are separate work.
