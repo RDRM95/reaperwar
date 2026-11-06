@@ -64,6 +64,7 @@ export class ShipBatches {
     for (const part of batch.parts) {
       const old = part.mesh;
       this.scene.remove(old);
+      old.dispose(); // release the prior instance-matrix GPU buffers
       const replacement = new THREE.InstancedMesh(part.geometry, part.material, capacity);
       replacement.name = old.name;
       replacement.frustumCulled = false;
@@ -112,7 +113,10 @@ export class ShipBatches {
 
   clear(): void {
     for (const batch of this.batches.values()) {
-      for (const part of batch.parts) this.scene.remove(part.mesh);
+      for (const part of batch.parts) {
+        this.scene.remove(part.mesh);
+        part.mesh.dispose(); // do not dispose shared template geometry/material
+      }
     }
     this.batches.clear();
   }
