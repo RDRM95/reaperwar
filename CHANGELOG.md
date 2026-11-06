@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.12.4 — Readable battles: labels that never pile up
+
+- **No overlapping labels.** Ship names are placed in priority order — your selection and the ship under the cursor, flagships and named ships, the followed ship, capitals, damaged hulls, then the rest — and a name that would overlap another, cover a HUD panel or leave the screen is skipped. Every ship keeps its marker; names hold their place between frames instead of jumping.
+- **Battlegroup and fleet labels.** When a battlegroup crowds together on screen it gets one label, such as "SSV Fuji group · 10" or "RC-01 group · 3"; when a whole fleet crowds, "Geth fleet · 21/21". Zooming in brings the individual names back. Two-ship groups always keep both names.
+- **Large-battle panels.** Above 48 ships per side (Settings: 24 to 128, or never) the fleet panels list fleets with live and deployed counts, expandable to battlegroups and ships; clicking selects, double-clicking focuses the camera, right-clicking a hostile row attacks it.
+- **O toggles the tactical overlay** independently of H, so a recording without the HUD can keep the markers, or a full HUD can hide them; the pause menu has the same switch.
+- Health bars show for named ships, the selection and the command view, instead of a stack of bars on every hull.
+- Release gate: typecheck clean; 503 unit tests; build clean; 14/14 end-to-end tests (new: no overlapping labels in the Final Battle, fleet rows, the overlay toggle); screenshots inspected. Battle results are unchanged (the browser-equals-Node seed-42 test still passes).
+
 ## 0.12.3 — Battlegroups instead of rows, free camera
 
 - **Battlegroup formations.** Every fleet deploys as battlegroups: each capital leads its own escorts in a loose 3D cluster, the groups stand in staggered echelons in depth and height, and seeded variation means no ships line up in rows or columns. Screens fly ahead of their group, carriers behind and above; Reapers fly as capital-led clusters with their destroyers. Capitals keep at least three of their own lengths apart, and groups keep enough room for a camera to tell them apart.
