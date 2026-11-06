@@ -316,31 +316,59 @@ export class SpatialGrid {
     return this.collect(k);
   }
 
-  /** Whether any live hull of the filter's targeting set lies within `r` km of `p` (early exit). */
+  /**
+   * Boolean range probe for mount firing eligibility. Unlike queryRadius,
+   * this must never gather/sort every candidate cell before checking hulls:
+   * 4,000 ships probing a broad 3D range every 20 Hz tick could otherwise
+   * scan the full cell table thousands of times even when the first matching
+   * enemy is close enough. Early exit cannot change the deterministic result.
+   */
   anyWithin(p: Vec3, r: number, filter?: GridFilter): boolean {
     if (this.n === 0 || this.cellCountValue === 0 || !(r >= 0)) return false;
-    const r2 = r * r;
-    const ships = this.ships;
     const inv = this.invCell;
-    const cells = this.collectCells(
-      clampCell(Math.floor((p.x - r) * inv)),
-      clampCell(Math.floor((p.y - r) * inv)),
-      clampCell(Math.floor((p.z - r) * inv)),
-      clampCell(Math.floor((p.x + r) * inv)),
-      clampCell(Math.floor((p.y + r) * inv)),
-      clampCell(Math.floor((p.z + r) * inv)),
-      filterMask(filter),
-    );
-    for (let q = 0; q < cells; q++) {
-      const c = this.cellScratch[q];
-      const end = this.cellStart[c + 1];
-      for (let idx = this.cellStart[c]; idx < end; idx++) {
+    const lx = Math.max(this.lo[0], clampCell(Math.floor((p.x - r) * inv)));
+    const ly = Math.max(this.lo[1], clampCell(Math.floor((p.y - r) * inv)));
+    const lz = Math.max(this.lo[2], clampCell(Math.floor((p.z - r) * inv)));
+    const hx = Math.min(this.hi[0], clampCell(Math.floor((p.x + r) * inv)));
+    const hy = Math.min(this.hi[1], clampCell(Math.floor((p.y + r) * inv)));
+    const hz = Math.min(this.hi[2], clampCell(Math.floor((p.z + r) * inv)));
+    if (lx > hx || ly > hy || lz > hz) return false;
+    const r2 = r * r;
+    const want = filterMask(filter);
+    const ships = this.ships;
+
+    const hasCandidate = (cell: number): boolean => {
+      if ((this.cellSides[cell] & want) === 0) return false;
+      const end = this.cellStart[cell + 1];
+      for (let idx = this.cellStart[cell]; idx < end; idx++) {
         const s = ships[this.cellItems[idx]];
         if (!gridFilterPasses(filter, s)) continue;
         const dx = s.pos.x - p.x;
         const dy = s.pos.y - p.y;
         const dz = s.pos.z - p.z;
         if (dx * dx + dy * dy + dz * dz <= r2) return true;
+      }
+      return false;
+    };
+
+    const span = (hx - lx + 1) * (hy - ly + 1) * (hz - lz + 1);
+    if (span > this.cellCountValue) {
+      // Sparse/wide probes: avoid visiting every empty grid slot, and stop
+      // at the FIRST matching hull rather than collecting all matching cells.
+      for (let cell = 0; cell < this.cellCountValue; cell++) {
+        if ((this.cellSides[cell] & want) === 0) continue;
+        const cx = this.cellCx[cell], cy = this.cellCy[cell], cz = this.cellCz[cell];
+        if (cx < lx || cx > hx || cy < ly || cy > hy || cz < lz || cz > hz) continue;
+        if (hasCandidate(cell)) return true;
+      }
+      return false;
+    }
+    for (let cx = lx; cx <= hx; cx++) {
+      for (let cy = ly; cy <= hy; cy++) {
+        for (let cz = lz; cz <= hz; cz++) {
+          const cell = this.findCell(packKey(cx, cy, cz));
+          if (cell >= 0 && hasCandidate(cell)) return true;
+        }
       }
     }
     return false;
