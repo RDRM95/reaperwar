@@ -163,7 +163,9 @@ describe('Oculus screen', () => {
     expect(r.oculusStats!.lastSmallCraftDeath!).toBeGreaterThanOrEqual(60);
     expect(r.oculusStats!.lastSmallCraftDeath!).toBeLessThanOrEqual(120);
     expect(r.oculusStats!.oculiLost).toBeGreaterThanOrEqual(20);
-    expect(r.oculusStats!.tridentsLost).toBeGreaterThanOrEqual(8);
+    // ≥ 8 until brief §22; the battlegroup stations and the craft leash put seed 1 at 6 (seeds 1–10 measure 6–23 Tridents
+    // lost, mean 11.7; before brief §22 they measured 5–16, mean 9.6, with 10 / 9 / 10 on the pinned seeds).
+    expect(r.oculusStats!.tridentsLost).toBeGreaterThanOrEqual(6);
     expect(r.oculusStats!.tridentsLost).toBeLessThanOrEqual(23);
   }, 120_000);
 });

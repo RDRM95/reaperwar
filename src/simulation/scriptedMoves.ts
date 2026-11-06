@@ -36,6 +36,8 @@ interface StrafeMove {
 
 type ScriptedMove = ApproachMove | StrafeMove;
 const MOVES = new WeakMap<ShipState, ScriptedMove>();
+/** Whether a hull is flying a scripted move (its close pass is the point: the clearance backstop leaves it alone). */
+export const inScriptedMove = (ship: ShipState): boolean => MOVES.has(ship);
 
 /** The world position of a ship-local point (metres) on a hull: forward +z, right +x, up +y (the mount convention). */
 export function shipLocalToWorld(ship: ShipState, local: Vec3): Vec3 {

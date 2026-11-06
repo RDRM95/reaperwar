@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildCustomBattle, buildScenario } from '@/scenarios';
+import { buildCustomBattle, buildScenario, SCENARIO_SPACING } from '@/scenarios';
 import { BattleSimulation } from '@/simulation/battle';
 import { getShipClass, SHIP_CLASS_LIST } from '@/data/ships';
 import { createCampaign, orderMove } from '@/campaign/engine';
@@ -28,7 +28,8 @@ describe('Salarian Union', () => {
     const apex = new BattleSimulation(buildScenario('defence_of_surkesh', 'prime_apex', 5, { stg_warning: 'early' })).run();
     expect(apex.sides.B.destroyed).toBeGreaterThan(canon.sides.B.destroyed);
     const late = buildScenario('defence_of_surkesh', 'canon_me3', 5, { stg_warning: 'late' });
-    expect(late.fleets.find((f) => f.name === 'Reaper flanking group')?.arrivalTime).toBe(25);
+    // 25 s at the old distances; arrival times scale with the scenarios' SCENARIO_SPACING (1.6, brief §22): 40 s.
+    expect(late.fleets.find((f) => f.name === 'Reaper flanking group')?.arrivalTime).toBe(Math.round(25 * SCENARIO_SPACING));
   });
 
   it('custom battles accept salarian fleets', () => {

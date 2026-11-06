@@ -1,6 +1,6 @@
 import type { App } from '../app';
 import { el } from '../dom';
-import { buildCustomBattle, type CustomBattleInput, type CustomFaction, type CustomFleetInput } from '@/scenarios';
+import { CUSTOM_DEFAULT_DISTANCE, CUSTOM_DEFAULT_DURATION, buildCustomBattle, type CustomBattleInput, type CustomFaction, type CustomFleetInput } from '@/scenarios';
 import { FACTIONS } from '@/data/factions';
 import { SHIP_CLASS_LIST, getShipClass } from '@/data/ships';
 import { FORMATION_LABELS, type Environment, type FormationType } from '@/simulation/types';
@@ -37,7 +37,7 @@ const DEFAULT_INPUT: CustomBattleInput = {
   seed: 42,
   rulesId: 'canon_me3',
   environment: 'deep_space',
-  startingDistanceKm: 76,
+  startingDistanceKm: CUSTOM_DEFAULT_DISTANCE,
   sideA: { faction: 'alliance', name: 'Alliance Task Force', formation: 'line_abreast', counts: { alliance_dreadnought: 8, alliance_carrier: 1, alliance_cruiser: 16, alliance_frigate: 30, alliance_frigate_thanix: 1 } },
   sideB: { faction: 'reaper', name: 'Reaper harvest group', formation: 'strike_wedge', counts: { reaper_capital: 4, reaper_destroyer: 8, harbinger: 0 } },
   extraA: [],
@@ -45,7 +45,7 @@ const DEFAULT_INPUT: CustomBattleInput = {
   reinforcementTime: 0,
   reinforcementFaction: 'reaper',
   reinforcementCounts: {},
-  maxDuration: 420,
+  maxDuration: CUSTOM_DEFAULT_DURATION,
 };
 
 const newFleet = (fac: CustomFaction): CustomFleetInput => ({ faction: fac, name: FACTION_DEFAULTS[fac].name, formation: FACTION_DEFAULTS[fac].formation, counts: { ...FACTION_DEFAULTS[fac].counts }, arrivalTime: 0 });
@@ -149,12 +149,12 @@ export function renderCustom(app: App): HTMLElement {
             } }, app.allTimelines().map((t) => el('option', { value: t.id, selected: input.rulesId === t.id }, timelineOptionLabel(t))))]),
             auNote,
             el('label', { class: 'field' }, ['Battlefield', el('select', { onchange: (e: Event) => (input.environment = (e.target as HTMLSelectElement).value as Environment) }, ENVIRONMENTS.map((x) => el('option', { value: x.id, selected: input.environment === x.id }, x.label)))]),
-            el('label', { class: 'field' }, [`Starting distance: ${input.startingDistanceKm} km`, el('input', { type: 'range', min: 30, max: 160, step: 2, value: input.startingDistanceKm, oninput: (e: Event) => {
+            el('label', { class: 'field' }, [`Starting distance: ${input.startingDistanceKm} km`, el('input', { type: 'range', min: 30, max: 260, step: 2, value: input.startingDistanceKm, oninput: (e: Event) => {
               input.startingDistanceKm = Number((e.target as HTMLInputElement).value);
               (e.target as HTMLElement).parentElement!.firstChild!.textContent = `Starting distance: ${input.startingDistanceKm} km`;
             } })]),
             el('label', { class: 'field' }, ['Random seed', el('input', { type: 'number', value: input.seed, onchange: (e: Event) => (input.seed = Number((e.target as HTMLInputElement).value) || 0) })]),
-            el('label', { class: 'field' }, ['Time limit (s)', el('input', { type: 'number', value: input.maxDuration ?? 420, min: 60, onchange: (e: Event) => (input.maxDuration = Math.max(60, Number((e.target as HTMLInputElement).value) || 420)) })]),
+            el('label', { class: 'field' }, ['Time limit (s)', el('input', { type: 'number', value: input.maxDuration ?? CUSTOM_DEFAULT_DURATION, min: 60, onchange: (e: Event) => (input.maxDuration = Math.max(60, Number((e.target as HTMLInputElement).value) || CUSTOM_DEFAULT_DURATION)) })]),
           ]),
           el('div', { class: 'panel red' }, [
             el('div', { class: 'panel-title' }, 'SIDE B REINFORCEMENTS'),
