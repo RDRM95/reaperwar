@@ -8,16 +8,20 @@ import { slotToWorld } from './formations';
 import {
   REWITHDRAW_COOLDOWN,
   WITHDRAWAL,
+  bearVertically,
   carrierGoal,
   fighterPassGoal,
   fleetMotion,
   frigateRunGoal,
   frigateRuns,
+  moveUpGoal,
   reaperAdvanceGoal,
   recoveryStation,
+  separationRepel,
   shipMotion,
   standoffOf,
   stationGoal,
+  stationOf,
   stationThreatened,
   steerFleet,
   type FleetView,
@@ -56,6 +60,10 @@ export interface AiContext {
   candidates(ship: ShipState, radius: number): ShipState[];
   /** The visible enemy combatant with the highest recent damage — the Reapers' "active gun platform" (AP §10; cached per tick). */
   activeGunPlatform(side: 'A' | 'B'): ShipState | undefined;
+  /** Every live hull of either side within `radius` of `p` through the spatial grid (separation steering, brief §22). */
+  hullsNear(p: Vec3, radius: number): ShipState[];
+  /** Length of the largest live non-craft hull in the battle (km; cached per tick). */
+  largestHullKm(): number;
 }
 
 /** The expensive part of a fleet decision (member lists, centroids, ranges) is refreshed on this timer (AP §21.5 stagger). */
@@ -308,12 +316,27 @@ function refreshFleetSlow(ctx: AiContext, fleet: FleetState): FleetSlowState {
   const mine = ctx.membersOf(fleet.spec.id).filter((s) => s.role !== 'fighter' && !s.withdrawing);
   const enemyCentre = ctx.enemyCentroid(fleet.spec.side);
   // Stealth hunters never hold a station, so they do not pull the anchor's lag clamp after them.
-  const myCentre = centroid(mine.filter((s) => !s.stealth)) ?? fleet.anchor;
+  const keepers = mine.filter((s) => !s.stealth);
+  const myCentre = centroid(keepers) ?? fleet.anchor;
+  // The same weighting over the slots: the fleet's centre off its anchor (movement.ts, the anchor's lag clamp).
+  let slotCentre: Vec3 | undefined;
+  if (keepers.length > 0) {
+    const c = v3();
+    let w = 0;
+    for (const s of keepers) {
+      const k = Math.max(1, s.pointValue);
+      c.x += s.slot.x * k;
+      c.y += s.slot.y * k;
+      c.z += s.slot.z * k;
+      w += k;
+    }
+    slotCentre = scale(c, 1 / w);
+  }
   const range = fleetEngagementRange(mine);
   let slotRadius = 0;
   // The capital line's width limits how fast the formation may turn (escort screens are excluded: they can catch up).
   for (const s of mine) if (!s.stealth && isCapitalRole(s.role)) slotRadius = Math.max(slotRadius, Math.hypot(s.slot.x, s.slot.z));
-  const slow: FleetSlowState = { mine, enemyCentre, myCentre, anchorSpeed: 0, range, spinal: spinalRange(mine), slotRadius };
+  const slow: FleetSlowState = { mine, enemyCentre, myCentre, anchorSpeed: 0, range, spinal: spinalRange(mine), slotRadius, slotCentre };
   if (mine.length === 0) return slow;
 
   // Focus target: periodically re-evaluated (never a silent stealth hull nobody can see).
@@ -424,12 +447,25 @@ export function movementGoal(ctx: AiContext, ship: ShipState, fleet: FleetState)
     const run = driveRunGoal(ctx, ship);
     if (run) return run;
   }
-  const target = ship.targetId ? ctx.getShip(ship.targetId) : undefined;
-  const slotVel = fleetMotion(fleet).anchorVel;
-
   // A scripted move (`Specials.approach`, `Specials.strafeThrough`) overrides every other goal while it lasts.
   const scripted = scriptedGoal(ctx, ship);
   if (scripted) return scripted;
+  // Every other hull keeps clear of every other hull by its size-scaled separation (brief §22).
+  return withSeparation(ctx, ship, hullGoal(ctx, ship, fleet));
+}
+
+/** Add the separation bias (brief §22) to a hull's goal; small craft fly their own passes without it. */
+function withSeparation(ctx: AiContext, ship: ShipState, goal: MovementGoal): MovementGoal {
+  if (ship.role === 'fighter') return goal;
+  const rep = separationRepel(ctx, ship);
+  if (!rep) return goal;
+  const r = goal.repel;
+  return { ...goal, repel: r ? v3(r.x + rep.x, r.y + rep.y, r.z + rep.z) : rep };
+}
+
+function hullGoal(ctx: AiContext, ship: ShipState, fleet: FleetState): MovementGoal {
+  const target = ship.targetId ? ctx.getShip(ship.targetId) : undefined;
+  const slotVel = fleetMotion(fleet).anchorVel;
 
   // Fighters and Oculi: recall and rearm at the carrier, else strafing passes.
   if (ship.role === 'fighter') {
@@ -467,19 +503,30 @@ export function movementGoal(ctx: AiContext, ship: ShipState, fleet: FleetState)
     }
   }
 
-  const slotPos = slotToWorld(fleet.anchor, fleet.heading, ship.slot);
+  // The station: on the group leader for an escort, on the anchor for a leader (brief §22).
+  const station = stationOf(ctx, ship, fleet);
   // A capital in a rotate-protection slot exchange flies to its new slot first (AP §10).
   if (ship.role === 'reaper_capital') {
-    const transfer = transferGoal(ctx, ship, slotPos, slotVel);
+    const transfer = transferGoal(ctx, ship, station.pos, station.vel);
     if (transfer) return transfer;
   }
   if (target && target.alive && frigateRuns(ship, fleet)) return frigateRunGoal(ctx, ship, fleet, target);
   ship.manoeuvre = undefined;
-  if (ship.role === 'carrier') return carrierGoal(ctx, ship, fleet, slotPos, slotVel, target);
-  // Reapers never idle: with no target in range and the anchor stopped, close on the nearest enemy group.
+  // Every goal from here on keeps the hull's arc-limited guns able to bear on its target (brief §22).
+  return bearVertically(ship, stationedGoal(ctx, ship, fleet, station, target), target);
+}
+
+/** The goal of a hull in the line: moving up, advancing (Reapers), the carrier stand-off, or its station. */
+function stationedGoal(ctx: AiContext, ship: ShipState, fleet: FleetState, station: { pos: Vec3; vel: Vec3 }, target: ShipState | undefined): MovementGoal {
+  // Reapers never idle: once engaged, with no target in range, close on the nearest enemy hull (Q3).
   if (ship.faction === 'reaper') {
     const advance = reaperAdvanceGoal(ctx, ship, fleet, target);
     if (advance) return advance;
+  } else {
+    // No organic hull idles at the back: out of reach for 10 s while engaged, it moves up (brief §22, Q2b).
+    const up = moveUpGoal(ctx, ship, fleet);
+    if (up) return up;
   }
-  return stationGoal(ship, fleet, slotPos, slotVel, target);
+  if (ship.role === 'carrier') return carrierGoal(ctx, ship, fleet, station.pos, station.vel, target);
+  return stationGoal(ship, fleet, station.pos, station.vel, target);
 }

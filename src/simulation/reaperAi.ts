@@ -1,7 +1,7 @@
 import { v3, type Vec3 } from '@/core/vec3';
 import { isCapitalRole } from '@/data/types';
 import type { AiContext, MovementGoal } from './ai';
-import { slotToWorld } from './formations';
+import { minSeparationKm, slotToWorld } from './formations';
 import { silentHull } from './stealth';
 import type { FleetState, InterposeState, ShipState } from './types';
 
@@ -20,6 +20,10 @@ export const REAPER_AI = {
   rotateHealthyFraction: 0.6,
   /** A capital that rotated does not rotate again for this long (no slot flip-flopping). */
   rotateCooldown: 20,
+  /** …and trades only with a capital whose slot is within this × the pair's minimum separation (a neighbour). */
+  rotateReach: 1.25,
+  /** In the exchange each hull swings out by this × the pair's minimum separation, so they pass abeam. */
+  transferSwing: 0.6,
   /** Kill the active gun platform: score × this for the enemy with the highest recent damage (+40 %). */
   gunPlatformBonus: 1.4,
   /** Cover a damaged capital: below this hull fraction the two nearest destroyers interpose. */
@@ -40,6 +44,8 @@ export const REAPER_AI = {
    */
   interposeProtecteeLength: 0.6,
   interposeShipLength: 0.5,
+  /** …and never nearer than this × the pair's minimum separation (formations.ts `minSeparationKm`; brief §22). */
+  interposeClearance: 0.6,
 } as const;
 
 /** The cover states the Reaper AI set itself; a scripted `interpose` (`Specials.interpose`) is never released by the AI. */
@@ -105,6 +111,10 @@ export function rotateProtection(ctx: AiContext, ship: ShipState, fleet: FleetSt
   for (const s of ctx.membersOf(fleet.spec.id)) {
     if (s === ship || s.role !== 'reaper_capital' || s.withdrawing || s.maxBarriers <= 0 || abandoned(ctx, s)) continue;
     if (now - (LAST_ROTATION.get(s) ?? -Infinity) < REAPER_AI.rotateCooldown) continue;
+    // A neighbouring slot only: battlegroups stand several capital lengths apart, and a swap across the formation
+    // would carry the damaged hull out of the fight rather than behind a fresh barrier (brief §22 spacing).
+    const gap = Math.hypot(s.slot.x - ship.slot.x, s.slot.y - ship.slot.y, s.slot.z - ship.slot.z);
+    if (gap > REAPER_AI.rotateReach * minSeparationKm(ship, s)) continue;
     const f = s.barriers / s.maxBarriers;
     if (f > bestFrac) {
       bestFrac = f;
@@ -147,7 +157,15 @@ export function transferGoal(ctx: AiContext, ship: ShipState, slotPos: Vec3, slo
   const speedOf = (s: ShipState): number => s.maxSpeed * (0.25 + 0.75 * s.subsystems.engines);
   const own = speedOf(ship);
   const common = Math.min(own, speedOf(t.partner));
-  return { position: slotPos, speedFraction: own > 0 ? common / own : 1, velocity: slotVel };
+  // The two pass abeam, not through each other (brief §22 clearances): each swings out to its own starboard of the
+  // line to its new slot by up to `transferSwing` × the pair's clearance, the swing tapering to nothing at the slot.
+  const p = t.partner;
+  const lx = slotPos.x - ship.pos.x;
+  const lz = slotPos.z - ship.pos.z;
+  const ll = Math.hypot(lx, lz);
+  const swing = ll > 1e-6 ? REAPER_AI.transferSwing * minSeparationKm(ship, p) * Math.min(1, ll / minSeparationKm(ship, p)) : 0;
+  const pos = ll > 1e-6 ? { x: slotPos.x - (lz / ll) * swing, y: slotPos.y, z: slotPos.z + (lx / ll) * swing } : slotPos;
+  return { position: pos, speedFraction: own > 0 ? common / own : 1, velocity: slotVel };
 }
 
 /**
@@ -233,7 +251,8 @@ export function interposeGoal(ctx: AiContext, ship: ShipState): MovementGoal | u
   const dz = toward.z - p.pos.z;
   const len = Math.hypot(dx, dy, dz);
   if (len < 1e-6) return { position: p.pos, speedFraction: 1, velocity: p.vel };
-  const gap = Math.min(0.5 * len, REAPER_AI.interposeProtecteeLength * p.lengthKm + REAPER_AI.interposeShipLength * ship.lengthKm);
+  // Never inside the pair's own clearance (brief §22: hulls keep their size-scaled separation).
+  const gap = Math.min(0.5 * len, Math.max(REAPER_AI.interposeProtecteeLength * p.lengthKm + REAPER_AI.interposeShipLength * ship.lengthKm, REAPER_AI.interposeClearance * minSeparationKm(p, ship)));
   return { position: v3(p.pos.x + (dx / len) * gap, p.pos.y + (dy / len) * gap, p.pos.z + (dz / len) * gap), speedFraction: 1, velocity: p.vel, face: toward };
 }
 

@@ -6,6 +6,7 @@ import type { FactionId } from '@/data/types';
 import { BattleSimulation } from '@/simulation/battle';
 import type { BattleConfig, BattleResult, FleetSpec } from '@/simulation/types';
 import { isApexRules, type RuleSet } from '@/timelines/rules';
+import { SCENARIO_SPACING } from '@/scenarios';
 import { getSystem, neighbours, relayPath, SYSTEMS, type SystemId } from './galaxy';
 import type { Allegiance, CampaignEvent, CampaignFleet, CampaignState, FactionStatus, PendingEngagement, SystemState } from './state';
 import { crucibleRateModifier, groundWar, indoctrinationModifier, liberationClear, politicalPhase, refugeePhase, researchPhase, researchTech, resolveSummit, type SummitChoice } from './depth';
@@ -264,7 +265,7 @@ export function buildEngagement(state: CampaignState, pending: PendingEngagement
       side: 'A',
       ships: Object.entries(scaleCounts(f.counts, kA)).map(([classId, count]) => ({ classId, count })),
       formation: f.faction === 'reaper' ? 'strike_wedge' : i === 0 ? 'line_abreast' : 'defensive_screen',
-      position: v3(-18 + i * 18, 0, -36 - i * 4),
+      position: v3((-18 + i * 18) * SCENARIO_SPACING, 0, (-36 - i * 4) * SCENARIO_SPACING),
       heading: v3(0, 0, 1),
       playerControlled: f.playerControlled,
       techOverride,
@@ -277,7 +278,7 @@ export function buildEngagement(state: CampaignState, pending: PendingEngagement
     const cls = DEFENCE_CLASSES[fac];
     if (cls) {
       const n = Math.max(1, Math.round(sys.defence * st.defence));
-      fleets.push({ id: `defence-${sys.id}`, name: `${sys.world} orbital defence`, faction: fac, side: 'A', ships: [{ classId: cls.cruiser, count: Math.ceil(n / 2) }, { classId: cls.frigate, count: n }], formation: 'defensive_screen', position: v3(0, -4, -24), heading: v3(0, 0, 1), initialOrder: { order: 'defend_position' } });
+      fleets.push({ id: `defence-${sys.id}`, name: `${sys.world} orbital defence`, faction: fac, side: 'A', ships: [{ classId: cls.cruiser, count: Math.ceil(n / 2) }, { classId: cls.frigate, count: n }], formation: 'defensive_screen', position: v3(0, -4 * SCENARIO_SPACING, -24 * SCENARIO_SPACING), heading: v3(0, 0, 1), initialOrder: { order: 'defend_position' } });
     }
   }
   reapers.forEach((f, i) => {
@@ -288,9 +289,9 @@ export function buildEngagement(state: CampaignState, pending: PendingEngagement
       side: 'B',
       ships: Object.entries(scaleCounts(f.counts, kB)).map(([classId, count]) => ({ classId, count })),
       formation: 'strike_wedge',
-      position: v3(-12 + i * 24, 0, 42 + i * 6),
+      position: v3((-12 + i * 24) * SCENARIO_SPACING, 0, (42 + i * 6) * SCENARIO_SPACING),
       heading: v3(0, 0, -1),
-      arrivalTime: i === 0 ? 0 : 20 * i,
+      arrivalTime: i === 0 ? 0 : Math.round(20 * i * SCENARIO_SPACING),
     });
   });
   const alliedFactions = [...new Set(allied.map((f) => f.faction))];
@@ -301,7 +302,7 @@ export function buildEngagement(state: CampaignState, pending: PendingEngagement
     seed: rng.int(1, 1_000_000),
     rules: state.rules,
     environment: sys.environment,
-    maxDuration: 420,
+    maxDuration: Math.round(420 * SCENARIO_SPACING),
     perspectiveSide: 'A',
     objective: `Hold ${sys.world}.`,
     worldState: { ...state.worldState, campaignSystem: sys.id, alliedFactions: alliedFactions.join(',') },

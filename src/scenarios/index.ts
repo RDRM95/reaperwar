@@ -202,6 +202,18 @@ const base = (id: string, name: string, scenarioId: string, seed: number, rules:
   fleets,
 });
 
+/**
+ * More room between fleets (brief §22, "more space in the map between fleets"): every scenario's fleet positions,
+ * late arrivals and time limit are 1.6 × the 0.12 values, so the fleets start well apart, visibly manoeuvre and close,
+ * and the battles still resolve. The full codex-scale change follows in the pacing pass (docs/apex/PACING_PLAN.md).
+ * SIMULATION_ESTIMATE.
+ */
+export const SCENARIO_SPACING = 1.6;
+/** A scenario position (nominal km) at the §22 spacing. */
+const at = (x: number, y: number, z: number): Vec3 => v3(x * SCENARIO_SPACING, y * SCENARIO_SPACING, z * SCENARIO_SPACING);
+/** A scenario time (arrival or time limit, s) at the §22 spacing, in whole seconds. */
+const secs = (t: number): number => Math.round(t * SCENARIO_SPACING);
+
 export const SCENARIOS: ScenarioDef[] = [
   {
     id: 'battle_of_earth',
@@ -212,7 +224,7 @@ export const SCENARIOS: ScenarioDef[] = [
       'The Reapers arrive through the Charon relay and overwhelm Arcturus Station before falling on Earth. Alliance fleets in Sol orbit attempt to hold long enough for the evacuation. In canon the Alliance is forced to withdraw; this is the simulator’s vertical-slice engagement.',
     recommendedRules: ['canon_me3', 'prime_apex'],
     objective: 'Hold Earth orbit: destroy or drive off the Reaper harvest group.',
-    maxDuration: 420,
+    maxDuration: secs(420),
     worldState: [
       SHEPARD_WORLD_STATE,
       {
@@ -236,10 +248,10 @@ export const SCENARIOS: ScenarioDef[] = [
     build: (rules, seed, ws) => {
       const commitment = ws.fleet_commitment ?? 'standard';
       const c = commitment === 'heavy' ? { alliance_dreadnought: 8, alliance_carrier: 2, alliance_cruiser: 18, alliance_frigate: 30 } : commitment === 'light' ? { alliance_dreadnought: 4, alliance_carrier: 1, alliance_cruiser: 10, alliance_frigate: 18 } : { alliance_dreadnought: 6, alliance_carrier: 1, alliance_cruiser: 14, alliance_frigate: 24 };
-      return base('battle_of_earth', 'Battle of Earth', 'battle_of_earth', seed, rules, 'earth_orbit', 420, 'Hold Earth orbit against the Reaper harvest group.', ws, [
-        fleet('alliance-5th', 'alliance', rules, { counts: { ...c, normandy_sr2: (ws.normandy ?? 'yes') === 'yes' ? 1 : 0 }, name: 'Alliance Fifth Fleet', position: v3(0, 0, -34), ws }),
-        reaperFleet('reaper-sol', rules, { capitals: 3, destroyers: 7, position: v3(6, 2, 46), heading: v3(-0.12, 0, -1), ws }),
-        reaperFleet('reaper-sol-2', rules, { capitals: 1, destroyers: 3, position: v3(-40, -3, 70), heading: v3(0.4, 0, -1), arrivalTime: 55, name: 'Reaper second wave', ws }),
+      return base('battle_of_earth', 'Battle of Earth', 'battle_of_earth', seed, rules, 'earth_orbit', secs(420), 'Hold Earth orbit against the Reaper harvest group.', ws, [
+        fleet('alliance-5th', 'alliance', rules, { counts: { ...c, normandy_sr2: (ws.normandy ?? 'yes') === 'yes' ? 1 : 0 }, name: 'Alliance Fifth Fleet', position: at(0, 0, -34), ws }),
+        reaperFleet('reaper-sol', rules, { capitals: 3, destroyers: 7, position: at(6, 2, 46), heading: v3(-0.12, 0, -1), ws }),
+        reaperFleet('reaper-sol-2', rules, { capitals: 1, destroyers: 3, position: at(-40, -3, 70), heading: v3(0.4, 0, -1), arrivalTime: secs(55), name: 'Reaper second wave', ws }),
       ]);
     },
   },
@@ -252,7 +264,7 @@ export const SCENARIOS: ScenarioDef[] = [
       'Palaven is under full Reaper assault. The Hierarchy’s fleets fight in orbit while ground forces hold on the moon Menae. Turian doctrine: rigid formations, aggressive closure, dreadnought line.',
     recommendedRules: ['canon_me3', 'prime_apex', 'prepared_galaxy'],
     objective: 'Break the Reaper assault group over Menae.',
-    maxDuration: 420,
+    maxDuration: secs(420),
     worldState: [
       {
         id: 'alliance_support',
@@ -273,12 +285,12 @@ export const SCENARIOS: ScenarioDef[] = [
     ],
     build: (rules, seed, ws) => {
       const fleets = [
-        fleet('hierarchy-palaven', 'turian', rules, { counts: { turian_dreadnought: 7, turian_cruiser: 14, turian_frigate: 22 }, name: 'Hierarchy Palaven Fleet', formation: 'line_abreast', position: v3(0, 0, -34), ws }),
-        reaperFleet('reaper-trebia', rules, { capitals: 3, destroyers: 8, position: v3(0, 0, 44), ws }),
-        reaperFleet('reaper-trebia-2', rules, { capitals: 1, destroyers: 4, position: v3(42, 0, 66), heading: v3(-0.4, 0, -1), arrivalTime: 70, name: 'Reaper flanking group', ws }),
+        fleet('hierarchy-palaven', 'turian', rules, { counts: { turian_dreadnought: 7, turian_cruiser: 14, turian_frigate: 22 }, name: 'Hierarchy Palaven Fleet', formation: 'line_abreast', position: at(0, 0, -34), ws }),
+        reaperFleet('reaper-trebia', rules, { capitals: 3, destroyers: 8, position: at(0, 0, 44), ws }),
+        reaperFleet('reaper-trebia-2', rules, { capitals: 1, destroyers: 4, position: at(42, 0, 66), heading: v3(-0.4, 0, -1), arrivalTime: secs(70), name: 'Reaper flanking group', ws }),
       ];
-      if (ws.alliance_support === 'cruisers') fleets.push(fleet('alliance-detachment', 'alliance', rules, { counts: { alliance_cruiser: 4, alliance_frigate: 8 }, name: 'Alliance detachment', position: v3(-30, 0, -50), heading: v3(0.3, 0, 1), arrivalTime: 60, mult: 1 }));
-      return base('defence_of_palaven', 'Defence of Palaven', 'defence_of_palaven', seed, rules, 'palaven_orbit', 420, 'Break the Reaper assault group over Menae.', ws, fleets);
+      if (ws.alliance_support === 'cruisers') fleets.push(fleet('alliance-detachment', 'alliance', rules, { counts: { alliance_cruiser: 4, alliance_frigate: 8 }, name: 'Alliance detachment', position: at(-30, 0, -50), heading: v3(0.3, 0, 1), arrivalTime: secs(60), mult: 1 }));
+      return base('defence_of_palaven', 'Defence of Palaven', 'defence_of_palaven', seed, rules, 'palaven_orbit', secs(420), 'Break the Reaper assault group over Menae.', ws, fleets);
     },
   },
   {
@@ -290,7 +302,7 @@ export const SCENARIOS: ScenarioDef[] = [
       'The asari homeworld, thought untouchable, is attacked in force. Republic dreadnoughts and cruisers fight at range with superior barriers but thinner plating. In canon Thessia falls.',
     recommendedRules: ['canon_me3', 'prepared_galaxy', 'prime_apex'],
     objective: 'Hold Thessia orbit long enough to evacuate the capital.',
-    maxDuration: 420,
+    maxDuration: secs(420),
     worldState: [
       {
         id: 'ascension',
@@ -310,9 +322,9 @@ export const SCENARIOS: ScenarioDef[] = [
       'The Destiny Ascension, if present, carries the heaviest gun in Citadel space.',
     ],
     build: (rules, seed, ws) =>
-      base('fall_of_thessia', 'Fall of Thessia', 'fall_of_thessia', seed, rules, 'thessia_orbit', 420, 'Hold Thessia orbit long enough to evacuate the capital.', ws, [
-        fleet('republics-thessia', 'asari', rules, { counts: { destiny_ascension: ws.ascension === 'absent' ? 0 : 1, asari_dreadnought: 4, asari_cruiser: 20 }, fixedClasses: ['destiny_ascension'], name: 'Republics Home Fleet', formation: 'defensive_screen', position: v3(0, 0, -36), ws }),
-        reaperFleet('reaper-athena', rules, { capitals: 4, destroyers: 8, position: v3(0, 0, 46), ws }),
+      base('fall_of_thessia', 'Fall of Thessia', 'fall_of_thessia', seed, rules, 'thessia_orbit', secs(420), 'Hold Thessia orbit long enough to evacuate the capital.', ws, [
+        fleet('republics-thessia', 'asari', rules, { counts: { destiny_ascension: ws.ascension === 'absent' ? 0 : 1, asari_dreadnought: 4, asari_cruiser: 20 }, fixedClasses: ['destiny_ascension'], name: 'Republics Home Fleet', formation: 'defensive_screen', position: at(0, 0, -36), ws }),
+        reaperFleet('reaper-athena', rules, { capitals: 4, destroyers: 8, position: at(0, 0, 46), ws }),
       ]),
   },
   {
@@ -324,7 +336,7 @@ export const SCENARIOS: ScenarioDef[] = [
       'In the game’s timeframe Sur’Kesh is spared a full assault; this engagement is a simulation estimate of a Reaper raiding group reaching the Annos Basin. The Union’s Third Fleet fights the way salarians fight: on sensors, electronic warfare and precise fire, with STG stealth frigates pressing torpedo runs from outside the Reapers’ targeting envelope.',
     recommendedRules: ['canon_me3', 'prepared_galaxy', 'prime_apex'],
     objective: 'Repel the raid before it reaches low orbit.',
-    maxDuration: 420,
+    maxDuration: secs(420),
     worldState: [
       {
         id: 'stg_warning',
@@ -345,10 +357,10 @@ export const SCENARIOS: ScenarioDef[] = [
     ],
     build: (rules, seed, ws) => {
       const early = (ws.stg_warning ?? 'early') === 'early';
-      return base('defence_of_surkesh', 'Defence of Sur’Kesh', 'defence_of_surkesh', seed, rules, 'surkesh_orbit', 420, 'Repel the raid before it reaches low orbit.', ws, [
-        fleet('union-third', 'salarian', rules, { counts: { salarian_dreadnought: 2, salarian_cruiser: 10, salarian_frigate: 16 }, name: 'Salarian Third Fleet', formation: early ? 'line_abreast' : 'defensive_screen', position: v3(0, 0, -34), ws }),
-        reaperFleet('reaper-annos', rules, { capitals: 3, destroyers: 8, position: v3(0, 0, 44), ws }),
-        reaperFleet('reaper-annos-2', rules, { capitals: 1, destroyers: 4, position: early ? v3(-40, 0, 70) : v3(50, 0, 20), heading: early ? v3(0.3, 0, -1) : v3(-1, 0, -0.3), arrivalTime: early ? 90 : 25, name: 'Reaper flanking group', ws }),
+      return base('defence_of_surkesh', 'Defence of Sur’Kesh', 'defence_of_surkesh', seed, rules, 'surkesh_orbit', secs(420), 'Repel the raid before it reaches low orbit.', ws, [
+        fleet('union-third', 'salarian', rules, { counts: { salarian_dreadnought: 2, salarian_cruiser: 10, salarian_frigate: 16 }, name: 'Salarian Third Fleet', formation: early ? 'line_abreast' : 'defensive_screen', position: at(0, 0, -34), ws }),
+        reaperFleet('reaper-annos', rules, { capitals: 3, destroyers: 8, position: at(0, 0, 44), ws }),
+        reaperFleet('reaper-annos-2', rules, { capitals: 1, destroyers: 4, position: early ? at(-40, 0, 70) : at(50, 0, 20), heading: early ? v3(0.3, 0, -1) : v3(-1, 0, -0.3), arrivalTime: secs(early ? 90 : 25), name: 'Reaper flanking group', ws }),
       ]);
     },
   },
@@ -361,7 +373,7 @@ export const SCENARIOS: ScenarioDef[] = [
       'In canon Cerberus is a hostile faction: a Cerberus strike fleet ambushes an Alliance task force near a Cerberus facility. In timelines where the Illusive Man is not indoctrinated and Cerberus cooperates, the same two fleets instead fight together against a Reaper group.',
     recommendedRules: ['canon_me3', 'cerberus_reformed', 'prime_apex'],
     objective: 'Canon: defeat the Cerberus fleet. Cooperative AU: defeat the Reaper group together.',
-    maxDuration: 360,
+    maxDuration: secs(360),
     worldState: [SHEPARD_WORLD_STATE],
     briefing: [
       'Cerberus activity confirmed. Fleet composition: cruisers, frigates, fighters; black, white and orange identification.',
@@ -369,17 +381,17 @@ export const SCENARIOS: ScenarioDef[] = [
     ],
     build: (rules, seed, ws) => {
       const cooperative = rules.strategic.cerberusStance === 'cooperative' || rules.strategic.cerberusStance === 'controls_reapers';
-      const alliance = fleet('alliance-tf', 'alliance', rules, { counts: { alliance_dreadnought: 2, alliance_cruiser: 8, alliance_frigate: 14, normandy_sr2: (ws.normandy ?? 'yes') === 'yes' ? 1 : 0 }, name: 'Alliance task force', position: v3(0, 0, -34), formation: 'line_abreast', ws });
+      const alliance = fleet('alliance-tf', 'alliance', rules, { counts: { alliance_dreadnought: 2, alliance_cruiser: 8, alliance_frigate: 14, normandy_sr2: (ws.normandy ?? 'yes') === 'yes' ? 1 : 0 }, name: 'Alliance task force', position: at(0, 0, -34), formation: 'line_abreast', ws });
       if (!cooperative) {
-        return base('cerberus_intervention', 'Cerberus Intervention', 'cerberus_intervention', seed, rules, 'deep_space', 360, 'Defeat the Cerberus strike fleet.', ws, [
+        return base('cerberus_intervention', 'Cerberus Intervention', 'cerberus_intervention', seed, rules, 'deep_space', secs(360), 'Defeat the Cerberus strike fleet.', ws, [
           alliance,
-          fleet('cerberus-strike', 'cerberus', rules, { counts: { cerberus_cruiser: 10, cerberus_frigate: 16 }, name: 'Cerberus strike fleet', side: 'B', position: v3(0, 0, 36), heading: v3(0, 0, -1), formation: 'strike_wedge', ws }),
+          fleet('cerberus-strike', 'cerberus', rules, { counts: { cerberus_cruiser: 10, cerberus_frigate: 16 }, name: 'Cerberus strike fleet', side: 'B', position: at(0, 0, 36), heading: v3(0, 0, -1), formation: 'strike_wedge', ws }),
         ]);
       }
-      return base('cerberus_intervention', 'Cerberus Intervention (cooperative)', 'cerberus_intervention', seed, rules, 'deep_space', 360, 'Defeat the Reaper group with Cerberus support.', ws, [
+      return base('cerberus_intervention', 'Cerberus Intervention (cooperative)', 'cerberus_intervention', seed, rules, 'deep_space', secs(360), 'Defeat the Reaper group with Cerberus support.', ws, [
         alliance,
-        fleet('cerberus-black', 'cerberus', rules, { counts: { cerberus_dreadnought: isApexRules(rules) ? 2 : 0, cerberus_cruiser: 8, cerberus_frigate: 12 }, name: isApexRules(rules) ? 'Cerberus Black Fleet' : 'Cerberus expeditionary fleet', position: v3(34, 0, -40), heading: v3(-0.2, 0, 1), formation: 'strike_wedge', ws }),
-        reaperFleet('reaper-horsehead', rules, { capitals: 2, destroyers: 6, position: v3(10, 0, 44), ws }),
+        fleet('cerberus-black', 'cerberus', rules, { counts: { cerberus_dreadnought: isApexRules(rules) ? 2 : 0, cerberus_cruiser: 8, cerberus_frigate: 12 }, name: isApexRules(rules) ? 'Cerberus Black Fleet' : 'Cerberus expeditionary fleet', position: at(34, 0, -40), heading: v3(-0.2, 0, 1), formation: 'strike_wedge', ws }),
+        reaperFleet('reaper-horsehead', rules, { capitals: 2, destroyers: 6, position: at(10, 0, 44), ws }),
       ]);
     },
   },
@@ -392,7 +404,7 @@ export const SCENARIOS: ScenarioDef[] = [
       'The quarians attack the geth over Rannoch while the geth, upgraded with Reaper code, counter-attack. How the conflict ends is a player-dependent ME3 outcome: war, or a peace that turns both fleets on the Reapers.',
     recommendedRules: ['canon_me3', 'prime_apex'],
     objective: 'War: protect the liveships and defeat the geth fleet. Peace: defend Rannoch against the Reapers.',
-    maxDuration: 420,
+    maxDuration: secs(420),
     worldState: [
       {
         id: 'outcome',
@@ -415,17 +427,17 @@ export const SCENARIOS: ScenarioDef[] = [
     build: (rules, seed, ws) => {
       const outcome = ws.outcome ?? 'war';
       if (outcome === 'peace') {
-        return base('rannoch_campaign', 'Rannoch — United Fleet', 'rannoch_campaign', seed, rules, 'rannoch_orbit', 420, 'Defend Rannoch against the Reapers.', ws, [
-          fleet('migrant-fleet', 'quarian', rules, { counts: { quarian_liveship: 1, quarian_heavy: 3, quarian_cruiser: 12 }, fixedClasses: ['quarian_liveship'], name: 'Migrant Fleet', position: v3(-18, 0, -36), formation: 'defensive_screen', ws }),
-          fleet('geth-fleet', 'geth', rules, { counts: { geth_dreadnought: 1, geth_cruiser: 8, geth_frigate: 12 }, fixedClasses: ['geth_dreadnought'], name: 'Geth Consensus fleet', position: v3(22, 0, -34), formation: 'strike_wedge', ws }),
-          reaperFleet('reaper-tikkun', rules, { capitals: 3, destroyers: 8, position: v3(0, 0, 44), ws }),
+        return base('rannoch_campaign', 'Rannoch — United Fleet', 'rannoch_campaign', seed, rules, 'rannoch_orbit', secs(420), 'Defend Rannoch against the Reapers.', ws, [
+          fleet('migrant-fleet', 'quarian', rules, { counts: { quarian_liveship: 1, quarian_heavy: 3, quarian_cruiser: 12 }, fixedClasses: ['quarian_liveship'], name: 'Migrant Fleet', position: at(-18, 0, -36), formation: 'defensive_screen', ws }),
+          fleet('geth-fleet', 'geth', rules, { counts: { geth_dreadnought: 1, geth_cruiser: 8, geth_frigate: 12 }, fixedClasses: ['geth_dreadnought'], name: 'Geth Consensus fleet', position: at(22, 0, -34), formation: 'strike_wedge', ws }),
+          reaperFleet('reaper-tikkun', rules, { capitals: 3, destroyers: 8, position: at(0, 0, 44), ws }),
         ]);
       }
       const upgraded = outcome === 'war';
-      return base('rannoch_campaign', upgraded ? 'Rannoch — Migrant Fleet vs upgraded geth' : 'Rannoch — Migrant Fleet vs geth', 'rannoch_campaign', seed, rules, 'rannoch_orbit', 420, 'Protect the liveships and defeat the geth fleet.', ws, [
-        fleet('migrant-fleet', 'quarian', rules, { counts: { quarian_liveship: 2, quarian_heavy: 4, quarian_cruiser: 18 }, fixedClasses: ['quarian_liveship'], name: 'Migrant Fleet (Heavy and Patrol Fleets)', position: v3(0, 0, -36), formation: 'defensive_screen', ws }),
+      return base('rannoch_campaign', upgraded ? 'Rannoch — Migrant Fleet vs upgraded geth' : 'Rannoch — Migrant Fleet vs geth', 'rannoch_campaign', seed, rules, 'rannoch_orbit', secs(420), 'Protect the liveships and defeat the geth fleet.', ws, [
+        fleet('migrant-fleet', 'quarian', rules, { counts: { quarian_liveship: 2, quarian_heavy: 4, quarian_cruiser: 18 }, fixedClasses: ['quarian_liveship'], name: 'Migrant Fleet (Heavy and Patrol Fleets)', position: at(0, 0, -36), formation: 'defensive_screen', ws }),
         {
-          ...fleet('geth-fleet', 'geth', rules, { counts: { geth_dreadnought: 1, geth_cruiser: 14, geth_frigate: 22 }, fixedClasses: ['geth_dreadnought'], name: upgraded ? 'Reaper-upgraded geth fleet' : 'Geth fleet', side: 'B', position: v3(0, 0, 40), heading: v3(0, 0, -1), formation: 'strike_wedge', ws }),
+          ...fleet('geth-fleet', 'geth', rules, { counts: { geth_dreadnought: 1, geth_cruiser: 14, geth_frigate: 22 }, fixedClasses: ['geth_dreadnought'], name: upgraded ? 'Reaper-upgraded geth fleet' : 'Geth fleet', side: 'B', position: at(0, 0, 40), heading: v3(0, 0, -1), formation: 'strike_wedge', ws }),
           techOverride: upgraded ? { kineticBarrierStrength: 1.4, accuracy: 1.2, crewQuality: 1.2, barrierRegen: 1.4, massAcceleratorDamage: 1.15 } : undefined,
         },
       ]);
@@ -440,7 +452,7 @@ export const SCENARIOS: ScenarioDef[] = [
       'Three years before the Reaper War: Sovereign arrives with a geth fleet while the Citadel fleet, the Destiny Ascension and the Alliance Fifth Fleet engage. In canon Sovereign’s barriers fall only when Saren dies; here the fleet must bring it down conventionally while deciding whether to save the Ascension.',
     recommendedRules: ['canon_me3', 'prepared_galaxy'],
     objective: 'Destroy Sovereign and its geth escort.',
-    maxDuration: 420,
+    maxDuration: secs(420),
     worldState: [
       {
         id: 'ascension',
@@ -461,15 +473,15 @@ export const SCENARIOS: ScenarioDef[] = [
     ],
     build: (rules, seed, ws) => {
       const save = (ws.ascension ?? 'save') === 'save';
-      return base('battle_of_the_citadel', 'Battle of the Citadel', 'battle_of_the_citadel', seed, rules, 'citadel', 420, 'Destroy Sovereign and its geth escort.', ws, [
-        fleet('citadel-fleet', 'turian', rules, { counts: { turian_dreadnought: 3, turian_cruiser: 10, turian_frigate: 14 }, name: 'Citadel Fleet (Hierarchy)', position: v3(-16, 0, -34), formation: 'line_abreast', ws }),
-        fleet('republics-guard', 'asari', rules, { counts: { destiny_ascension: save ? 1 : 0, asari_cruiser: 6 }, fixedClasses: ['destiny_ascension'], name: 'Citadel Fleet (Republics)', position: v3(18, 0, -40), formation: 'defensive_screen', ws }),
-        fleet('alliance-5th', 'alliance', rules, { counts: { alliance_dreadnought: 3, alliance_cruiser: 10, alliance_frigate: 16 }, name: 'Alliance Fifth Fleet', position: v3(0, 6, -70), formation: 'strike_wedge', arrivalTime: 40, initialOrder: save ? { order: 'escort', targetId: 'republics-guard-destiny_ascension-1', protectCapitals: true } : undefined, ws } as FleetOpts),
+      return base('battle_of_the_citadel', 'Battle of the Citadel', 'battle_of_the_citadel', seed, rules, 'citadel', secs(420), 'Destroy Sovereign and its geth escort.', ws, [
+        fleet('citadel-fleet', 'turian', rules, { counts: { turian_dreadnought: 3, turian_cruiser: 10, turian_frigate: 14 }, name: 'Citadel Fleet (Hierarchy)', position: at(-16, 0, -34), formation: 'line_abreast', ws }),
+        fleet('republics-guard', 'asari', rules, { counts: { destiny_ascension: save ? 1 : 0, asari_cruiser: 6 }, fixedClasses: ['destiny_ascension'], name: 'Citadel Fleet (Republics)', position: at(18, 0, -40), formation: 'defensive_screen', ws }),
+        fleet('alliance-5th', 'alliance', rules, { counts: { alliance_dreadnought: 3, alliance_cruiser: 10, alliance_frigate: 16 }, name: 'Alliance Fifth Fleet', position: at(0, 6, -70), formation: 'strike_wedge', arrivalTime: secs(40), initialOrder: save ? { order: 'escort', targetId: 'republics-guard-destiny_ascension-1', protectCapitals: true } : undefined, ws } as FleetOpts),
         {
-          ...reaperFleet('sovereign', rules, { capitals: 1, destroyers: 0, name: 'Sovereign', position: v3(0, 0, 46), mult: 1, formation: 'capital_column' }),
+          ...reaperFleet('sovereign', rules, { capitals: 1, destroyers: 0, name: 'Sovereign', position: at(0, 0, 46), mult: 1, formation: 'capital_column' }),
           ships: [{ classId: 'reaper_capital', count: 1, names: ['Sovereign'] }],
         },
-        fleet('geth-escort', 'geth', rules, { counts: { geth_dreadnought: 2, geth_cruiser: 14, geth_frigate: 22 }, name: 'Geth escort fleet', side: 'B', position: v3(0, 0, 36), heading: v3(0, 0, -1), formation: 'defensive_screen', ws }),
+        fleet('geth-escort', 'geth', rules, { counts: { geth_dreadnought: 2, geth_cruiser: 14, geth_frigate: 22 }, name: 'Geth escort fleet', side: 'B', position: at(0, 0, 36), heading: v3(0, 0, -1), formation: 'defensive_screen', ws }),
       ]);
     },
   },
@@ -482,7 +494,7 @@ export const SCENARIOS: ScenarioDef[] = [
       'Every fleet the galaxy can still field returns to Earth to clear the Reaper blockade for the Crucible. When a campaign is in progress its surviving allied fleets and the Reapers’ remaining strength set the forces; otherwise the canon-shaped combined fleet faces Harbinger’s armada.',
     recommendedRules: ['canon_me3', 'prime_apex', 'prepared_galaxy'],
     objective: 'Break the Reaper blockade of Earth.',
-    maxDuration: 540,
+    maxDuration: secs(540),
     worldState: [
       {
         id: 'forces',
@@ -513,19 +525,19 @@ export const SCENARIOS: ScenarioDef[] = [
       const campaignCounts = ws.campaignAllied ? (JSON.parse(ws.campaignAllied) as { name: string; faction: FactionId; counts: Record<string, number> }[]) : undefined;
       const reaperCounts = ws.campaignReaper ? (JSON.parse(ws.campaignReaper) as Record<string, number>) : undefined;
       if ((ws.forces ?? 'campaign') === 'campaign' && campaignCounts && campaignCounts.length > 0 && reaperCounts) {
-        campaignCounts.forEach((f, i) => fleets.push(fleet(`sword-${i}`, f.faction, rules, { counts: f.counts, name: f.name, position: v3(-24 + (i % 4) * 16, 0, -34 - Math.floor(i / 4) * 8), formation: i === 0 ? 'line_abreast' : 'defensive_screen', mult: 1 })));
-        fleets.push(fleet('reaper-blockade', 'reaper', rules, { counts: reaperCounts, fixedClasses: ['harbinger'], name: 'Reaper blockade', side: 'B', position: v3(0, 0, 46), heading: v3(0, 0, -1), formation: 'strike_wedge', mult: 1 }));
+        campaignCounts.forEach((f, i) => fleets.push(fleet(`sword-${i}`, f.faction, rules, { counts: f.counts, name: f.name, position: at(-24 + (i % 4) * 16, 0, -34 - Math.floor(i / 4) * 8), formation: i === 0 ? 'line_abreast' : 'defensive_screen', mult: 1 })));
+        fleets.push(fleet('reaper-blockade', 'reaper', rules, { counts: reaperCounts, fixedClasses: ['harbinger'], name: 'Reaper blockade', side: 'B', position: at(0, 0, 46), heading: v3(0, 0, -1), formation: 'strike_wedge', mult: 1 }));
       } else {
-        fleets.push(fleet('sword-alliance', 'alliance', rules, { counts: { alliance_dreadnought: 6, alliance_carrier: 2, alliance_cruiser: 16, alliance_frigate: 24, normandy_sr2: (ws.normandy ?? 'yes') === 'yes' ? 1 : 0 }, name: 'Sword Fleet (Alliance)', position: v3(-20, 0, -34), formation: 'line_abreast', ws }));
-        fleets.push(fleet('sword-turian', 'turian', rules, { counts: { turian_dreadnought: 5, turian_cruiser: 10, turian_frigate: 16 }, name: 'Sword Fleet (Hierarchy)', position: v3(18, 0, -38), formation: 'line_abreast', ws }));
-        fleets.push(fleet('sword-asari', 'asari', rules, { counts: { destiny_ascension: ws.ascension === 'absent' ? 0 : 1, asari_dreadnought: 2, asari_cruiser: 8 }, fixedClasses: ['destiny_ascension'], name: 'Sword Fleet (Republics)', position: v3(0, 4, -48), formation: 'defensive_screen', ws }));
-        fleets.push(fleet('sword-quarian', 'quarian', rules, { counts: { quarian_heavy: 3, quarian_cruiser: 10 }, name: 'Migrant Fleet detachment', position: v3(-40, 0, -46), formation: 'defensive_screen', ws }));
-        fleets.push(fleet('sword-geth', 'geth', rules, { counts: { geth_dreadnought: 1, geth_cruiser: 8, geth_frigate: 12 }, fixedClasses: ['geth_dreadnought'], name: 'Geth fleet', position: v3(40, 0, -44), formation: 'strike_wedge', ws }));
-        if (ws.genophage === 'sabotaged') fleets.push(fleet('sword-salarian', 'salarian', rules, { counts: { salarian_dreadnought: 2, salarian_cruiser: 8, salarian_frigate: 12 }, name: 'Salarian First Fleet', position: v3(0, -6, -56), formation: 'line_abreast', ws }));
-        fleets.push(reaperFleet('reaper-blockade', rules, { capitals: 6, destroyers: 14, harbinger: true, name: 'Reaper blockade', position: v3(0, 0, 46), ws }));
-        fleets.push(reaperFleet('reaper-blockade-2', rules, { capitals: 3, destroyers: 8, name: 'Reaper reserve', position: v3(-50, 0, 76), heading: v3(0.4, 0, -1), arrivalTime: 90, ws }));
+        fleets.push(fleet('sword-alliance', 'alliance', rules, { counts: { alliance_dreadnought: 6, alliance_carrier: 2, alliance_cruiser: 16, alliance_frigate: 24, normandy_sr2: (ws.normandy ?? 'yes') === 'yes' ? 1 : 0 }, name: 'Sword Fleet (Alliance)', position: at(-20, 0, -34), formation: 'line_abreast', ws }));
+        fleets.push(fleet('sword-turian', 'turian', rules, { counts: { turian_dreadnought: 5, turian_cruiser: 10, turian_frigate: 16 }, name: 'Sword Fleet (Hierarchy)', position: at(18, 0, -38), formation: 'line_abreast', ws }));
+        fleets.push(fleet('sword-asari', 'asari', rules, { counts: { destiny_ascension: ws.ascension === 'absent' ? 0 : 1, asari_dreadnought: 2, asari_cruiser: 8 }, fixedClasses: ['destiny_ascension'], name: 'Sword Fleet (Republics)', position: at(0, 4, -48), formation: 'defensive_screen', ws }));
+        fleets.push(fleet('sword-quarian', 'quarian', rules, { counts: { quarian_heavy: 3, quarian_cruiser: 10 }, name: 'Migrant Fleet detachment', position: at(-40, 0, -46), formation: 'defensive_screen', ws }));
+        fleets.push(fleet('sword-geth', 'geth', rules, { counts: { geth_dreadnought: 1, geth_cruiser: 8, geth_frigate: 12 }, fixedClasses: ['geth_dreadnought'], name: 'Geth fleet', position: at(40, 0, -44), formation: 'strike_wedge', ws }));
+        if (ws.genophage === 'sabotaged') fleets.push(fleet('sword-salarian', 'salarian', rules, { counts: { salarian_dreadnought: 2, salarian_cruiser: 8, salarian_frigate: 12 }, name: 'Salarian First Fleet', position: at(0, -6, -56), formation: 'line_abreast', ws }));
+        fleets.push(reaperFleet('reaper-blockade', rules, { capitals: 6, destroyers: 14, harbinger: true, name: 'Reaper blockade', position: at(0, 0, 46), ws }));
+        fleets.push(reaperFleet('reaper-blockade-2', rules, { capitals: 3, destroyers: 8, name: 'Reaper reserve', position: at(-50, 0, 76), heading: v3(0.4, 0, -1), arrivalTime: secs(90), ws }));
       }
-      return base('final_battle_of_earth', 'Final Battle of Earth', 'final_battle_of_earth', seed, rules, 'earth_orbit', 540, 'Break the Reaper blockade of Earth.', ws, fleets);
+      return base('final_battle_of_earth', 'Final Battle of Earth', 'final_battle_of_earth', seed, rules, 'earth_orbit', secs(540), 'Break the Reaper blockade of Earth.', ws, fleets);
     },
   },
   {
@@ -536,13 +548,13 @@ export const SCENARIOS: ScenarioDef[] = [
     description: 'A clean fleet-on-fleet engagement with no second wave: the reference battle used by the comparison mode and the balance tests.',
     recommendedRules: ['canon_me3', 'prime_apex', 'humanity_ascendant'],
     objective: 'Destroy the Reaper force.',
-    maxDuration: 360,
+    maxDuration: secs(360),
     worldState: [SHEPARD_WORLD_STATE],
     briefing: ['A Reaper task group has been located in deep space.', 'The dreadnought group will engage at maximum range.'],
     build: (rules, seed, ws) =>
-      base('alliance_fleet_engagement', 'Alliance Fleet Engagement', 'alliance_fleet_engagement', seed, rules, 'deep_space', 360, 'Destroy the Reaper force.', ws, [
-        fleet('alliance-tf', 'alliance', rules, { counts: { alliance_dreadnought: 8, alliance_carrier: 1, alliance_cruiser: 16, alliance_frigate: 30, normandy_sr2: (ws.normandy ?? 'yes') === 'yes' ? 1 : 0 }, name: 'Alliance Task Force', formation: 'line_abreast', position: v3(0, 0, -36), ws }),
-        reaperFleet('reaper-tg', rules, { capitals: 4, destroyers: 8, position: v3(0, 0, 40), ws }),
+      base('alliance_fleet_engagement', 'Alliance Fleet Engagement', 'alliance_fleet_engagement', seed, rules, 'deep_space', secs(360), 'Destroy the Reaper force.', ws, [
+        fleet('alliance-tf', 'alliance', rules, { counts: { alliance_dreadnought: 8, alliance_carrier: 1, alliance_cruiser: 16, alliance_frigate: 30, normandy_sr2: (ws.normandy ?? 'yes') === 'yes' ? 1 : 0 }, name: 'Alliance Task Force', formation: 'line_abreast', position: at(0, 0, -36), ws }),
+        reaperFleet('reaper-tg', rules, { capitals: 4, destroyers: 8, position: at(0, 0, 40), ws }),
       ]),
   },
   {
@@ -554,17 +566,17 @@ export const SCENARIOS: ScenarioDef[] = [
     recommendedRules: ['prime_apex'],
     auOnly: true,
     objective: 'Defeat the Reaper invasion force in Sol without allied assistance.',
-    maxDuration: 480,
+    maxDuration: secs(480),
     briefing: [
       'ALTERNATE UNIVERSE. Prime/Apex rules apply: HADES rounds, hyper-mass accelerators, hardened barriers.',
       'The Alliance Home Fleet is at full war strength. No allied fleets are available.',
       'Expect the Reapers to adapt. Their numbers and weapons are unchanged.',
     ],
     build: (rules, seed, ws) =>
-      base('prime_apex_sol_defence', 'Prime/Apex — Sol Defence', 'prime_apex_sol_defence', seed, rules, 'earth_orbit', 480, 'Defeat the Reaper invasion force in Sol without allied assistance.', ws, [
-        fleet('alliance-home', 'alliance', rules, { counts: { alliance_dreadnought: 8, alliance_carrier: 2, alliance_cruiser: 18, alliance_frigate: 30, normandy_sr2: 1 }, name: 'Alliance Home Fleet', formation: 'line_abreast', position: v3(0, 0, -36), mult: 1 }),
-        reaperFleet('reaper-sol', rules, { capitals: 4, destroyers: 8, position: v3(0, 0, 44), mult: 1 }),
-        reaperFleet('reaper-sol-2', rules, { capitals: 2, destroyers: 4, position: v3(-45, 0, 70), heading: v3(0.4, 0, -1), arrivalTime: 70, name: 'Reaper second wave', mult: 1 }),
+      base('prime_apex_sol_defence', 'Prime/Apex — Sol Defence', 'prime_apex_sol_defence', seed, rules, 'earth_orbit', secs(480), 'Defeat the Reaper invasion force in Sol without allied assistance.', ws, [
+        fleet('alliance-home', 'alliance', rules, { counts: { alliance_dreadnought: 8, alliance_carrier: 2, alliance_cruiser: 18, alliance_frigate: 30, normandy_sr2: 1 }, name: 'Alliance Home Fleet', formation: 'line_abreast', position: at(0, 0, -36), mult: 1 }),
+        reaperFleet('reaper-sol', rules, { capitals: 4, destroyers: 8, position: at(0, 0, 44), mult: 1 }),
+        reaperFleet('reaper-sol-2', rules, { capitals: 2, destroyers: 4, position: at(-45, 0, 70), heading: v3(0.4, 0, -1), arrivalTime: secs(70), name: 'Reaper second wave', mult: 1 }),
       ]),
   },
   {
@@ -576,13 +588,13 @@ export const SCENARIOS: ScenarioDef[] = [
     recommendedRules: ['prime_apex'],
     auOnly: true,
     objective: 'Defeat the Reaper assault on Palaven without allied assistance.',
-    maxDuration: 480,
+    maxDuration: secs(480),
     briefing: ['ALTERNATE UNIVERSE. Hierarchy dreadnoughts carry hyper-mass accelerators and HADES rounds.', 'Hold formation. Hold the line.'],
     build: (rules, seed, ws) =>
-      base('prime_apex_palaven_defence', 'Prime/Apex — Palaven Defence', 'prime_apex_palaven_defence', seed, rules, 'palaven_orbit', 480, 'Defeat the Reaper assault on Palaven without allied assistance.', ws, [
-        fleet('hierarchy-home', 'turian', rules, { counts: { turian_dreadnought: 9, turian_cruiser: 18, turian_frigate: 28 }, name: 'Hierarchy Home Fleet', formation: 'line_abreast', position: v3(0, 0, -36), mult: 1 }),
-        reaperFleet('reaper-trebia', rules, { capitals: 4, destroyers: 8, position: v3(0, 0, 44), mult: 1 }),
-        reaperFleet('reaper-trebia-2', rules, { capitals: 2, destroyers: 4, position: v3(45, 0, 70), heading: v3(-0.4, 0, -1), arrivalTime: 70, name: 'Reaper second wave', mult: 1 }),
+      base('prime_apex_palaven_defence', 'Prime/Apex — Palaven Defence', 'prime_apex_palaven_defence', seed, rules, 'palaven_orbit', secs(480), 'Defeat the Reaper assault on Palaven without allied assistance.', ws, [
+        fleet('hierarchy-home', 'turian', rules, { counts: { turian_dreadnought: 9, turian_cruiser: 18, turian_frigate: 28 }, name: 'Hierarchy Home Fleet', formation: 'line_abreast', position: at(0, 0, -36), mult: 1 }),
+        reaperFleet('reaper-trebia', rules, { capitals: 4, destroyers: 8, position: at(0, 0, 44), mult: 1 }),
+        reaperFleet('reaper-trebia-2', rules, { capitals: 2, destroyers: 4, position: at(45, 0, 70), heading: v3(-0.4, 0, -1), arrivalTime: secs(70), name: 'Reaper second wave', mult: 1 }),
       ]),
   },
   {
@@ -594,17 +606,17 @@ export const SCENARIOS: ScenarioDef[] = [
     recommendedRules: ['cerberus_ascendant'],
     auOnly: true,
     objective: 'Destroy Harbinger.',
-    maxDuration: 360,
+    maxDuration: secs(360),
     briefing: [
       'ALTERNATE CONTINUITY. The Catalyst is destroyed; the Illusive Man controls the Reaper fleet.',
       'Harbinger retains independence and has gathered the destroyers still loyal to it.',
       'Controlled Reaper units will engage. Cerberus fleet elements observe and support.',
     ],
     build: (rules, seed, ws) =>
-      base('cerberus_ascendant_harbinger', 'Cerberus Ascendant — Harbinger', 'cerberus_ascendant_harbinger', seed, rules, 'deep_space', 360, 'Destroy Harbinger.', ws, [
-        reaperFleet('controlled-reapers', rules, { capitals: 3, destroyers: 6, position: v3(0, 0, -40), heading: v3(0, 0, 1), side: 'A', name: 'Controlled Reaper fleet (Cerberus)', mult: 1, formation: 'line_abreast' }),
-        fleet('cerberus-support', 'cerberus', rules, { counts: { cerberus_cruiser: 4, cerberus_frigate: 8 }, name: 'Cerberus support group', position: v3(-30, 0, -46), heading: v3(0.2, 0, 1), formation: 'defensive_screen', mult: 1 }),
-        reaperFleet('harbinger-group', rules, { capitals: 0, destroyers: 6, harbinger: true, position: v3(0, 0, 40), name: 'Harbinger', mult: 1 }),
+      base('cerberus_ascendant_harbinger', 'Cerberus Ascendant — Harbinger', 'cerberus_ascendant_harbinger', seed, rules, 'deep_space', secs(360), 'Destroy Harbinger.', ws, [
+        reaperFleet('controlled-reapers', rules, { capitals: 3, destroyers: 6, position: at(0, 0, -40), heading: v3(0, 0, 1), side: 'A', name: 'Controlled Reaper fleet (Cerberus)', mult: 1, formation: 'line_abreast' }),
+        fleet('cerberus-support', 'cerberus', rules, { counts: { cerberus_cruiser: 4, cerberus_frigate: 8 }, name: 'Cerberus support group', position: at(-30, 0, -46), heading: v3(0.2, 0, 1), formation: 'defensive_screen', mult: 1 }),
+        reaperFleet('harbinger-group', rules, { capitals: 0, destroyers: 6, harbinger: true, position: at(0, 0, 40), name: 'Harbinger', mult: 1 }),
       ]),
   },
   {
@@ -615,9 +627,9 @@ export const SCENARIOS: ScenarioDef[] = [
     description: 'Configured in the Custom Battle builder.',
     recommendedRules: [],
     objective: 'Destroy the enemy force.',
-    maxDuration: 420,
+    maxDuration: secs(420),
     briefing: ['Custom engagement.'],
-    build: (rules, seed, ws) => base('custom', 'Custom Battle', 'custom', seed, rules, 'deep_space', 420, 'Destroy the enemy force.', ws, []),
+    build: (rules, seed, ws) => base('custom', 'Custom Battle', 'custom', seed, rules, 'deep_space', secs(420), 'Destroy the enemy force.', ws, []),
   },
 ];
 
@@ -681,21 +693,26 @@ export function countsForFaction(counts: Record<string, number>, faction: Custom
   return out;
 }
 
+/** The custom battle's default starting distance and time limit (nominal km, s): 1.6 × the 0.12 defaults (brief §22). */
+export const CUSTOM_DEFAULT_DISTANCE = Math.round(76 * SCENARIO_SPACING);
+export const CUSTOM_DEFAULT_DURATION = Math.round(420 * SCENARIO_SPACING);
+
 export function buildCustomBattle(input: CustomBattleInput, rules?: RuleSet): BattleConfig {
   const r = rules ?? getPreset(input.rulesId);
   const half = Math.max(10, input.startingDistanceKm) / 2;
   const mk = (f: CustomFleetInput, side: Side, id: string, x: number, z: number, heading: number, arrivalTime?: number, counts?: Record<string, number>): FleetSpec =>
     fleet(id, f.faction, r, { counts: countsForFaction(counts ?? f.counts, f.faction), name: f.name, side, position: v3(x, 0, z), heading: v3(0, 0, heading), formation: f.formation, mult: 1, arrivalTime: arrivalTime && arrivalTime > 0 ? arrivalTime : undefined, playerControlled: side === 'A' });
-  // United fleets: extra fleets of any faction sit beside the main fleet, alternating left and right, 20 km apart.
-  const lateral = (i: number): number => (i % 2 === 0 ? 1 : -1) * Math.ceil((i + 1) / 2) * 20;
+  // United fleets: extra fleets of any faction sit beside the main fleet, alternating left and right, 32 km apart
+  // (20 at 0.12; brief §22 spacing, so battlegroup formations side by side stay clear of each other).
+  const lateral = (i: number): number => (i % 2 === 0 ? 1 : -1) * Math.ceil((i + 1) / 2) * 20 * SCENARIO_SPACING;
   const fleets: FleetSpec[] = [mk(input.sideA, 'A', 'custom-a', 0, -half, 1, input.sideA.arrivalTime), mk(input.sideB, 'B', 'custom-b', 0, half, -1, input.sideB.arrivalTime)];
-  (input.extraA ?? []).forEach((f, i) => fleets.push(mk(f, 'A', `custom-a${i + 2}`, lateral(i), -half - 4 * (i + 1), 1, f.arrivalTime)));
-  (input.extraB ?? []).forEach((f, i) => fleets.push(mk(f, 'B', `custom-b${i + 2}`, lateral(i), half + 4 * (i + 1), -1, f.arrivalTime)));
+  (input.extraA ?? []).forEach((f, i) => fleets.push(mk(f, 'A', `custom-a${i + 2}`, lateral(i), -half - 4 * SCENARIO_SPACING * (i + 1), 1, f.arrivalTime)));
+  (input.extraB ?? []).forEach((f, i) => fleets.push(mk(f, 'B', `custom-b${i + 2}`, lateral(i), half + 4 * SCENARIO_SPACING * (i + 1), -1, f.arrivalTime)));
   const reinforcementFaction = input.reinforcementFaction ?? input.sideB.faction;
   const reinforcements = countsForFaction(input.reinforcementCounts ?? {}, reinforcementFaction);
   if (input.reinforcementTime && input.reinforcementTime > 0 && Object.values(reinforcements).some((n) => n > 0)) {
     const name = reinforcementFaction === input.sideB.faction ? `${input.sideB.name} reinforcements` : `${FACTIONS[reinforcementFaction].shortName} reinforcements`;
-    fleets.push(mk({ faction: reinforcementFaction, name, formation: input.sideB.formation, counts: reinforcements }, 'B', 'custom-b-reinforcements', 0, half + 30, -1, input.reinforcementTime));
+    fleets.push(mk({ faction: reinforcementFaction, name, formation: input.sideB.formation, counts: reinforcements }, 'B', 'custom-b-reinforcements', 0, half + 30 * SCENARIO_SPACING, -1, input.reinforcementTime));
   }
   const sideName = (main: CustomFleetInput, extra: CustomFleetInput[] | undefined): string => (extra && extra.length > 0 ? `${main.name} + ${extra.length} allied fleet${extra.length > 1 ? 's' : ''}` : main.name);
   return {
@@ -705,7 +722,7 @@ export function buildCustomBattle(input: CustomBattleInput, rules?: RuleSet): Ba
     seed: input.seed,
     rules: r,
     environment: input.environment,
-    maxDuration: input.maxDuration ?? 420,
+    maxDuration: input.maxDuration ?? CUSTOM_DEFAULT_DURATION,
     perspectiveSide: 'A',
     objective: 'Destroy the enemy force.',
     fleets: fleets.filter((f) => f.ships.length > 0),
