@@ -11,7 +11,7 @@ import { EffectsSystem } from './effects';
 import { buildEnvironment, type EnvironmentBuild } from './environment';
 import { KM } from './geometry';
 import { instantiateShip, type BuiltShip } from './ships';
-import { DETAIL_MESH_NAMES, lodLevel, type LodLevel } from './lod';
+import { DETAIL_MESH_NAMES, detailedHullBudget, farPointCapacity, lodLevel, type LodLevel } from './lod';
 import { FpsMeter, pixelRatioFor, presetFor, type QualityPreset } from './quality';
 
 /**
@@ -184,8 +184,7 @@ export class BattleView {
   /** Grow the one-draw-call far-ship cloud; never silently drop ships beyond 2,048. */
   private ensureFarCapacity(required: number): void {
     if (required <= this.farPositions.length / 3) return;
-    let capacity = this.farPositions.length / 3;
-    while (capacity < required) capacity *= 2;
+    const capacity = farPointCapacity(this.farPositions.length / 3, required);
     this.farPositions = new Float32Array(capacity * 3);
     this.farColours = new Float32Array(capacity * 3);
     this.farPoints.geometry.setAttribute('position', new THREE.BufferAttribute(this.farPositions, 3));
@@ -273,8 +272,8 @@ export class BattleView {
     // A finite draw-call budget matters more than raw GPU throughput when
     // thousands of hulls each have multiple meshes. Keep nearest models at
     // full fidelity; draw the rest as one GPU point cloud. Reassess 8 times
-    // per second rather than sorting every animation frame.
-    const meshBudget = sim.ships.length >= 5000 ? 240 : sim.ships.length >= 1500 ? 360 : sim.ships.length >= 500 ? 600 : Infinity;
+    // per eight frames rather than sorting every animation frame.
+    const meshBudget = detailedHullBudget(sim.ships.length);
     if (!Number.isFinite(meshBudget)) this.detailedShips = undefined;
     else if (!this.detailedShips || ++this.detailBudgetFrame % 8 === 0) {
       const near = sim.ships.filter((s) => s.alive && !s.escaped).map((s) => {
