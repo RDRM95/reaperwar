@@ -91,11 +91,6 @@ const golden = (i: number): number => (i * 0.6180339887) % 1;
 /** The 3D formations of the V2 roster (CINEMATIC_DESIGN.md §7.2); the other six are the v0.11 layouts. */
 export const FORMATIONS_3D: readonly FormationType[] = ['layered_line', 'stacked_wedge', 'box', 'swarm_descent', 'broadside_line', 'static'];
 
-/** A line formation puts at most this many groups abreast; further groups form staggered echelons behind (brief §22). */
-export const LINE_RANK_GROUPS = 5;
-/** Line formations whose frontage grows with the number of groups (Q1b wraps them into echelons). */
-const LINE_FORMATIONS: ReadonlySet<FormationType> = new Set<FormationType>(['line_abreast', 'layered_line', 'fighter_screen', 'static']);
-
 export interface SlotOptions {
   /** Battle seed: every hull's variation comes from an `Rng` seeded from it and the ship id. */
   seed?: number;
@@ -156,7 +151,7 @@ function jitterFor(seed: number, id: string): Jitter {
 /** Radius of the cruiser / destroyer shell round a group's capital. */
 const ESCORT_RING = 3.4;
 /** The frigate screen sits this far ahead of its group's capital, on a cap ±40° wide and ±30° high. */
-const SCREEN_AHEAD = 4.6;
+const SCREEN_AHEAD = 4.0;
 const SCREEN_AZIMUTH = (40 * Math.PI) / 180;
 const SCREEN_ELEVATION = (30 * Math.PI) / 180;
 /** Carriers sit behind and above their group's capital. */
@@ -164,8 +159,12 @@ const CARRIER_BACK = 3.6;
 const CARRIER_UP = 3.0;
 /** Craft fly ahead of and above the screen. */
 const CRAFT_AHEAD = 2.5;
-/** Clear space between neighbouring groups' outer hulls (so a camera tells the groups apart). */
-const GROUP_GAP = 1.5;
+/**
+ * Clear space between neighbouring battlegroups (brief §22, "groups separated so a camera can tell them apart"): this
+ * × the largest group's radius, and at least `GROUP_GAP_MIN` nominal km, between the outer hulls of two groups.
+ */
+export const GROUP_GAP_FRACTION = 0.6;
+const GROUP_GAP_MIN = 2;
 /** The escort shell sits at least this × the capital–escort clearance from the capital. */
 const RING_CLEARANCE = 1.15;
 
@@ -181,6 +180,18 @@ interface Group {
   phase: number;
   mirror: number;
   tilt: number;
+  /** Every hull's offset from the group's centre (nominal, fleet axes), before the centre is placed. */
+  local: Map<string, Vec3>;
+}
+
+/** The largest extent of any group round its centre (nominal; small craft excluded): left, right, ahead, behind, up, down. */
+interface Extent {
+  xl: number;
+  xr: number;
+  zf: number;
+  zb: number;
+  yu: number;
+  yd: number;
 }
 
 /**
@@ -197,24 +208,38 @@ export function layoutFormation(ships: SlotShip[], formation: FormationType, opt
   const jit = new Map<string, Jitter>();
   for (const s of ships) jit.set(s.id, jitterFor(seed, s.id));
   const groups = formGroups(ships, seed);
-  const nominal = new Map<string, Vec3>();
+  // Each group's own cluster first, so the formation spaces the groups by their real size.
+  for (const g of groups) placeGroup(g, formation, jit);
+  const ext = groups.length > 0 ? extentOf(groups, ships) : undefined;
+  const rangeNom = opts.range !== undefined ? opts.range / k : undefined;
+  const bound = opts.range !== undefined ? FRONTAGE_RANGES * opts.range : Infinity;
+  let cap = Infinity;
+  for (;;) {
+    const abreast = ext ? placeGroupCentres(groups, formation, rangeNom, seed, ext, cap) : Infinity;
+    const layout = settle(ships, groups, jit);
+    // Q1b holds on the hulls themselves: a line the seeded offsets and the clearances pushed past it loses a group abreast.
+    if (abreast <= 1 || !Number.isFinite(abreast) || frontageOf([...layout.slots.values()]) <= bound + 1e-9) return layout;
+    cap = abreast - 1;
+  }
+}
+
+/** The groups' clusters on their centres, in simulation km, with the clearances, the row breaker and the group check. */
+function settle(ships: SlotShip[], groups: Group[], jit: Map<string, Jitter>): FormationLayout {
+  const k = SLOT_COMPRESSION;
+  const slots = new Map<string, Vec3>();
   const groupOf = new Map<string, number>();
   const leaders = new Map<string, string>();
-  if (groups.length > 0) {
-    placeGroupCentres(groups, formation, opts.range !== undefined ? opts.range / k : undefined, seed);
-    groups.forEach((g, gi) => {
-      placeGroup(g, formation, jit, nominal);
-      const lead = g.leaders[0];
-      for (const s of [...g.leaders, ...g.members]) {
-        groupOf.set(s.id, gi);
-        if (s !== lead) leaders.set(s.id, lead.id);
-      }
-    });
-  }
-  const slots = new Map<string, Vec3>();
-  for (const [id, p] of nominal) slots.set(id, v3(p.x * k, p.y * k, p.z * k));
+  groups.forEach((g, gi) => {
+    const lead = g.leaders[0];
+    for (const s of [...g.leaders, ...g.members]) {
+      const o = g.local.get(s.id)!;
+      slots.set(s.id, v3((g.centre.x + o.x) * k, (g.centre.y + o.y) * k, (g.centre.z + o.z) * k));
+      groupOf.set(s.id, gi);
+      if (s !== lead) leaders.set(s.id, lead.id);
+    }
+  });
   spacingGuard(ships, slots);
-  breakRows(ships, slots, jit);
+  breakRows(ships, slots, jit, groupOf, groups.length > 0 ? groupClearKm(groups, ships) : 0);
   joinNearestGroup(ships, slots, groups, groupOf, leaders);
   const groupSlots = new Map<string, Vec3>();
   for (const s of ships) {
@@ -252,7 +277,7 @@ function formGroups(ships: SlotShip[], seed: number): Group[] {
   const isLeader = new Set(leaderSets.flat().map((s) => s.id));
   const groups: Group[] = leaderSets.map((leaders) => {
     const r = hullRng(seed, `pattern:${leaders[0].id}`);
-    return { leaders, members: [], ring: ESCORT_RING, pairHalf: 0, centre: v3(), phase: r.next() * Math.PI * 2, mirror: r.next() < 0.5 ? -1 : 1, tilt: r.next() };
+    return { leaders, members: [], ring: ESCORT_RING, pairHalf: 0, centre: v3(), phase: r.next() * Math.PI * 2, mirror: r.next() < 0.5 ? -1 : 1, tilt: r.next(), local: new Map() };
   });
   const G = groups.length;
   for (const pool of [carriers, t1, t2, t3]) {
@@ -279,85 +304,164 @@ function formGroups(ships: SlotShip[], seed: number): Group[] {
   return groups;
 }
 
-/** Fixed-pattern height sequence in [−1, 1]: no three neighbouring groups at one height. */
+/** The largest extent of the groups' clusters round their centres (nominal), small craft excluded. */
+function extentOf(groups: Group[], ships: SlotShip[]): Extent {
+  const role = new Map(ships.map((s) => [s.id, s.role]));
+  const e: Extent = { xl: 0, xr: 0, zf: 0, zb: 0, yu: 0, yd: 0 };
+  for (const g of groups) {
+    for (const [id, o] of g.local) {
+      if (role.get(id) === 'fighter') continue;
+      e.xl = Math.max(e.xl, -o.x);
+      e.xr = Math.max(e.xr, o.x);
+      e.zf = Math.max(e.zf, o.z);
+      e.zb = Math.max(e.zb, -o.z);
+      e.yu = Math.max(e.yu, o.y);
+      e.yd = Math.max(e.yd, -o.y);
+    }
+  }
+  // A lone capital still takes up its own clearance.
+  const floor = Math.max(...groups.map((g) => g.ring)) * 0.5;
+  return { xl: Math.max(e.xl, floor), xr: Math.max(e.xr, floor), zf: Math.max(e.zf, floor), zb: Math.max(e.zb, floor), yu: Math.max(e.yu, floor * 0.5), yd: Math.max(e.yd, floor * 0.5) };
+}
+
+/** Group heights along a line, by position from left to right (in [−1, 1]): no three neighbours at one height. */
+const lineHeight = (p: number): number => [0.55, -0.7, 0.15, 0.9, -0.4, -1, 0.65, -0.2, 0.95, -0.75][((p % 10) + 10) % 10];
+/** Fixed-pattern height sequence in [−1, 1] by group index: no three neighbouring groups at one height. */
 const heightPattern = (g: number): number => [0, 0.85, -0.7, 0.45, -1, 0.7, -0.4, 1, -0.85, 0.25][g % 10];
 
+/** Lines (the line abreast, the fighter screen, the platforms' arc) put at most this many groups abreast before Q1b. */
+export const LINE_RANK_GROUPS = 8;
+
 /**
- * Group centres (nominal) by formation: the formation's character at group scale. `d` is the centre spacing of the
- * groups (twice the largest escort ring plus a clear gap), `h` a height step, `e` a depth (echelon) step. Each
- * centre then takes a small seeded offset from its leader's generator.
+ * Group centres (nominal) by formation: the formation's character at group scale. The spacings come from the groups'
+ * real extent (`Extent`): `gx` between the centres of two groups side by side, `gz` one behind the other, `gy` one
+ * above the other — each the two groups' extents plus a clear gap (`GROUP_GAP_FRACTION`), so neighbouring groups stay
+ * apart and a camera tells them apart. Lines are bounded by Q1b (`FRONTAGE_RANGES` × the fleet's range) and wrap into
+ * staggered echelons behind. Each centre then takes a small seeded offset from its leader's generator.
  */
-function placeGroupCentres(groups: Group[], formation: FormationType, rangeNom: number | undefined, seed: number): void {
+function placeGroupCentres(groups: Group[], formation: FormationType, rangeNom: number | undefined, seed: number, ext: Extent, cap = Infinity): number {
   const G = groups.length;
-  const ring = Math.max(...groups.map((g) => g.ring));
-  const d = 2 * ring + GROUP_GAP;
-  const h = 0.4 * d;
-  const e = 0.32 * d;
+  const rad = Math.max(ext.xl, ext.xr, ext.zf, ext.zb, 1);
+  const gap = Math.max(GROUP_GAP_MIN, GROUP_GAP_FRACTION * rad);
+  const gx = ext.xl + ext.xr + gap;
+  const gz = ext.zf + ext.zb + gap;
+  const gy = ext.yu + ext.yd + gap;
+  const width = ext.xl + ext.xr;
   const centres: Vec3[] = [];
-  /** A line of groups, alternately forward and back (echelons), at most `LINE_RANK_GROUPS` abreast and never wider than Q1b. */
-  const line = (spacing: number, heights: (g: number) => number, stagger: number): void => {
-    let perRank = Math.min(G, LINE_RANK_GROUPS);
-    if (rangeNom !== undefined && LINE_FORMATIONS.has(formation)) {
-      const maxWidth = FRONTAGE_RANGES * rangeNom - 2 * ring;
-      perRank = Math.max(1, Math.min(perRank, Math.floor(maxWidth / spacing) + 1));
-    }
+  /** Most groups abreast that keep a line within Q1b (all of them when no range is given). */
+  const abreast = (spacing: number): number => Math.min(cap, rangeNom === undefined ? Infinity : Math.max(1, Math.floor((FRONTAGE_RANGES * rangeNom - width) / spacing) + 1));
+  /** The most groups any one rank of a line holds (Infinity for the formations Q1b does not bound). */
+  let used = Infinity;
+  /**
+   * A line of groups at `spacing`, centre-out from the first (the flagship's) group, wrapped into ranks of equal size
+   * `rankDepth` apart (odd ranks shifted half a spacing, so they sit in the gaps); along each rank the groups step
+   * alternately forward and back by `echelon` and up and down by `rise` × the line's height pattern.
+   */
+  const line = (spacing: number, echelon: number, rankDepth: number, rise: number, maxAbreast = LINE_RANK_GROUPS): void => {
+    const perMax = Math.max(1, Math.min(G, maxAbreast, abreast(spacing)));
+    const ranks = Math.ceil(G / perMax);
+    const per = Math.ceil(G / ranks);
+    used = per;
     for (let g = 0; g < G; g++) {
-      const rank = Math.floor(g / perRank);
-      const j = g % perRank;
-      const x = spreadIndex(j) * spacing + (rank % 2 === 1 ? spacing / 2 : 0);
-      const z = (j % 2 === 1 ? -1 : 1) * stagger * e - rank * 1.7 * e;
-      centres.push(v3(x, heights(g) * h, z));
-    }
-  };
-  /** Two staggered ranks: the even groups forward, the odd ones behind and between them. */
-  const ranks = (spacing: number, depth: number, curve: number): void => {
-    const front = Math.ceil(G / 2);
-    const half = Math.max(1, (front - 1) / 2);
-    for (let g = 0; g < G; g++) {
-      const back = g % 2 === 1;
-      const j = Math.floor(g / 2);
-      const x = (spreadIndex(j) + (back ? (j % 2 === 0 ? 0.5 : -0.5) : 0)) * spacing;
-      const f = Math.min(1, Math.abs(x) / (half * spacing));
-      centres.push(v3(x, heightPattern(g) * h, (back ? -depth : 0) + curve * f * f));
+      const rank = Math.floor(g / per);
+      const n = Math.min(per, G - rank * per);
+      const j = g - rank * per;
+      // Position from the left, 0..n−1, of the j-th group placed centre-out.
+      const order = Array.from({ length: n }, (_, i) => i).sort((a, b) => spreadIndex(a) - spreadIndex(b));
+      const p = order.indexOf(j);
+      const shift = rank % 2 === 1 && n === per ? 0.5 : 0;
+      const x = (p - (n - 1) / 2 + shift) * spacing;
+      const z = (p % 2 === 0 ? 1 : -1) * echelon - rank * rankDepth;
+      centres.push(v3(x, rise * lineHeight(p + 3 * rank), z));
     }
   };
   switch (formation) {
     case 'line_abreast':
-      line(0.72 * d, (g) => 1.9 * heightPattern(g), 0.6);
+      line(gx, 0.15 * gz, 0.9 * gz, 0.45 * gy);
       break;
     case 'fighter_screen':
-      line(0.7 * d, (g) => 1.8 * heightPattern(g), 0.55);
+      line(gx, 0.12 * gz, 0.85 * gz, 0.4 * gy);
       break;
-    case 'layered_line':
-      // Three height layers, the groups closer laterally (the layers keep them apart).
-      line(0.62 * d, (g) => [0, 1.9, -1.9][g % 3] + 0.25 * heightPattern(g + 3), 0.5);
+    case 'layered_line': {
+      // Three height layers (the line itself, above and below), the groups closer laterally since the layers keep
+      // neighbours apart; bounded by Q1b like the line abreast.
+      const spacing = 0.62 * gx;
+      const perMax = Math.max(1, Math.min(G, 3 * LINE_RANK_GROUPS, abreast(spacing)));
+      const ranks = Math.ceil(G / perMax);
+      const per = Math.ceil(G / ranks);
+      used = per;
+      for (let g = 0; g < G; g++) {
+        const rank = Math.floor(g / per);
+        const n = Math.min(per, G - rank * per);
+        const j = g - rank * per;
+        const order = Array.from({ length: n }, (_, i) => i).sort((a, b) => spreadIndex(a) - spreadIndex(b));
+        const p = order.indexOf(j);
+        const layer = [0, 1, -1][p % 3];
+        centres.push(v3((p - (n - 1) / 2) * spacing, layer * 0.95 * gy + 0.15 * gy * lineHeight(p), (p % 2 ? -0.12 : 0.12) * gz - rank * 0.9 * gz));
+      }
       break;
-    case 'static':
-      line(Math.max(0.85 * d, 6 / SLOT_COMPRESSION), (g) => (g === 0 ? 0 : g % 2 ? 0.55 : -0.55) + 0.9 * heightPattern(g + 5), 0.4);
-      for (const c of centres) c.z -= 0.012 * c.x * c.x;
+    }
+    case 'static': {
+      // Platforms on a shallow arc across the bearing (6 km apart at least), alternately above and below the plane.
+      const spacing = Math.max(gx, 6 / SLOT_COMPRESSION);
+      line(spacing, 0.08 * gz, 0.9 * gz, 0.5 * gy, Infinity);
+      for (const c of centres) c.z -= (0.012 * c.x * c.x) / Math.max(1, spacing / 6);
       break;
-    case 'broadside_line':
-      // A column along the heading, zig-zagging side to side: the doctrine facing turns it 90° once locked, into a
-      // line of battle with the escorts on the enemy (+x) side.
-      for (let g = 0; g < G; g++) centres.push(v3((g % 2 ? 0.35 : -0.35) * d * (g > 0 ? 1 : 0), heightPattern(g) * 0.8 * h, -(g - (G - 1) / 2) * 0.62 * d));
+    }
+    case 'broadside_line': {
+      // A column along the heading, zig-zagging a little: the doctrine facing turns it 90° once locked, into a line of
+      // battle with every group's escorts on the enemy (+x) side. A column longer than Q1b splits into columns side by
+      // side, the further ones on the far (−x) side.
+      const step = 0.85 * gz;
+      const perMax = Math.max(1, Math.min(G, rangeNom === undefined ? G : Math.floor((FRONTAGE_RANGES * rangeNom - gz) / step) + 1));
+      const cols = Math.ceil(G / perMax);
+      const per = Math.ceil(G / cols);
+      for (let g = 0; g < G; g++) {
+        const col = Math.floor(g / per);
+        const n = Math.min(per, G - col * per);
+        const j = g - col * per;
+        centres.push(v3((j % 2 ? 0.18 : -0.18) * gx * (n > 1 ? 1 : 0) - col * 1.1 * gx, heightPattern(j + 2 * col) * 0.4 * gy, -(j - (n - 1) / 2) * step));
+      }
       break;
-    case 'defensive_screen':
-      // Two staggered ranks on a shallow concave arc (flanks forward), groups at staggered heights.
-      ranks(0.78 * d, 1.2 * e, 1.0 * e);
+    }
+    case 'defensive_screen': {
+      // Two staggered ranks on a shallow concave arc (flanks forward): the even groups forward, the odd ones behind and
+      // between them; further rank pairs behind when the front would pass Q1b.
+      const perMax = Math.max(2, 2 * Math.min(G, abreast(gx)));
+      const pairs = Math.ceil(G / perMax);
+      const per = Math.ceil(G / pairs);
+      used = Math.ceil(per / 2);
+      for (let g = 0; g < G; g++) {
+        const pr = Math.floor(g / per);
+        const n = Math.min(per, G - pr * per);
+        const i = g - pr * per;
+        const back = i % 2 === 1;
+        const front = Math.ceil(n / 2);
+        const j = Math.floor(i / 2);
+        const order = Array.from({ length: back ? n - front : front }, (_, q) => q).sort((a, b) => spreadIndex(a) - spreadIndex(b));
+        const p = order.indexOf(j);
+        const count = order.length;
+        const x = (p - (count - 1) / 2 + (back && count === front ? 0.5 : 0)) * gx;
+        const half = Math.max(1, ((front - 1) / 2) * gx);
+        const f = Math.min(1, Math.abs(x) / half);
+        centres.push(v3(x, (back ? -0.5 : 0.5) * gy * Math.abs(lineHeight(p + (back ? 5 : 0))) + 0.2 * gy * lineHeight(p + 2), (back ? -0.8 * gz : 0) + 0.3 * gz * f * f - pr * 1.7 * gz));
+      }
       break;
+    }
     case 'strike_wedge':
     case 'stacked_wedge': {
-      // A 3D arrowhead: the apex group leads; each rank behind it holds up to three groups (left, right, and above
-      // or below), stepping out and back; the stacked wedge spreads every rank over three heights.
+      // A 3D arrowhead: the apex group leads; each rank behind it holds up to three groups (left, right, and one above
+      // or below the axis), stepping out and back; the stacked wedge spreads every rank over three heights.
+      const stacked = formation === 'stacked_wedge';
       let g = 1;
       centres.push(v3(0, 0, 0));
       for (let r = 1; g < G; r++) {
-        const slotsInRank = [
-          v3(-0.5 * r * d, (formation === 'stacked_wedge' ? -1.2 : -0.6) * h, -r * 0.42 * d),
-          v3(0.5 * r * d, (formation === 'stacked_wedge' ? 1.2 : 0.55) * h, -r * 0.42 * d),
-          v3((r % 2 ? 0.18 : -0.18) * d, (r % 2 ? 1.25 : -1.25) * h, -r * 0.5 * d),
+        const rank = [
+          v3(-0.66 * r * gx, (stacked ? -0.8 : -0.3) * gy, -0.5 * r * gz),
+          v3(0.66 * r * gx, (stacked ? 0.8 : 0.3) * gy, -0.5 * r * gz),
+          v3((r % 2 ? 0.15 : -0.15) * gx, (r % 2 ? 1 : -1) * (stacked ? 1.05 : 0.85) * gy, -(0.4 + 0.5 * r) * gz),
         ];
-        for (const p of slotsInRank) {
+        for (const p of rank) {
           if (g >= G) break;
           centres.push(p);
           g++;
@@ -365,10 +469,20 @@ function placeGroupCentres(groups: Group[], formation: FormationType, rangeNom: 
       }
       break;
     }
-    case 'capital_column':
-      // A deep column, zig-zagging and stepping in height.
-      for (let g = 0; g < G; g++) centres.push(v3((g % 2 ? 0.38 : -0.38) * d * (g > 0 ? 1 : 0), (g % 2 ? 0.5 : -0.5) * h * (g > 0 ? 1 : 0), -g * 0.62 * d));
+    case 'capital_column': {
+      // A deep column, zig-zagging and stepping in height; deeper than two ranges it splits into files side by side.
+      const step = 0.6 * gz;
+      const perMax = rangeNom === undefined ? G : Math.max(2, Math.floor((2 * rangeNom - (ext.zf + ext.zb)) / step) + 1);
+      const files = Math.ceil(G / Math.min(G, perMax));
+      const per = Math.ceil(G / files);
+      for (let g = 0; g < G; g++) {
+        const file = Math.floor(g / per);
+        const j = g - file * per;
+        const zig = j > 0 ? (j % 2 ? 0.3 : -0.3) : 0;
+        centres.push(v3((file - (files - 1) / 2) * 1.2 * gx + zig * gx, (j > 0 ? (j % 2 ? 0.35 : -0.35) : 0) * gy, -j * step));
+      }
       break;
+    }
     case 'box': {
       // Groups on a 3D grid round the centre.
       const n = Math.max(1, Math.ceil(Math.cbrt(G)));
@@ -377,7 +491,7 @@ function placeGroupCentres(groups: Group[], formation: FormationType, rangeNom: 
         const ix = g % n;
         const iy = Math.floor(g / n) % n;
         const iz = Math.floor(g / (n * n));
-        centres.push(v3((ix - (n - 1) / 2) * 0.8 * d, (iy - (n - 1) / 2) * 0.75 * d, -(iz - (layers - 1) / 2) * 0.8 * d));
+        centres.push(v3((ix - (n - 1) / 2) * 0.9 * gx, (iy - (n - 1) / 2) * 0.9 * gy, -(iz - (layers - 1) / 2) * 0.9 * gz));
       }
       break;
     }
@@ -387,8 +501,8 @@ function placeGroupCentres(groups: Group[], formation: FormationType, rangeNom: 
       for (let g = 0; g < G; g++) {
         const col = Math.floor(g / 3);
         const kk = g % 3;
-        const x = (cols > 1 ? spreadIndex(col) * 0.95 * d : 0) + (kk === 1 ? 0.32 : kk === 2 ? -0.32 : 0) * d;
-        centres.push(v3(x, (1 - kk) * 1.05 * h, -kk * 0.5 * d - col * 0.22 * d));
+        const x = (cols > 1 ? spreadIndex(col) * 1.05 * gx : 0) + (kk === 1 ? 0.3 : kk === 2 ? -0.3 : 0) * gx;
+        centres.push(v3(x, (1 - kk) * 0.75 * gy, -kk * 0.6 * gz - col * 0.2 * gz));
       }
       break;
     }
@@ -400,7 +514,7 @@ function placeGroupCentres(groups: Group[], formation: FormationType, rangeNom: 
       for (let g = 0; g < G; g++) {
         const c = g % cols;
         const r = Math.floor(g / cols);
-        centres.push(v3((c - (cols - 1) / 2) * 1.1 * d + (golden(g + 1) - 0.5) * 0.4 * d, heightPattern(g + 1) * 1.3 * h, -(r - (rows - 1) / 2) * 0.95 * d + (golden(g + 7) - 0.5) * 0.4 * d));
+        centres.push(v3((c - (cols - 1) / 2) * 1.15 * gx + (golden(g + 1) - 0.5) * 0.35 * gx, heightPattern(g + 1) * 0.6 * gy, -(r - (rows - 1) / 2) * 1.05 * gz + (golden(g + 7) - 0.5) * 0.35 * gz));
       }
       break;
     }
@@ -409,8 +523,57 @@ function placeGroupCentres(groups: Group[], formation: FormationType, rangeNom: 
     const c = centres[gi];
     const r = hullRng(seed, `group:${g.leaders[0].id}`);
     const s = (): number => r.next() * 2 - 1;
-    g.centre = v3(c.x + s() * 0.08 * d, c.y + s() * 0.3 * h, c.z + s() * 0.35 * e);
+    g.centre = v3(c.x + s() * 0.06 * gx, c.y + s() * 0.12 * gy, c.z + s() * 0.1 * gz);
   });
+  separateGroups(groups, Math.max(GROUP_GAP_MIN, GROUP_CLEAR_FRACTION * rad));
+  return used;
+}
+
+/** No two hulls of different groups nearer than this × the largest group's radius (nominal; brief §22). */
+export const GROUP_CLEAR_FRACTION = 0.5;
+
+/** The clear space kept between hulls of different groups (km): `separateGroups`' distance, a little relaxed. */
+function groupClearKm(groups: Group[], ships: SlotShip[]): number {
+  const e = extentOf(groups, ships);
+  return 0.8 * Math.max(GROUP_GAP_MIN, GROUP_CLEAR_FRACTION * Math.max(e.xl, e.xr, e.zf, e.zb, 1)) * SLOT_COMPRESSION;
+}
+
+/**
+ * Keep the groups apart (brief §22): wherever two hulls of different groups sit nearer than `clear` (nominal), the later
+ * group moves straight away from the earlier one until they are clear; the first group (the flagship's) never moves.
+ * The formations' diagonal ranks and echelons are tight by design, so this settles them. Deterministic: fixed order.
+ */
+function separateGroups(groups: Group[], clear: number): void {
+  const pts = groups.map((g) => [...g.local.values()]);
+  for (let pass = 0; pass < 12; pass++) {
+    let moved = false;
+    for (let j = 1; j < groups.length; j++) {
+      for (let i = 0; i < j; i++) {
+        const a = groups[i].centre;
+        const b = groups[j].centre;
+        let least = Infinity;
+        for (const p of pts[i]) for (const q of pts[j]) least = Math.min(least, Math.hypot(b.x + q.x - a.x - p.x, b.y + q.y - a.y - p.y, b.z + q.z - a.z - p.z));
+        if (least >= clear - 1e-9) continue;
+        let ux = b.x - a.x;
+        let uy = b.y - a.y;
+        let uz = b.z - a.z;
+        const l = Math.hypot(ux, uy, uz);
+        if (l < 1e-9) {
+          ux = 1;
+          uy = 0;
+          uz = 0;
+        } else {
+          ux /= l;
+          uy /= l;
+          uz /= l;
+        }
+        const push = (clear - least) * 1.05 + 1e-3;
+        groups[j].centre = v3(b.x + ux * push, b.y + uy * push, b.z + uz * push);
+        moved = true;
+      }
+    }
+    if (!moved) break;
+  }
 }
 
 /** Unit vector at azimuth θ (from +z toward +x) and elevation φ. */
@@ -418,22 +581,22 @@ const dir = (theta: number, phi: number): Vec3 => v3(Math.sin(theta) * Math.cos(
 const scaleV = (a: Vec3, s: number): Vec3 => v3(a.x * s, a.y * s, a.z * s);
 
 /**
- * One group (nominal, fleet-local): its capital(s) at the centre; cruisers on a shell round it (spread over the
- * forward 300° from the group's own phase, mirrored as the group draws, alternately above and below; a Reaper
- * capital's destroyers beside, above, below and behind it — the capital leads);
- * frigates on a cap ahead; carriers behind and above; craft ahead of the screen. A broadside line keeps its escorts
- * on its +x (enemy) side. Every hull takes its jitter.
+ * One group's cluster round its centre (nominal, fleet axes; `g.local`): its capital(s) at the centre; cruisers on a
+ * shell round it (spread over the forward 300° from the group's own phase, mirrored as the group draws, alternately
+ * above and below; a Reaper capital's destroyers beside, above, below and behind it — the capital leads); frigates on
+ * a cap ahead; carriers behind and above; craft ahead of the screen. A broadside line keeps its escorts on its +x
+ * (enemy) side. Every hull takes its jitter.
  */
-function placeGroup(g: Group, formation: FormationType, jit: Map<string, Jitter>, out: Map<string, Vec3>): void {
-  const c = g.centre;
+function placeGroup(g: Group, formation: FormationType, jit: Map<string, Jitter>): void {
   const ring = g.ring;
   const broadside = formation === 'broadside_line';
   const reaper = g.leaders[0].role === 'reaper_capital';
   // A broadside line keeps every escort on its +x side; any other group may mirror its pattern.
   const mirror = broadside ? 1 : g.mirror;
+  const out = g.local;
   const put = (s: SlotShip, p: Vec3): void => {
     const j = jit.get(s.id)!;
-    out.set(s.id, v3(c.x + mirror * p.x + j.lateral * ring * 0.6, c.y + p.y + j.vertical * ring * 0.6, c.z + p.z + j.depth * ring * 0.6));
+    out.set(s.id, v3(mirror * p.x + j.lateral * ring * 0.6, p.y + j.vertical * ring * 0.6, p.z + j.depth * ring * 0.6));
   };
   // The capital(s): one at the centre, a pair side by side with a stagger in height and depth.
   g.leaders.forEach((s, i) => {
@@ -469,7 +632,7 @@ function placeGroup(g: Group, formation: FormationType, jit: Map<string, Jitter>
     const theta = (broadside ? Math.PI / 2 : 0) + 2 * a * SCREEN_AZIMUTH + j.azimuth;
     const phi = 2 * b * SCREEN_ELEVATION * (g.tilt < 0.5 ? 1 : -1) + j.elevation;
     // A cloud, not a shell: the screen has depth as well as width and height.
-    const reach = (SCREEN_AHEAD + ring - ESCORT_RING) * j.spacing + (j.u - 0.5) * 0.8 * ring;
+    const reach = (SCREEN_AHEAD + ring - ESCORT_RING) * j.spacing + (j.u - 0.5) * 0.5 * ring;
     put(s, scaleV(dir(theta, phi), reach));
   });
   // Carriers: behind and above, a pair side by side.
@@ -554,7 +717,7 @@ function joinNearestGroup(ships: SlotShip[], slots: Map<string, Vec3>, groups: G
   const lead = new Map<number, string>();
   groups.forEach((g, gi) => lead.set(gi, g.leaders[0].id));
   for (const s of ships) {
-    if (isCapitalTier(s.role) || !slots.has(s.id)) continue;
+    if (isGroupCapital(s.role) || !slots.has(s.id)) continue;
     const p = slots.get(s.id)!;
     let best: SlotShip | undefined;
     let bd = Infinity;
@@ -654,7 +817,7 @@ export function rowCount(points: readonly Vec3[], a: number, b: number, tol: num
  * through it, keeping every clearance. Fleets above `ROW_CHECK_FULL` hulls are checked within a neighbourhood of a
  * third of the frontage. Deterministic.
  */
-function breakRows(ships: SlotShip[], slots: Map<string, Vec3>, jit: Map<string, Jitter>): void {
+function breakRows(ships: SlotShip[], slots: Map<string, Vec3>, jit: Map<string, Jitter>, groupOf: Map<string, number>, groupClear: number): void {
   const live = ships.filter((s) => slots.has(s.id) && s.role !== 'fighter');
   if (live.length < 4) return;
   const pts = live.map((s) => slots.get(s.id)!);
@@ -664,7 +827,7 @@ function breakRows(ships: SlotShip[], slots: Map<string, Vec3>, jit: Map<string,
   // among neighbours (a row is a chain of adjacent hulls).
   const spacing = medianNeighbour(pts);
   const frontTol = ROW_TOLERANCE_FRONTAGE * frontage;
-  const dense = frontTol > ROW_ATTAINABLE * spacing || live.length > ROW_DENSE_HULLS;
+  const dense = live.length > ROW_DENSE_HULLS && frontTol > ROW_ATTAINABLE * spacing;
   const tol = dense ? ROW_DENSE_SPACING * spacing : frontTol;
   const local = dense || live.length > ROW_CHECK_FULL;
   const near = dense ? ROW_DENSE_REACH * spacing : live.length > ROW_CHECK_FULL ? frontage / 3 : Infinity;
@@ -673,11 +836,15 @@ function breakRows(ships: SlotShip[], slots: Map<string, Vec3>, jit: Map<string,
     for (let j = 0; j < pts.length; j++) if (Math.abs(pts[j].x - pts[i].x) <= near && Math.abs(pts[j].z - pts[i].z) <= near) out.push(j);
     return out;
   };
+  // A moved hull keeps every clearance and stays out of the other groups' space (`groupClear`, brief §22).
   const clear = (i: number, p: Vec3): boolean => {
+    const gi = groupOf.get(live[i].id);
     for (let j = 0; j < live.length; j++) {
       if (j === i) continue;
       const q = pts[j];
-      if (Math.hypot(p.x - q.x, p.y - q.y, p.z - q.z) < minSeparationKm(live[i], live[j]) - 1e-9) return false;
+      const d = Math.hypot(p.x - q.x, p.y - q.y, p.z - q.z);
+      if (d < minSeparationKm(live[i], live[j]) - 1e-9) return false;
+      if (gi !== undefined && groupOf.get(live[j].id) !== gi && d < groupClear) return false;
     }
     return true;
   };
@@ -689,7 +856,7 @@ function breakRows(ships: SlotShip[], slots: Map<string, Vec3>, jit: Map<string,
     }
     return false;
   };
-  for (let pass = 0; pass < 4; pass++) {
+  for (let pass = 0; pass < 10; pass++) {
     let changed = false;
     for (let i = 0; i < live.length; i++) {
       if (!onRow(i)) continue;
@@ -697,16 +864,20 @@ function breakRows(ships: SlotShip[], slots: Map<string, Vec3>, jit: Map<string,
       const p = pts[i];
       const base = v3(p.x, p.y, p.z);
       let done = false;
-      for (let step = 1; step <= 6 && !done; step++) {
+      // Lift or lower it (and shift it in depth) a little further each step, its own way first.
+      for (let step = 1; step <= 8 && !done; step++) {
         for (const s of [sign, -sign]) {
-          p.x = base.x;
-          p.y = base.y + s * 0.7 * tol * step;
-          p.z = base.z + (step % 2 ? s : -s) * 0.45 * tol * step;
-          if (clear(i, p) && !onRow(i)) {
-            done = true;
-            changed = true;
-            break;
+          for (const dz of [step % 2 ? s : -s, 0, step % 2 ? -s : s]) {
+            p.x = base.x;
+            p.y = base.y + s * 0.55 * tol * step;
+            p.z = base.z + dz * 0.25 * tol * step;
+            if (clear(i, p) && !onRow(i)) {
+              done = true;
+              changed = true;
+              break;
+            }
           }
+          if (done) break;
         }
       }
       if (!done) {
