@@ -276,9 +276,9 @@ export class BattleView {
     // Ultra quality must not hold thousands of distant individual hull meshes
     // on screen. The camera still preserves full detail for close subjects.
     const lodScale = sim.ships.length >= 1500
-      ? Math.min(this.preset.lodDistanceScale, 0.65)
+      ? Math.min(this.preset.lodDistanceScale, 1.5)
       : sim.ships.length >= 500
-        ? Math.min(this.preset.lodDistanceScale, 1)
+        ? Math.min(this.preset.lodDistanceScale, 2)
         : this.preset.lodDistanceScale;
     this.ensureFarCapacity(sim.ships.length);
     // A finite draw-call budget matters more than raw GPU throughput when
@@ -288,7 +288,7 @@ export class BattleView {
     const meshBudget = useBatches ? 24 : detailedHullBudget(sim.ships.length);
     if (!Number.isFinite(meshBudget)) this.detailedShips = undefined;
     else if (!this.detailedShips || ++this.detailBudgetFrame % 8 === 0) {
-      const near = sim.ships.filter((s) => s.alive && !s.escaped).map((s) => {
+      const near = sim.ships.filter((s) => s.alive && !s.escaped && (!useBatches || s.role !== 'fighter')).map((s) => {
         const dx = s.pos.x * KM - cam.x;
         const dy = s.pos.y * KM - cam.y;
         const dz = s.pos.z * KM - cam.z;
@@ -318,7 +318,7 @@ export class BattleView {
       );
       const dist = cam.distanceTo(point);
       const selected = this.selectedIds.size <= 12 && this.selectedIds.has(ship.id);
-      const hero = selected || this.followId === ship.id || (useBatches && this.detailedShips?.has(ship.id));
+      const hero = selected || this.followId === ship.id || (useBatches && dist < 700 && this.detailedShips?.has(ship.id));
       const lengthUnits = v?.built.lengthUnits ?? getShipTemplate(ship.classId).lengthUnits;
       const level = hero ? 'full' : useBatches
         ? lodLevel(dist, lengthUnits, ship.role, lodOn, lodScale)
