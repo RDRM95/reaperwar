@@ -88,6 +88,9 @@ export class BattleView {
   private farPositions = new Float32Array(INITIAL_FAR_POINTS * 3);
   private farColours = new Float32Array(INITIAL_FAR_POINTS * 3);
   private readonly tmpColour = new THREE.Color();
+  /** The closest detailed hulls in a large battle; others stay in the GPU point cloud. */
+  private detailedShips?: Set<string>;
+  private detailBudgetFrame = 0;
   /** Draw calls of the last rendered frame. */
   drawCalls = 0;
   lodCounts = { full: 0, reduced: 0, point: 0 };
@@ -154,6 +157,8 @@ export class BattleView {
     this.sim = sim;
     for (const v of this.visuals.values()) this.scene.remove(v.built.group);
     this.visuals.clear();
+    this.detailedShips = undefined;
+    this.detailBudgetFrame = 0;
     this.effects.clear();
     if (this.env) this.scene.remove(this.env.group);
     this.env = buildEnvironment(sim.config.environment);
@@ -265,6 +270,22 @@ export class BattleView {
         ? Math.min(this.preset.lodDistanceScale, 1)
         : this.preset.lodDistanceScale;
     this.ensureFarCapacity(sim.ships.length);
+    // A finite draw-call budget matters more than raw GPU throughput when
+    // thousands of hulls each have multiple meshes. Keep nearest models at
+    // full fidelity; draw the rest as one GPU point cloud. Reassess 8 times
+    // per second rather than sorting every animation frame.
+    const meshBudget = sim.ships.length >= 5000 ? 240 : sim.ships.length >= 1500 ? 360 : sim.ships.length >= 500 ? 600 : Infinity;
+    if (!Number.isFinite(meshBudget)) this.detailedShips = undefined;
+    else if (!this.detailedShips || ++this.detailBudgetFrame % 8 === 0) {
+      const near = sim.ships.filter((s) => s.alive && !s.escaped).map((s) => {
+        const dx = s.pos.x * KM - cam.x;
+        const dy = s.pos.y * KM - cam.y;
+        const dz = s.pos.z * KM - cam.z;
+        return { id: s.id, distanceSq: dx * dx + dy * dy + dz * dz };
+      });
+      near.sort((a, b) => a.distanceSq - b.distanceSq);
+      this.detailedShips = new Set(near.slice(0, meshBudget).map((s) => s.id));
+    }
     let far = 0;
     this.lodCounts = { full: 0, reduced: 0, point: 0 };
     for (const ship of sim.ships) {
@@ -278,10 +299,18 @@ export class BattleView {
         v.built.group.visible = false;
         continue;
       }
-      this.placeVisual(v, alpha);
-      // Level of detail by distance; far ships collapse into the shared point cloud.
-      const dist = cam.distanceTo(v.built.group.position);
-      const level = lodLevel(dist, v.built.lengthUnits, ship.role, lodOn, lodScale);
+      // Do not recompute heading/quaternion for distant point-only ships.
+      const point = this.tmpA.set(
+        (ship.prevPos.x + (ship.pos.x - ship.prevPos.x) * alpha) * KM,
+        (ship.prevPos.y + (ship.pos.y - ship.prevPos.y) * alpha) * KM,
+        (ship.prevPos.z + (ship.pos.z - ship.prevPos.z) * alpha) * KM,
+      );
+      const dist = cam.distanceTo(point);
+      const selected = this.selectedIds.size <= 12 && this.selectedIds.has(ship.id);
+      const detailed = !this.detailedShips || this.detailedShips.has(ship.id) || selected || this.followId === ship.id;
+      const level = detailed ? lodLevel(dist, v.built.lengthUnits, ship.role, lodOn, lodScale) : 'point';
+      if (level === 'point') v.built.group.position.copy(point);
+      else this.placeVisual(v, alpha);
       this.applyLod(v, level);
       this.lodCounts[level]++;
       if (level === 'point') {
