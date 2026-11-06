@@ -30,6 +30,8 @@ On first run the launcher:
 
 On later double-clicks it checks for the latest `main` commit and updates the local copy if necessary. Your game saves stay in the dedicated `.local-profile` folder and are preserved across updates. When offline it can reuse a previously installed copy. The first download/build requires an internet connection; no remote game server or account is needed for play. Windows may show a security warning for a downloaded unsigned `.cmd`; inspect the launcher source and choose to run it only if you trust this repository.
 
+**If a launcher window flashes and disappears:** delete the earlier downloaded `PLAY-REAPERWAR.cmd` and download the current copy from this repository. The updated launcher always pauses before exiting, prints the error, and writes `%LOCALAPPDATA%\\ReaperWar\\launcher-last-run.log`. Do not delete the `ReaperWar` data folder to troubleshoot; it may contain your save profile. If no game appears, copy the error text from the open window or inspect that log.
+
 If setup fails, the command window stays open with the error message. Files are stored under `%LOCALAPPDATA%\ReaperWar`, not a system-wide installation.
 
 ## Play on your own PC (no install)

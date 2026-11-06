@@ -18,6 +18,7 @@ $toolsDir = Join-Path $homeDir 'tools'
 $nodeDir = Join-Path $toolsDir 'node'
 $nodeExe = Join-Path $nodeDir 'node.exe'
 $stateFile = Join-Path $homeDir 'installed-commit.txt'
+$logFile = Join-Path $homeDir 'launcher-last-run.log'
 $sourceZip = Join-Path $homeDir 'source.zip'
 $sourceApi = 'https://api.github.com/repos/RDRM95/reaperwar/commits/main'
 $sourceArchive = 'https://codeload.github.com/RDRM95/reaperwar/zip/refs/heads/main'
@@ -177,6 +178,7 @@ function Update-Game([string]$commit) {
 function Main {
   if (-not (Test-Path -LiteralPath $homeDir)) { New-Item -ItemType Directory -Path $homeDir | Out-Null }
   if (-not (Test-Path -LiteralPath $toolsDir)) { New-Item -ItemType Directory -Path $toolsDir | Out-Null }
+  Say ('Diagnostic log: ' + $logFile)
   Recover-PreviousInstall
 
   $installed = (Test-Path -LiteralPath (Join-Path $gameDir 'package.json'))
@@ -228,20 +230,38 @@ function Main {
     $launch = Join-Path $gameDir 'scripts\local\launch.mjs'
     $arguments = @($launch)
     if ($updated) { $arguments += '--rebuild' }
+    $started = Get-Date
     & $runtime @arguments
     if ($LASTEXITCODE -ne 0) { throw "The local game launcher exited with code $LASTEXITCODE." }
+    if (((Get-Date) - $started).TotalSeconds -lt 8) {
+      throw 'The game process ended immediately without staying open. The launcher is no longer closing this error window: check the messages above.'
+    }
+    Say 'Local Edition session ended.'
   } finally {
     Pop-Location
   }
 }
 
+$exitCode = 0
+$transcriptStarted = $false
 try {
+  if (-not (Test-Path -LiteralPath $homeDir)) { New-Item -ItemType Directory -Path $homeDir | Out-Null }
+  try {
+    Start-Transcript -LiteralPath $logFile -Append -ErrorAction Stop | Out-Null
+    $transcriptStarted = $true
+  } catch {
+    Write-Warning ('Could not start the diagnostic log: ' + $_.Exception.Message)
+  }
   Main
-  exit 0
 } catch {
+  $exitCode = 1
   Write-Host ''
   Write-Host ('ERROR: ' + $_.Exception.Message) -ForegroundColor Red
-  Write-Host 'Your existing game and local save profile have not intentionally been deleted.' -ForegroundColor Yellow
-  Write-Host 'Check your internet connection if this was the first launch.'
-  exit 1
+  Write-Host 'The game did not start successfully.' -ForegroundColor Yellow
+  Write-Host ('Diagnostic log: ' + $logFile)
+  Write-Host 'Your existing save profile is kept whenever an update fails.'
+  Write-Host 'If this is your first launch, check your internet connection.'
+} finally {
+  if ($transcriptStarted) { Stop-Transcript | Out-Null }
 }
+exit $exitCode
