@@ -138,6 +138,16 @@ td.num { font-family: var(--mono); text-align: right; }
 .bar i { position: absolute; left: 0; top: 0; bottom: 0; }
 .bar.hull i { background: var(--orange); }
 .bar.barrier i { background: var(--blue); }
+/* Large-battle HUD (brief §12): fleet and battlegroup rows with live/deployed counts; they expand to groups and hulls. */
+.agg-row .name { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.agg-row .agg-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agg-row .agg-count { flex: none; font-size: 10px; color: var(--text-dim); letter-spacing: 0.05em; }
+.agg-toggle { flex: none; width: 12px; color: var(--cyan); cursor: pointer; text-align: center; }
+.agg-toggle:hover { color: var(--text); }
+.fleet-row { font-weight: 600; letter-spacing: 0.02em; }
+.group-row { font-size: 11.5px; }
+.ship-row.partial { border-left-color: rgba(255, 138, 31, 0.45); }
+.ship-row.nested { padding-left: 32px; font-size: 11.5px; }
 .comms { font-family: var(--mono); font-size: 11px; line-height: 1.5; max-height: 120px; overflow: hidden; }
 .comms .line { opacity: 0; animation: commsin 0.4s forwards; }
 @keyframes commsin { to { opacity: 1; } }
