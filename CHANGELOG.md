@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.12.3 — Battlegroups instead of rows, free camera
+
+- **Battlegroup formations.** Every fleet deploys as battlegroups: each capital leads its own escorts in a loose 3D cluster, the groups stand in staggered echelons in depth and height, and seeded variation means no ships line up in rows or columns. Screens fly ahead of their group, carriers behind and above; Reapers fly as capital-led clusters with their destroyers. Capitals keep at least three of their own lengths apart, and groups keep enough room for a camera to tell them apart.
+- **Rational movement.** Battlegroups close intact on converging arcs, avoid each other and keep station on their leader. Ships moving up advance in lanes instead of crowding one spot.
+- **No idling at the back.** A ship with nothing in reach while its fleet is engaged moves up: it fills gaps left by losses, backs up damaged or outnumbered allies, or closes to its own weapon range. Capitals hold their standoff band; only Hold and Defend orders keep ships back; Reapers never idle once engaged.
+- **More room.** Fleets start 1.6 times further apart, with arrival times and time limits scaled to match. (The codex-scale distances of the pacing plan come with the next simulation pass.)
+- **Free camera.** Dragging or scrolling in any director view (cinematic, projectile, Reaper, command, shot list) continues as a free orbit from where the camera is; picking a camera mode hands control back. The follow camera pulls back to the whole battle. Fixed: the HUD layer had been swallowing mouse drags and the wheel over the 3D view, so the camera could not be rotated or zoomed with the mouse at all.
+- **Determinism:** the browser and Node now play the same battle bit for bit (an engine-dependent maths path is gone).
+- Release gate: typecheck clean; 488 unit tests in 40 files (new: the battlegroup suite and camera control); build clean; 12/12 end-to-end tests (new: real mouse camera control, browser-equals-Node determinism); screenshots inspected. Canon and Apex balance keep their character; each re-measured test bound is listed with its reason in the commit history.
+
+Known limitations: name labels overlap inside dense battlegroups (the HUD simplification for large battles comes with the HUD work); seen from far away, the Final Battle's mid-fight still converges into a dense melee until the codex-scale distances land; new hull classes still use placeholder models; 8× playback still lags on large battles.
+
 ## 0.12.2 — Named fleets, the Black Fleet's drive attack, the distant battle
 
 - **Every ship has a name.** Organic hulls carry faction-fitting names from original lists (Alliance, turian, asari, salarian, quarian, geth and Cerberus conventions; Roman numerals when a list runs out; canon names such as the Normandy stay unique). Unnamed Reapers carry tracking designations, RC-nn for capitals and RD-nn for destroyers, in the fleet lists, labels and logs.
