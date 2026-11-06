@@ -2,6 +2,8 @@
  * Minimal mutable 3D vector used by the simulation. Kept independent from
  * Three.js so the simulation can run headless in tests and workers.
  */
+import { dcos, dsin } from './detmath';
+
 export interface Vec3 {
   x: number;
   y: number;
@@ -44,8 +46,8 @@ export const equalsApprox = (a: Vec3, b: Vec3, eps = 1e-6): boolean =>
 
 /** Rotate vector around Y axis by angle (radians). */
 export const rotateY = (a: Vec3, angle: number): Vec3 => {
-  const c = Math.cos(angle);
-  const s = Math.sin(angle);
+  const c = dcos(angle);
+  const s = dsin(angle);
   return v3(a.x * c + a.z * s, a.y, -a.x * s + a.z * c);
 };
 

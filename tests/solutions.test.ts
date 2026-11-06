@@ -40,15 +40,21 @@ const rate = (shots: Shot[], from: number, to: number): number => {
 };
 
 describe('firing solutions', () => {
-  it('opening salvoes mostly miss (< 25 % over the first 6 s); mature fire hits (> 60 % over seconds 20–40)', () => {
-    const { sim, shots, step } = spinalDuel(1);
-    while (sim.time < 40) step();
-    expect(shots.filter((s) => s.t < 6).length).toBeGreaterThan(2);
-    expect(rate(shots, 0, 6)).toBeLessThan(0.25);
-    expect(rate(shots, 20, 40)).toBeGreaterThan(0.6);
-    // The solution itself: q₀ at first contact, near 1 after 20 s of tracking.
-    const dn = sim.ships.find((s) => s.role === 'dreadnought')!;
-    expect(solutionFor(dn, dn.targetId!)).toBeGreaterThan(0.85);
+  it('opening salvoes mostly miss (< 25 % over the first 6 s); mature fire hits (> 60 % over seconds 20–40), pooled over seeds 1–5', () => {
+    // Pooled over five duels: one duel has 20 rounds in the mature window, so a single seed's rate swings by ±10 % on
+    // the hit rolls alone (seed 1 alone: 15/20 before brief §22, 9/20 after, at the same pooled rate, 66–69 %).
+    const all: Shot[] = [];
+    for (const seed of [1, 2, 3, 4, 5]) {
+      const { sim, shots, step } = spinalDuel(seed);
+      while (sim.time < 40) step();
+      expect(shots.filter((s) => s.t < 6).length, `seed ${seed}`).toBeGreaterThan(2);
+      // The solution itself: q₀ at first contact, near 1 after 20 s of tracking.
+      const dn = sim.ships.find((s) => s.role === 'dreadnought')!;
+      expect(solutionFor(dn, dn.targetId!), `seed ${seed}`).toBeGreaterThan(0.85);
+      all.push(...shots);
+    }
+    expect(rate(all, 0, 6)).toBeLessThan(0.25);
+    expect(rate(all, 20, 40)).toBeGreaterThan(0.6);
     expect(SOLUTION.q0).toBe(0.1);
     expect(SOLUTION.floor).toBe(0.25);
   });

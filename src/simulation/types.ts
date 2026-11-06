@@ -440,6 +440,12 @@ export interface ShipState {
   targetId?: string;
   /** Formation slot offset in fleet-local space (km). */
   slot: Vec3;
+  /** Battlegroup (brief §22): the hull this one keeps station on — its group's lead capital; absent for a leader. */
+  groupLeaderId?: string;
+  /** Fleet-local slot of the group's reference (its leader's slot when the formation was laid out; km). */
+  groupSlot?: Vec3;
+  /** Yaw of the hull's station facing off the fleet heading (rad; brief §22, "a slight yaw"). */
+  stationYaw?: number;
   withdrawing: boolean;
   /** Left the battlespace (retreated). Still alive, no longer participates. */
   escaped: boolean;

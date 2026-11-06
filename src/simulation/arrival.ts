@@ -37,7 +37,10 @@ export function arrivalProfileFor(role: ShipRole): ArrivalProfile {
 }
 
 /** Ease-out cubic: fast entry, settles to zero relative speed (`arrivalEase(0) = 0`, `arrivalEase(1) = 1`, monotone). */
-export const arrivalEase = (u: number): number => 1 - (1 - u) ** 3;
+export const arrivalEase = (u: number): number => {
+  const v = 1 - u;
+  return 1 - v * v * v;
+};
 
 /** Position of an arriving hull at time `t`: `from` before `appearAt`, `to` after `settleAt`, the eased run-in between. */
 export function arrivalPos(a: ArrivalState, t: number): Vec3 {
