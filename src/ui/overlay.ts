@@ -32,7 +32,8 @@ export class TacticalOverlay {
     ctx.font = '10px Consolas, "Roboto Mono", monospace';
     ctx.textBaseline = 'middle';
     // Target lines for selected ships.
-    for (const id of view.selectedIds) {
+    // Selecting an entire fleet must not draw thousands of target lines.
+    for (const id of view.selectedIds.size <= 12 ? view.selectedIds : []) {
       const s = sim.getShip(id);
       if (!s || !s.alive) continue;
       const t = s.targetId ? sim.getShip(s.targetId) : undefined;
