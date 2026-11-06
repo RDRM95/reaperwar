@@ -15,6 +15,13 @@ const MODEL_CLEARANCE = 0.6;
 const MAX_MODEL_RADIUS = 140;
 /** Label cap at 1920 × 1080; smaller viewports get proportionally fewer (never under 16). */
 const LABELS_AT_1080P = MAX_LABELS;
+/** Craft get a bracket (not a dot) only in the command view and nearer the camera than this (render units). */
+const CRAFT_BRACKET_DEPTH = 6000;
+/**
+ * Large battles (brief §12): a hull nearer the camera than this (render units: 15 km, about half the tactical view's
+ * orbit) keeps its bracket when a group or fleet label stands for it.
+ */
+const NEAR_BRACKET_DEPTH = 150;
 const FONT: Record<LabelKind, string> = {
   ship: '10px Consolas, "Roboto Mono", monospace',
   group: '10px Consolas, "Roboto Mono", monospace',
@@ -45,10 +52,12 @@ const hullFraction = (ships: readonly ShipState[]): number => {
 };
 
 /**
- * 2D tactical overlay drawn on a canvas above the WebGL view: a bracket for every hull, hull/barrier bars and text
- * labels, selection boxes, target lines and the command grid. Its own toggle is O (brief §12), independent of the
- * HUD level (H). Labels never overlap: labelLayout.ts places them by priority each frame and folds crowded
- * battlegroups and fleets into one label each, so names stay readable however far the camera pulls back.
+ * 2D tactical overlay drawn on a canvas above the WebGL view: hull brackets, hull/barrier bars and text labels,
+ * selection boxes, target lines and the command grid. Its own toggle is O (brief §12), independent of the HUD level
+ * (H). Labels never overlap each other or a drawn bar: labelLayout.ts places them by priority each frame and folds
+ * crowded battlegroups and fleets into one label each, so names stay readable however far the camera pulls back. In a
+ * large battle (a side over the Settings threshold of live hulls) the hulls such a label stands for lose their own
+ * brackets too, unless selected, hovered, followed, a flagship or named, or near the camera.
  */
 export class TacticalOverlay {
   private ctx: CanvasRenderingContext2D;
@@ -56,8 +65,13 @@ export class TacticalOverlay {
   hoverId?: string;
   /** Screen areas labels keep clear of: the visible HUD panels (CSS px; the battle controller keeps it current). */
   blocked: LabelBox[] = [];
+  /** Large-battle threshold (live hulls on a side; 0: never), brief §12: the battle controller keeps it in step with Settings. */
+  largeBattleHulls = 0;
   /** The labels drawn last frame (screen boxes, CSS px): the e2e test hook, empty while the overlay is hidden. */
   lastLabels: PlacedLabel[] = [];
+  /** The bars drawn last frame (CSS px, by hull id) and the hulls whose markers were left out: e2e test hooks. */
+  lastBars: (LabelBox & { id: string })[] = [];
+  lastHidden: string[] = [];
   /** Aggregates folded last frame (the layout's hysteresis) and each label's slot last frame. */
   private collapsed = new Set<string>();
   private slots = new Map<string, LabelSlot>();
@@ -91,6 +105,8 @@ export class TacticalOverlay {
     const ctx = this.ctx;
     ctx.clearRect(0, 0, w, h);
     this.lastLabels = [];
+    this.lastBars = [];
+    this.lastHidden = [];
     if (!this.visible) return;
     const sim = view.sim;
     const command = mode === 'command';
@@ -150,11 +166,19 @@ export class TacticalOverlay {
       strength.set(`fleet:${id}`, hullFraction(members));
       colours.set(`fleet:${id}`, FACTIONS[f.spec.faction].colour);
     }
+    // Live hulls a side, for the large-battle rule (as the HUD counts them: fighters aside).
+    const liveOnSide = new Map<string, number>();
+    for (const s of sim.ships) if (s.role !== 'fighter' && inFight(s)) liveOnSide.set(s.side, (liveOnSide.get(s.side) ?? 0) + 1);
+    const large = (side: string): boolean => this.largeBattleHulls > 0 && (liveOnSide.get(side) ?? 0) > this.largeBattleHulls;
     const hulls: LabelHull[] = [];
     for (const { s, x, y, depth, size } of marks) {
       const selected = view.selectedIds.has(s.id);
       const hovered = this.hoverId === s.id;
-      if (s.role === 'fighter' && !selected && !hovered) continue; // craft and Oculi stay unlabelled
+      if (s.role === 'fighter' && !selected && !hovered) {
+        // Craft and Oculi stay unlabelled; the command view brackets the near ones, with bars no label may cover.
+        if (command && depth <= CRAFT_BRACKET_DEPTH) hulls.push({ id: s.id, x, y, size, name: '', priority: LABEL_PRIORITY.other, bars: true, unnamed: true });
+        continue;
+      }
       const named = s.flagship || NAMED.has(s.name);
       const isFollowed = s.id === followed;
       const priority = selected || hovered
@@ -169,24 +193,41 @@ export class TacticalOverlay {
                 ? LABEL_PRIORITY.damaged
                 : LABEL_PRIORITY.other;
       const radius = Math.min(MAX_MODEL_RADIUS, MODEL_CLEARANCE * view.screenRadius(s.id, depth, h));
-      hulls.push({ id: s.id, x, y, size, radius, name: s.name, priority, groupId: bg.groupOf.get(s.id), fleetId: s.fleetId, solo: selected || hovered || named || isFollowed });
+      hulls.push({
+        id: s.id,
+        x,
+        y,
+        size,
+        radius,
+        name: s.name,
+        priority,
+        groupId: bg.groupOf.get(s.id),
+        fleetId: s.fleetId,
+        solo: selected || hovered || named || isFollowed,
+        // The command view draws bars under every hull, and a selected or hovered hull always shows its own.
+        bars: command || selected || hovered,
+        hideFolded: large(s.side) && depth > NEAR_BRACKET_DEPTH,
+      });
     }
     const maxLabels = Math.max(16, Math.min(LABELS_AT_1080P, Math.round((LABELS_AT_1080P * w * h) / (1920 * 1080))));
     const layout = layoutLabels(hulls, { width: w, height: h, groups, fleets, measure: this.measure, blocked: this.blocked, previous: this.collapsed, previousSlots: this.slots, maxLabels });
     this.collapsed = layout.collapsed;
     this.slots = new Map(layout.placed.map((l) => [l.id, l.slot]));
     this.lastLabels = layout.placed;
+    this.lastHidden = [...layout.hidden];
     const withBars = new Set<string>();
     for (const l of layout.placed) if (l.bars) withBars.add(l.id);
 
-    // Brackets for every hull, far to near; bars for the hulls named on their own (where the layout left them room).
+    // Brackets far to near, but for the hulls a large battle's aggregate label stands for; bars under every hull in the
+    // command view and under selected and hovered hulls, else with a hull's name where the layout left them room.
     for (const { s, x, y, depth, size } of marks) {
+      if (layout.hidden.has(s.id)) continue;
       const friendly = s.side === sim.config.perspectiveSide;
       const colour = FACTIONS[s.faction].colour;
       const selected = view.selectedIds.has(s.id);
       const hovered = this.hoverId === s.id;
       const isFighter = s.role === 'fighter';
-      const far = depth > 6000;
+      const far = depth > CRAFT_BRACKET_DEPTH;
       if (isFighter && (far || !command) && !selected && !hovered) {
         if (command || depth < 3000) {
           ctx.fillStyle = colour;
@@ -223,6 +264,7 @@ export class TacticalOverlay {
         const bw = 36;
         const bx = x - bw / 2;
         const by = y + size + 5;
+        this.lastBars.push({ id: s.id, x: bx, y: by, w: bw, h: 5 });
         ctx.globalAlpha = 0.9;
         ctx.fillStyle = 'rgba(0,0,0,0.5)';
         ctx.fillRect(bx, by, bw, 5);

@@ -113,6 +113,7 @@ export class BattleController {
     this.view = new BattleView(canvas, this.sim, app.prefs.graphics);
     this.overlay = new TacticalOverlay(overlayCanvas);
     this.overlay.visible = app.overlayOn;
+    this.overlay.largeBattleHulls = largeBattleHulls(app.prefs);
     const prevOnEvent = this.sim.onEvent;
     this.sim.onEvent = (e) => {
       prevOnEvent?.(e);
@@ -318,6 +319,7 @@ export class BattleController {
       this.hudTimer = 0.25;
       this.hud.refresh();
       this.overlay.blocked = this.hudObstacles();
+      this.overlay.largeBattleHulls = largeBattleHulls(this.app.prefs);
     }
     if (this.ended && this.sim.result) {
       this.ended = false;

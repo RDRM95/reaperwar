@@ -13,15 +13,24 @@ interface Placed {
   y: number;
   w: number;
   h: number;
+  members: string[];
+}
+interface Bar {
+  id: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
 }
 interface Battle {
   paused: boolean;
   hudLevel: string;
+  config: { perspectiveSide: string };
   togglePause(): void;
   setCamera(mode: string): void;
-  sim: { time: number; finished: boolean; step(): void; ships: { id: string; fleetId: string; alive: boolean; escaped: boolean; role: string }[] };
+  sim: { time: number; finished: boolean; step(): void; ships: { id: string; fleetId: string; side: string; flagship?: boolean; alive: boolean; escaped: boolean; role: string }[] };
   view: { selectedIds: Set<string>; followId?: string };
-  overlay: { visible: boolean; lastLabels: Placed[] };
+  overlay: { visible: boolean; lastLabels: Placed[]; lastBars: Bar[]; lastHidden: string[] };
 }
 const battle = (): Battle => (window as unknown as { reaperwar: { battle: Battle } }).reaperwar.battle;
 
@@ -42,7 +51,14 @@ async function finalBattle(page: Page, t: number): Promise<void> {
 }
 
 const labels = (page: Page): Promise<Placed[]> =>
-  page.evaluate(() => (window as unknown as { reaperwar: { battle: Battle } }).reaperwar.battle.overlay.lastLabels.map((l) => ({ id: l.id, kind: l.kind, text: l.text, x: l.x, y: l.y, w: l.w, h: l.h })));
+  page.evaluate(() => (window as unknown as { reaperwar: { battle: Battle } }).reaperwar.battle.overlay.lastLabels.map((l) => ({ id: l.id, kind: l.kind, text: l.text, x: l.x, y: l.y, w: l.w, h: l.h, members: [...l.members] })));
+
+/** The labels, bars and left-out markers of one overlay frame. */
+const frame = (page: Page): Promise<{ labels: Placed[]; bars: Bar[]; hidden: string[] }> =>
+  page.evaluate(() => {
+    const o = (window as unknown as { reaperwar: { battle: Battle } }).reaperwar.battle.overlay;
+    return { labels: o.lastLabels.map((l) => ({ id: l.id, kind: l.kind, text: l.text, x: l.x, y: l.y, w: l.w, h: l.h, members: [...l.members] })), bars: o.lastBars.map((b) => ({ ...b })), hidden: [...o.lastHidden] };
+  });
 
 /** Whether the overlay canvas holds any drawn pixel. */
 const inked = (page: Page): Promise<boolean> =>
@@ -78,18 +94,40 @@ test.describe('Tactical labels and the large-battle HUD (brief §12)', () => {
     await finalBattle(page, 30);
     const vp = page.viewportSize()!;
 
-    for (const mode of ['tactical', 'cinematic']) {
+    for (const mode of ['tactical', 'cinematic', 'command']) {
       await page.evaluate((m) => (window as unknown as { reaperwar: { battle: Battle } }).reaperwar.battle.setCamera(m), mode);
       await page.waitForTimeout(1500);
       await expect.poll(async () => (await labels(page)).length, { timeout: 30_000 }).toBeGreaterThan(3);
-      const placed = await labels(page);
+      const { labels: placed, bars, hidden } = await frame(page);
       expect(placed.length).toBeLessThanOrEqual(60);
       expectNoOverlap(placed, vp.width, vp.height);
+      // No label lies on a drawn bar of a hull it does not stand for (the command view draws bars under every hull).
+      if (mode === 'command') expect(bars.length).toBeGreaterThan(placed.length);
+      for (const l of placed)
+        for (const b of bars) {
+          const on = l.x < b.x + b.w && b.x < l.x + l.w && l.y < b.y + b.h && b.y < l.y + l.h;
+          expect(on && !l.members.includes(b.id), `"${l.text}" lies on the bars of ${b.id} (${mode})`).toBe(false);
+        }
       if (mode === 'tactical') {
-        // Pulled back over 120 allied hulls, crowded battlegroups and fleets carry one label each.
+        // Pulled back over 120 allied hulls, crowded battlegroups and fleets carry one label each ...
         const aggregates = placed.filter((l) => l.kind !== 'ship');
         expect(aggregates.length).toBeGreaterThan(0);
         for (const l of aggregates) expect(l.text).toMatch(l.kind === 'group' ? / group · \d+$/ : / · \d+\/\d+$/);
+        // ... and, the allies being over the large-battle threshold, the hulls such a label stands for lose their own
+        // brackets (none named or a flagship); the 21 Reapers keep every bracket.
+        expect(hidden.length).toBeGreaterThan(0);
+        const standFor = new Set(aggregates.flatMap((l) => l.members));
+        const info = await page.evaluate((ids) => {
+          const b = (window as unknown as { reaperwar: { battle: Battle } }).reaperwar.battle;
+          return ids.map((id) => {
+            const s = b.sim.ships.find((x) => x.id === id)!;
+            return { allied: s.side === b.config.perspectiveSide, flagship: !!s.flagship, selected: b.view.selectedIds.has(id) };
+          });
+        }, hidden);
+        for (let i = 0; i < hidden.length; i++) {
+          expect(standFor.has(hidden[i]), hidden[i]).toBe(true);
+          expect(info[i], hidden[i]).toEqual({ allied: true, flagship: false, selected: false });
+        }
       }
     }
 

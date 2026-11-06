@@ -3,8 +3,11 @@ import {
   FLEET_CROWD_PX,
   GROUP_CROWD_PX,
   HYSTERESIS,
+  LABEL_GAP_X,
+  LABEL_HOLD_GAP_X,
   LABEL_PRIORITY,
   MAX_LABELS,
+  barBox,
   boxesOverlap,
   layoutLabels,
   type LabelFleetInfo,
@@ -199,6 +202,121 @@ describe('label layout (brief §12, stage L2)', () => {
     expect(boxesOverlap(beside.placed[0], panel)).toBe(false);
     const capped = layoutLabels(scene(300), opts({ maxLabels: 5 }));
     expect(capped.placed).toHaveLength(5);
+  });
+
+  it('never folds a pair, and folds only hulls too close for their own names', () => {
+    // Two hulls of one group 120 px apart (and even 20 px apart) are named one by one.
+    const pairGroups = new Map<string, LabelGroupInfo>([['h-0', { name: 'Harbinger', count: 3 }]]);
+    for (const gap of [120, 20]) {
+      const pair: LabelHull[] = [0, 1].map((i) => ({ id: `rd-${i}`, x: 900, y: 400 + i * gap, size: 7, name: `RD-0${i + 1}`, priority: LABEL_PRIORITY.other, groupId: 'h-0', fleetId: 'reapers' }));
+      const out = layoutLabels(pair, opts({ groups: pairGroups }));
+      expect(out.collapsed.size).toBe(0);
+      expect(out.placed.every((l) => l.kind === 'ship')).toBe(true);
+      if (gap === 120) expect(out.placed.map((l) => l.text).sort()).toEqual(['RD-01', 'RD-02']);
+    }
+    // Three RD-style hulls 70 px apart have room for their short designations: no fold, three names ...
+    const groups = new Map<string, LabelGroupInfo>([['rd-0', { name: 'RC-04', count: 3 }]]);
+    const triangle = (side: number): LabelHull[] =>
+      [0, 1, 2].map((i) => ({ id: `rd-${i}`, x: 960 + (i === 1 ? side : i === 2 ? side / 2 : 0), y: 540 - (i === 2 ? (side * Math.sqrt(3)) / 2 : 0), size: 7, name: `RD-1${i}`, priority: LABEL_PRIORITY.other, groupId: 'rd-0', fleetId: 'reapers' }));
+    const roomy = layoutLabels(triangle(70), opts({ groups }));
+    expect(roomy.collapsed.size).toBe(0);
+    expect(roomy.placed.map((l) => l.text).sort()).toEqual(['RD-10', 'RD-11', 'RD-12']);
+    // ... while 20 px apart they fold into "RC-04 group · 3".
+    const tight = layoutLabels(triangle(20), opts({ groups }));
+    expect(tight.placed.map((l) => l.text)).toEqual(['RC-04 group · 3']);
+    // The width test has the hysteresis too: 82-px names (+8 px gap: 90 px) 95 px apart fold only when folded last
+    // frame (95 < 90 × 1.25), and 115 px apart never.
+    const long = (side: number): LabelHull[] => triangle(side).map((h) => ({ ...h, name: 'SSV Lexington' }));
+    expect(layoutLabels(long(95), opts({ groups })).collapsed.size).toBe(0);
+    expect(layoutLabels(long(95), opts({ groups, previous: new Set(['group:rd-0']) })).collapsed.has('group:rd-0')).toBe(true);
+    expect(layoutLabels(long(115), opts({ groups, previous: new Set(['group:rd-0']) })).collapsed.size).toBe(0);
+    // At least three hulls on screen: a group with one of three off the edge is named hull by hull.
+    const edge = triangle(20).map((h, i) => (i === 2 ? { ...h, x: -20 } : h));
+    expect(layoutLabels(edge, opts({ groups })).collapsed.size).toBe(0);
+    // Fleets follow the same rules: two hulls never fold into a fleet label.
+    const fleets = new Map<string, LabelFleetInfo>([['reapers', { name: 'Reaper fleet', live: 2, deployed: 21 }]]);
+    expect(layoutLabels(triangle(20).slice(0, 2), opts({ fleets })).collapsed.size).toBe(0);
+    expect(layoutLabels(triangle(20), opts({ fleets })).placed.map((l) => l.text)).toEqual(['Reaper fleet · 2/21']);
+  });
+
+  it("keeps a name shown last frame in its slot while ships move under it; a new or moving name needs a clean slot", () => {
+    const a: LabelHull = { id: 'a', x: 500, y: 500, size: 5, name: 'SSV Agincourt', priority: LABEL_PRIORITY.other };
+    // Another hull's bracket now lies under a's usual slot (below).
+    const b: LabelHull = { id: 'b', x: 480, y: 523, size: 5, name: 'b', priority: LABEL_PRIORITY.other, unnamed: true };
+    const fresh = layoutLabels([a, b], opts());
+    expect(fresh.placed.map((l) => [l.id, l.slot])).toEqual([['a', 'above']]);
+    const held = layoutLabels([a, b], opts({ previousSlots: new Map([['a', 'below' as const]]) }));
+    expect(held.placed.map((l) => [l.id, l.slot])).toEqual([['a', 'below']]);
+    // A name placed first has drifted within the 8-px spacing of a's slot without touching it: a holds its slot (it
+    // needs only the hold gap), where a name taking that slot afresh would have to keep the full spacing.
+    // n's name (52 px, right of its bracket) ends at 396 + 6 + 52 = 454 px, 5 px short of a's slot below (459 px on).
+    const n: LabelHull = { id: '0n', x: 396, y: 523, size: 2, name: 'SSV Elbe', priority: LABEL_PRIORITY.capital, solo: true };
+    const first = layoutLabels([n], opts({ previousSlots: new Map([['0n', 'right' as const]]) })).placed[0];
+    expect(first.x + first.w).toBeGreaterThan(459 - LABEL_GAP_X);
+    expect(first.x + first.w).toBeLessThanOrEqual(459 - LABEL_HOLD_GAP_X);
+    const drifted = layoutLabels([n, a], opts({ previousSlots: new Map([['0n', 'right' as const], ['a', 'below' as const]]) }));
+    expect(drifted.placed.map((l) => [l.id, l.slot])).toEqual([['0n', 'right'], ['a', 'below']]);
+    expect(layoutLabels([n, a], opts({ previousSlots: new Map([['0n', 'right' as const]]) })).placed.find((l) => l.id === 'a')!.slot).not.toBe('below');
+    // Last frame's slot is under a HUD panel now: the name moves, to a clean slot.
+    const panel = { x: 440, y: 512, w: 120, h: 30 };
+    const moved = layoutLabels([a, b], opts({ blocked: [panel], previousSlots: new Map([['a', 'below' as const]]) }));
+    expect(moved.placed.map((l) => [l.id, l.slot])).toEqual([['a', 'above']]);
+
+    // Brackets under every other slot too: a name shown last frame that has to move takes a slot over a bracket
+    // rather than vanish and flash back; a new minor name waits for a clean slot; a new capital takes any free slot.
+    const crowd: LabelHull[] = [
+      { id: 'u1', x: 500, y: 487, size: 5, name: '', priority: LABEL_PRIORITY.other, unnamed: true },
+      { id: 'u2', x: 550, y: 500, size: 5, name: '', priority: LABEL_PRIORITY.other, unnamed: true },
+      { id: 'u3', x: 450, y: 500, size: 5, name: '', priority: LABEL_PRIORITY.other, unnamed: true },
+    ];
+    const under = { x: 440, y: 514, w: 120, h: 30 };
+    const shown = layoutLabels([a, ...crowd], opts({ blocked: [under], previousSlots: new Map([['a', 'below' as const]]) }));
+    expect(shown.placed.map((l) => [l.id, l.slot])).toEqual([['a', 'above']]);
+    expect(layoutLabels([a, ...crowd], opts({ blocked: [under] })).placed).toHaveLength(0);
+    expect(layoutLabels([{ ...a, priority: LABEL_PRIORITY.capital }, ...crowd], opts({ blocked: [under] })).placed).toHaveLength(1);
+  });
+
+  it('keeps every label off the bars the overlay draws, and drops a name\'s bars where they would run into other bars', () => {
+    const a: LabelHull = { id: 'a', x: 500, y: 500, size: 5, name: 'SSV Agincourt', priority: LABEL_PRIORITY.other };
+    // f's bars lie where a's name would go (below a), though its bracket does not.
+    const f: LabelHull = { id: 'f', x: 530, y: 506, size: 5, name: 'SSV Fuji', priority: LABEL_PRIORITY.other };
+    expect(layoutLabels([a, f], opts()).placed.find((l) => l.id === 'a')!.slot).toBe('below');
+    // Drawn whatever the labels do (the command view, a selected hull): a's name keeps off them.
+    const drawn = layoutLabels([a, { ...f, bars: true }], opts());
+    const la = drawn.placed.find((l) => l.id === 'a')!;
+    expect(la.slot).not.toBe('below');
+    for (const l of drawn.placed) if (l.id !== 'f') expect(boxesOverlap(l, barBox(f))).toBe(false);
+    // Every label of a crowded command-view scene stays off every other hull's bars.
+    const hulls = scene(200, 9).map((h) => ({ ...h, bars: true }));
+    const { placed } = layoutLabels(hulls, opts());
+    expect(placed.length).toBeGreaterThan(5);
+    for (const l of placed) for (const h of hulls) if (!l.members.includes(h.id)) expect(boxesOverlap(l, barBox(h)), `${l.text} on ${h.name}'s bars`).toBe(false);
+
+    // Two named hulls side by side: the second set of bars would overlap the first, so it is dropped.
+    const p: LabelHull = { id: 'p', x: 500, y: 500, size: 9, name: 'SSV Hong Kong', priority: LABEL_PRIORITY.capital };
+    const q: LabelHull = { id: 'q', x: 520, y: 503, size: 9, name: 'SSV Hyderabad', priority: LABEL_PRIORITY.capital };
+    const pair = layoutLabels([p, q], opts({ previousSlots: new Map([['p', 'above' as const]]) }));
+    expect(pair.placed.map((l) => l.id)).toEqual(['p', 'q']);
+    expect(pair.placed[0].bars).toBeDefined();
+    expect(pair.placed[1].bars).toBeUndefined();
+    const kept = pair.placed.flatMap((l) => (l.bars ? [l.bars] : []));
+    for (let i = 0; i < kept.length; i++) for (let j = i + 1; j < kept.length; j++) expect(boxesOverlap(kept[i], kept[j])).toBe(false);
+  });
+
+  it('in a large battle, leaves out the brackets of the hulls a placed group or fleet label stands for', () => {
+    const groups = new Map<string, LabelGroupInfo>([['g-0', { name: 'SSV Everest', count: 6 }]]);
+    const hulls = group('g', 6, 960, 540, 12).map((h) => ({ ...h, hideFolded: true }));
+    hulls[3] = { ...hulls[3], name: 'SSV Normandy SR-2', priority: LABEL_PRIORITY.named, solo: true, hideFolded: false };
+    const out = layoutLabels(hulls, opts({ groups }));
+    expect(out.placed.map((l) => l.text)).toEqual(['SSV Normandy SR-2', 'SSV Everest group · 6']);
+    expect([...out.hidden].sort()).toEqual(['g-0', 'g-1', 'g-2', 'g-4', 'g-5']);
+    // Not over the threshold (no hideFolded): every bracket stays.
+    expect(layoutLabels(group('g', 6, 960, 540, 12), opts({ groups })).hidden.size).toBe(0);
+    // A folded group whose label finds no room keeps its brackets.
+    const walled = layoutLabels(hulls, opts({ groups, blocked: [{ x: 0, y: 0, w: W, h: 515 }, { x: 0, y: 565, w: W, h: H - 565 }, { x: 0, y: 515, w: 935, h: 50 }, { x: 985, y: 515, w: W - 985, h: 50 }] }));
+    expect(walled.collapsed.has('group:g-0')).toBe(true);
+    expect(walled.placed.some((l) => l.kind === 'group')).toBe(false);
+    expect(walled.hidden.size).toBe(0);
   });
 
   it("names the battlegroups 0.12.3's formations give the Final Battle's hulls, Reapers by their capital's designation", () => {
