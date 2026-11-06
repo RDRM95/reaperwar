@@ -227,7 +227,7 @@ export function createHud(app: App, ctrl: BattleController): Hud {
       }, oncontextmenu: (e: MouseEvent) => {
         e.preventDefault();
         if (refs.lead && refs.side !== ctrl.config.perspectiveSide) ctrl.attackWithSelection(refs.lead);
-      } }, [el('div', { class: 'name' }, [toggle, name, count]), el('div', { class: 'bars' }, [el('div', { class: 'bar barrier' }, [barrier]), el('div', { class: 'bar hull' }, [hull])])]);
+      } }, [el('div', { class: 'name' }, [toggle, name]), el('div', { class: 'bars' }, [count, el('div', { class: 'bar barrier' }, [barrier]), el('div', { class: 'bar hull' }, [hull])])]);
       refs.row.style.paddingLeft = `${6 + depth * 12}px`;
       r = refs;
       groupRowCache.set(key, r);

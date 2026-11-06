@@ -13,9 +13,13 @@
  *    spread passes `HYSTERESIS` × its threshold, so a label does not flicker on a slowly moving camera. Solo hulls —
  *    selected, hovered, followed, flagships and named unique hulls — are never folded into an aggregate.
  * 2. Greedy placement by priority. Labels are placed best first (priority tier, then fleet before group before ship,
- *    then id): each tries its slots — below its bracket, above, right, left — and takes the first that lies wholly on
- *    screen, clear of the blocked areas (the HUD panels) and of every label already placed; a label with no free slot
- *    is skipped, and placing stops at `maxLabels`. Only text is culled: the overlay still draws every hull's bracket.
+ *    then id): each tries its slots — below its hull (clear of the hull's bars and, close up, of its model), above,
+ *    right, left — and takes the first that lies wholly on screen, clear of the blocked areas (the HUD panels), of
+ *    every label already placed and of the bars under a named hull. A slot should also leave other hulls' brackets
+ *    uncovered: the names of the minor hulls (damaged and the rest) take only such a clean slot, so a melee shows its
+ *    capitals and flagships rather than a wall of text; aggregates and the higher tiers take a clean slot when there
+ *    is one and any free slot otherwise. A label with no slot is skipped, and placing stops at `maxLabels`. Only text
+ *    is culled: the overlay still draws every hull's bracket.
  */
 
 /** Label priority tiers, best first (brief §12). */
@@ -51,8 +55,14 @@ export const LABEL_METRICS = {
 } as const;
 /** Clear space under a bracket for its hull and barrier bars (the overlay draws them there). */
 export const BAR_SPACE = 10;
-/** Gap between a label and what it labels, and the least space between two labels. */
+/** The bars under a named hull: their half-width and their top below the bracket (the overlay draws them so). */
+export const BAR_HALF_WIDTH = 18;
+export const BAR_TOP = 4;
+/** Gap between a label and what it labels. */
 export const LABEL_GAP = 2;
+/** Least space between two labels: across (so names in a row stay apart) and up and down. */
+export const LABEL_GAP_X = 8;
+export const LABEL_GAP_Y = 2;
 
 export interface LabelBox {
   x: number;
@@ -74,6 +84,8 @@ export interface LabelHull {
   y: number;
   /** Half-size of the hull's bracket (px). */
   size: number;
+  /** Projected half-length of the hull's model (px), when larger than its bracket: a close-up label clears the model. */
+  radius?: number;
   /** Display name: the vessel name, or a Reaper's tracking designation. */
   name: string;
   /** `LABEL_PRIORITY` tier. */
@@ -111,6 +123,8 @@ export interface PlacedLabel extends LabelBox {
   ay: number;
   /** The hulls the label stands for. */
   members: string[];
+  /** A hull label's bars (hull and barriers), when they fit beside the labels placed before it. */
+  bars?: LabelBox;
 }
 
 export interface LabelLayoutOptions {
@@ -147,9 +161,9 @@ export const fleetLabelText = (name: string, live: number, deployed: number): st
 /** Monospace estimate: 6 px a character at 10 px, 6.6 px at the fleet label's 11 px. */
 export const estimateTextWidth = (text: string, kind: LabelKind): number => text.length * (kind === 'fleet' ? 6.6 : 6);
 
-/** Whether two boxes come closer than `gap` px (touching counts as clear at gap 0). */
-export function boxesOverlap(a: LabelBox, b: LabelBox, gap = 0): boolean {
-  return a.x < b.x + b.w + gap && b.x < a.x + a.w + gap && a.y < b.y + b.h + gap && b.y < a.y + a.h + gap;
+/** Whether two boxes come closer than `gapX` px across or `gapY` px up and down (touching counts as clear at 0). */
+export function boxesOverlap(a: LabelBox, b: LabelBox, gapX = 0, gapY = gapX): boolean {
+  return a.x < b.x + b.w + gapX && b.x < a.x + a.w + gapX && a.y < b.y + b.h + gapY && b.y < a.y + a.h + gapY;
 }
 
 interface Candidate {
@@ -162,6 +176,42 @@ interface Candidate {
   /** What the label must not cover and sits round: the bracket (and bars), or the aggregate's brackets. */
   anchor: { x0: number; y0: number; x1: number; y1: number };
   members: string[];
+  /** A named hull's bars, which later labels keep clear of once its label is placed. */
+  bars?: LabelBox;
+}
+
+/** Brackets in a coarse screen grid, for the "covers another hull" test. */
+class BracketGrid {
+  private readonly cells = new Map<number, { id: string; box: LabelBox }[]>();
+  private static readonly CELL = 64;
+  constructor(hulls: readonly LabelHull[]) {
+    for (const h of hulls) {
+      const box = { x: h.x - h.size, y: h.y - h.size, w: 2 * h.size, h: 2 * h.size };
+      this.each(box, (k) => {
+        let list = this.cells.get(k);
+        if (!list) this.cells.set(k, (list = []));
+        list.push({ id: h.id, box });
+      });
+    }
+  }
+  private each(b: LabelBox, f: (key: number) => void): void {
+    const C = BracketGrid.CELL;
+    for (let gx = Math.floor(b.x / C); gx <= Math.floor((b.x + b.w) / C); gx++) for (let gy = Math.floor(b.y / C); gy <= Math.floor((b.y + b.h) / C); gy++) f((gx + 4096) * 8192 + (gy + 4096));
+  }
+  /** Whether the box covers the bracket of a hull not in `own`. */
+  covers(b: LabelBox, own: readonly string[]): boolean {
+    let hit = false;
+    this.each(b, (k) => {
+      if (hit) return;
+      for (const e of this.cells.get(k) ?? []) {
+        if (boxesOverlap(b, e.box) && !own.includes(e.id)) {
+          hit = true;
+          return;
+        }
+      }
+    });
+    return hit;
+  }
 }
 
 const byId = (a: { id: string }, b: { id: string }): number => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
@@ -283,9 +333,10 @@ export function layoutLabels(hulls: readonly LabelHull[], opts: LabelLayoutOptio
     }
   }
 
-  // Every hull no aggregate stands for is named on its own.
+  // Every hull no aggregate stands for is named on its own, outside its bracket and bars (and close up its model).
   for (const h of sorted) {
     if (foldedInto.has(h.id)) continue;
+    const r = Math.max(h.size, h.radius ?? 0);
     candidates.push({
       id: h.id,
       kind: 'ship',
@@ -293,27 +344,41 @@ export function layoutLabels(hulls: readonly LabelHull[], opts: LabelLayoutOptio
       priority: h.priority,
       ax: h.x,
       ay: h.y,
-      anchor: { x0: h.x - h.size, y0: h.y - h.size, x1: h.x + h.size, y1: h.y + h.size + BAR_SPACE },
+      anchor: { x0: h.x - r, y0: h.y - r, x1: h.x + r, y1: Math.max(h.y + r, h.y + h.size + BAR_SPACE) },
       members: [h.id],
+      bars: { x: h.x - BAR_HALF_WIDTH, y: h.y + h.size + BAR_TOP, w: 2 * BAR_HALF_WIDTH, h: BAR_SPACE - BAR_TOP + 1 },
     });
   }
 
   candidates.sort((a, b) => a.priority - b.priority || KIND_RANK[a.kind] - KIND_RANK[b.kind] || byId(a, b));
   const placed: PlacedLabel[] = [];
+  const bars: LabelBox[] = [];
   const blocked = opts.blocked ?? [];
+  const brackets = new BracketGrid(sorted);
   for (const c of candidates) {
     if (placed.length >= maxLabels) break;
     const m = LABEL_METRICS[c.kind];
     const w = Math.ceil(measure(c.text, c.kind)) + m.pad;
     const h = m.h;
+    const minor = c.kind === 'ship' && c.priority > LABEL_PRIORITY.capital;
+    let pick: { box: LabelBox; slot: LabelSlot } | undefined;
     for (const slot of SLOTS) {
       const box = slotBox(c, slot, w, h);
       if (box.x < margin || box.y < margin || box.x + box.w > opts.width - margin || box.y + box.h > opts.height - margin) continue;
       if (blocked.some((b) => boxesOverlap(box, b))) continue;
-      if (placed.some((p) => boxesOverlap(box, p, LABEL_GAP))) continue;
-      placed.push({ ...box, id: c.id, kind: c.kind, text: c.text, priority: c.priority, slot, ax: c.ax, ay: c.ay, members: c.members });
-      break;
+      if (placed.some((p) => boxesOverlap(box, p, LABEL_GAP_X, LABEL_GAP_Y))) continue;
+      if (bars.some((b) => boxesOverlap(box, b))) continue;
+      if (!brackets.covers(box, c.members)) {
+        pick = { box, slot };
+        break;
+      }
+      if (!minor && !pick) pick = { box, slot };
     }
+    if (!pick) continue;
+    // The hull's bars come with its name unless they would run into a label already placed.
+    const barBox = c.bars && !placed.some((p) => boxesOverlap(c.bars!, p)) ? c.bars : undefined;
+    placed.push({ ...pick.box, id: c.id, kind: c.kind, text: c.text, priority: c.priority, slot: pick.slot, ax: c.ax, ay: c.ay, members: c.members, ...(barBox ? { bars: barBox } : {}) });
+    if (barBox) bars.push(barBox);
   }
   return { placed, collapsed, foldedInto };
 }

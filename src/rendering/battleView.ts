@@ -619,6 +619,13 @@ export class BattleView {
     return best;
   }
 
+  /** Projected half-length (CSS px) of a hull's model at a camera distance (render units), for a viewport `height` px tall. */
+  screenRadius(id: string, distance: number, height: number): number {
+    const v = this.visuals.get(id);
+    if (!v) return 0;
+    return ((v.built.lengthUnits * 0.5) / Math.max(1, distance)) * (height / (2 * Math.tan((this.rig.camera.fov * Math.PI) / 360)));
+  }
+
   /** Project a world position (km) to screen; returns undefined when behind the camera. */
   project(pos: { x: number; y: number; z: number }, width: number, height: number): { x: number; y: number; depth: number } | undefined {
     const p = this.tmpA.set(pos.x * KM, pos.y * KM, pos.z * KM);

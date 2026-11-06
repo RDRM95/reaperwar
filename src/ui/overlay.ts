@@ -7,6 +7,8 @@ import { battlegroups, inFight } from './fleetGroups';
 import { DAMAGED_HULL, LABEL_PRIORITY, layoutLabels, type LabelBox, type LabelFleetInfo, type LabelGroupInfo, type LabelHull, type LabelKind, type PlacedLabel } from './labelLayout';
 
 const NAMED = new Set(RESERVED_NAMES);
+/** A close-up label clears its hull's model up to this projected half-length (px); beyond it the label stays nearer. */
+const MAX_MODEL_RADIUS = 140;
 const FONT: Record<LabelKind, string> = {
   ship: '10px Consolas, "Roboto Mono", monospace',
   group: '10px Consolas, "Roboto Mono", monospace',
@@ -142,7 +144,7 @@ export class TacticalOverlay {
       colours.set(`fleet:${id}`, FACTIONS[f.spec.faction].colour);
     }
     const hulls: LabelHull[] = [];
-    for (const { s, x, y, size } of marks) {
+    for (const { s, x, y, depth, size } of marks) {
       const selected = view.selectedIds.has(s.id);
       const hovered = this.hoverId === s.id;
       if (s.role === 'fighter' && !selected && !hovered) continue; // craft and Oculi stay unlabelled
@@ -159,15 +161,16 @@ export class TacticalOverlay {
               : s.hull < DAMAGED_HULL * s.maxHull
                 ? LABEL_PRIORITY.damaged
                 : LABEL_PRIORITY.other;
-      hulls.push({ id: s.id, x, y, size, name: s.name, priority, groupId: bg.groupOf.get(s.id), fleetId: s.fleetId, solo: selected || hovered || named || isFollowed });
+      const radius = Math.min(MAX_MODEL_RADIUS, view.screenRadius(s.id, depth, h));
+      hulls.push({ id: s.id, x, y, size, radius, name: s.name, priority, groupId: bg.groupOf.get(s.id), fleetId: s.fleetId, solo: selected || hovered || named || isFollowed });
     }
     const layout = layoutLabels(hulls, { width: w, height: h, groups, fleets, measure: this.measure, blocked: this.blocked, previous: this.collapsed });
     this.collapsed = layout.collapsed;
     this.lastLabels = layout.placed;
-    const labelled = new Set<string>();
-    for (const l of layout.placed) if (l.kind === 'ship') labelled.add(l.id);
+    const withBars = new Set<string>();
+    for (const l of layout.placed) if (l.bars) withBars.add(l.id);
 
-    // Brackets for every hull, far to near; bars for the hulls named on their own.
+    // Brackets for every hull, far to near; bars for the hulls named on their own (where the layout left them room).
     for (const { s, x, y, depth, size } of marks) {
       const friendly = s.side === sim.config.perspectiveSide;
       const colour = FACTIONS[s.faction].colour;
@@ -207,7 +210,7 @@ export class TacticalOverlay {
         ctx.strokeStyle = '#ff8a1f';
         ctx.strokeRect(x - size - 6, y - size - 6, size * 2 + 12, size * 2 + 12);
       }
-      if (command || selected || hovered || labelled.has(s.id)) {
+      if (command || selected || hovered || withBars.has(s.id)) {
         const bw = 36;
         const bx = x - bw / 2;
         const by = y + size + 5;
@@ -234,8 +237,8 @@ export class TacticalOverlay {
         const focus = view.selectedIds.has(l.id) || this.hoverId === l.id;
         ctx.font = FONT.ship;
         ctx.globalAlpha = focus ? 1 : 0.92;
-        ctx.lineWidth = 3;
-        ctx.strokeStyle = 'rgba(3,6,12,0.85)';
+        ctx.lineWidth = 2.5;
+        ctx.strokeStyle = 'rgba(3,6,12,0.8)';
         ctx.strokeText(text, cx, cy + 0.5);
         ctx.fillStyle = s ? FACTIONS[s.faction].colour : '#cfe3ff';
         ctx.fillText(text, cx, cy + 0.5);
@@ -253,8 +256,10 @@ export class TacticalOverlay {
         ctx.fillStyle = colour;
         ctx.fillRect(l.x, l.y, 2, l.h);
         const frac = strength.get(l.id) ?? 1;
+        ctx.globalAlpha = 0.8;
         ctx.fillStyle = frac < 0.3 ? '#ff3b2f' : '#ff8a1f';
         ctx.fillRect(l.x + 2, l.y + l.h - 2, Math.max(0, (l.w - 2) * frac), 2);
+        ctx.globalAlpha = 1;
         ctx.font = FONT[l.kind];
         ctx.fillStyle = colour;
         ctx.fillText(text, cx + 1, cy - 0.5);
