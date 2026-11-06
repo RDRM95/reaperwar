@@ -203,19 +203,27 @@ export function createHud(app: App, ctrl: BattleController): Hud {
   const fleetRowCache = new Map<string, { row: HTMLElement; name: HTMLElement; count: HTMLElement }>();
   // Keep one stable DOM row per fleet for massive engagements. Clicking a row
   // focuses an active ship; individual selection remains available on zoom.
+  // A fleet's first active hull (a fighter only if nothing else is left): what its row selects and attacks.
+  const activeShipOf = (id: string): ShipState | undefined =>
+    sim().ships.find((s) => s.fleetId === id && s.alive && !s.escaped && s.role !== 'fighter')
+    ?? sim().ships.find((s) => s.fleetId === id && s.alive && !s.escaped);
   const fleetRow = (id: string, name: string, count: number, lead?: ShipState): HTMLElement => {
     let r = fleetRowCache.get(id);
     if (!r) {
       const nameEl = el('div', { class: 'name' }, name);
       const countEl = el('span', { class: 'mono dim', style: { flexShrink: '0' } }, '');
       const row = el('div', { class: 'ship-row', 'data-fleet': id, onclick: () => {
-        const active = sim().ships.find((s) => s.fleetId === id && s.alive && !s.escaped && s.role !== 'fighter')
-          ?? sim().ships.find((s) => s.fleetId === id && s.alive && !s.escaped);
+        const active = activeShipOf(id);
         if (active) {
           ctrl.select(active.id);
           ctrl.focusOn(active.id);
           app.playUi('ui_click');
         }
+      }, oncontextmenu: (e: MouseEvent) => {
+        // As with a ship row: right-clicking a hostile fleet orders the selection to attack it.
+        e.preventDefault();
+        const target = activeShipOf(id);
+        if (target && target.side !== ctrl.config.perspectiveSide) ctrl.attackWithSelection(target.id);
       } }, [nameEl, countEl]);
       r = { row, name: nameEl, count: countEl };
       fleetRowCache.set(id, r);

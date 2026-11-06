@@ -57,9 +57,10 @@ test.describe('Reaper War Simulator', () => {
     // Select a ship from the list, then order the fleet to attack a Reaper destroyer.
     await page.locator('.ship-list .ship-row').first().click();
     await expect(page.locator('.target-panel')).toContainText('SSV');
-    // Unnamed Reapers carry tracking designations (brief §12): RD-nn for destroyers, RC-nn for capitals.
-    const destroyerRow = page.locator('.ship-row', { hasText: /RD-\d+/ }).first();
-    await destroyerRow.click({ button: 'right' });
+    // Above 64 active ships the lists show one row per fleet, so right-click the Reaper fleet's row
+    // (in a smaller battle it would be a Reaper's own row, e.g. a destroyer's RD-nn designation).
+    const reaperRow = page.locator('.ship-row[data-fleet]', { hasText: /Reaper/ }).or(page.locator('.ship-row', { hasText: /RD-\d+/ })).first();
+    await reaperRow.click({ button: 'right' });
     await expect(page.locator('.toast')).toContainText('ATTACK');
 
     // Battle proceeds and finishes.

@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.12.4 — Play offline on your own PC; large battles by fleet
+
+### Stand-alone launcher (new)
+- **Download, unzip, play.** `ReaperWar-v0.12.4.zip` on the [Releases page](https://github.com/RDRM95/reaperwar/releases/latest) holds the whole game in one file plus a Play launcher for Windows (`.cmd`), macOS (`.command`) and Linux (`.sh`). The launcher opens the game in Edge, Chrome or Chromium as its own window on a separate browser profile, on your graphics card with the frame-rate cap off (`--vsync` keeps it), starting on the Ultra graphics quality. No install, no server, no internet, no Node.js. Saves carry over to newer versions; Settings → Export / Import save data brings saves over from the web version or the one-click launcher.
+- Works from folders named with spaces, accents or non-Latin letters (the address handed to the browser is now plain ASCII; Chromium ignores any other), with Snap Store and Flathub browsers on Linux (Steam Deck, Bazzite, Silverblue), and keeps running when the Linux terminal is closed. `README.txt` explains macOS 15's Gatekeeper (Privacy & Security → Open Anyway) and what to do when Windows Smart App Control or S mode blocks the `.cmd`.
+- Each version on `main` is built, tested and published once as a release: typecheck and unit tests, a smoke test that opens the game from disk and runs a battle, and a launcher check on Windows, macOS and Linux runners that unzips the release with the system's own tool into an awkwardly named folder, starts the real launcher as a player would, checks what it hands the browser and opens the game in Edge or Chromium. A published zip is never replaced.
+
+### Large battles (the owner's work on `main`)
+- Above 64 active ships and flights, tactical labels show fleet name and current count, and the side panels show one selectable row per fleet; individual ship rows return as an engagement shrinks. Zooming in, hovering or selecting keeps a ship's identity, and selecting a whole fleet no longer draws thousands of targeting lines.
+- The far-ship point cloud grows past its former 2,048-ship limit, and at very large counts the camera keeps a bounded set of nearby detailed hulls and draws the rest as points. Drawing only: battle results are unchanged.
+- **One-click Windows starter** (`PLAY-REAPERWAR.cmd`): downloads the game, uses or fetches a checksum-verified portable Node.js, builds the Local Edition, keeps it up to date and keeps your saves; it stays open with a log if anything fails.
+
+### Fixes
+- **Menus no longer keep the CPU and GPU busy** when the frame rate is uncapped (the launchers' default): a hidden loading-screen animation kept the browser drawing frames back to back. In a test the main menu went from about 1.7 CPU cores to about 1 % of one.
+- The barrier-hit shimmer and the fallback camera's easing now run on time rather than per frame, so they look the same at 60 fps and at hundreds of fps.
+- **No WebGL** (graphics acceleration off, a crashed GPU process, a remote desktop): starting a battle goes back to the menu with an explanation instead of a blank screen, and Settings says WebGL is not available instead of "running on this machine's GPU". The software-rendering hint now says what to do without pointing to a README section.
+- Release gate: GATE_LINE
+
 ## 0.12.3 — Battlegroups instead of rows, free camera
 
 - **Battlegroup formations.** Every fleet deploys as battlegroups: each capital leads its own escorts in a loose 3D cluster, the groups stand in staggered echelons in depth and height, and seeded variation means no ships line up in rows or columns. Screens fly ahead of their group, carriers behind and above; Reapers fly as capital-led clusters with their destroyers. Capitals keep at least three of their own lengths apart, and groups keep enough room for a camera to tell them apart.
