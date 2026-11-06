@@ -111,6 +111,62 @@ On macOS the browser stays open after its window closes: quit it (⌘Q) or press
 - Battle results are identical at every graphics quality and in both editions: everything above is drawing only.
 - Saves are kept per address, so the Local Edition starts with its own saves. Move them with Settings → Export save data (web version) and Import save data (Local Edition).
 
+## Copy-paste battle presets from ChatGPT
+
+In **Custom Battle**, expand **AI BATTLE PRESET — PASTE / EXPORT**. Ask ChatGPT to
+"Make me a Reaper War Simulator battle preset in reaperwar-battle-v1 JSON" and
+describe the factions, ship numbers, timeline, formations and arrival times.
+Paste the complete JSON into the box and select **Import battle**. The
+existing side A/B fleet cards fill automatically, so you can review them before
+pressing **Launch**. **Show setup JSON** and **Copy setup** let you share or edit a
+scenario and paste it back later.
+
+The import is **local-only**. It validates every ship class against the
+installed ship catalogue, faction ownership, formations, timeline ID, unique
+flagships and numeric bounds; it rejects unsupported parameters rather than
+silently ignoring them. Fleet arrival times are in seconds. Thousands of ships
+are allowed, but simulation performance still depends on the CPU.
+
+Example (all three fleets are independently editable after import):
+
+    {
+      "format": "reaperwar-battle-v1",
+      "rulesId": "cerberus_reformed",
+      "environment": "earth_orbit",
+      "seed": 2186,
+      "startingDistanceKm": 122,
+      "maxDuration": 900,
+      "sideA": [
+        {
+          "faction": "alliance",
+          "name": "Sword Fleet",
+          "formation": "line_abreast",
+          "arrivalTime": 0,
+          "ships": {"alliance_dreadnought": 6, "alliance_cruiser": 20, "alliance_frigate": 40}
+        },
+        {
+          "faction": "cerberus",
+          "name": "Cerberus Black Fleet (allied)",
+          "formation": "strike_wedge",
+          "arrivalTime": 45,
+          "ships": {"cerberus_dreadnought": 2, "cerberus_cruiser": 18, "cerberus_frigate": 24}
+        }
+      ],
+      "sideB": [
+        {
+          "faction": "reaper",
+          "name": "Reaper blockade",
+          "formation": "swarm_descent",
+          "arrivalTime": 0,
+          "ships": {"reaper_capital": 50, "reaper_destroyer": 100, "harbinger": 1}
+        }
+      ]
+    }
+
+Use only ship IDs already present in Custom Battle. This format currently
+imports fleet rosters and battle conditions, **not** unsimulated scripted
+events, campaign turns, manually specified fighter counts or new technologies.
+
 ## What works today (v0.4.0)
 
 - **Galactic campaign**: interactive galaxy map with 15 systems and relay corridors, weekly turns, Reaper offensives and harvest, a ground war per system (ground forces slow the harvest; krogan reinforce Earth and Palaven when the genophage is cured), allied production from intact industry, eight research projects that change fleet technology in engagements, refugee pressure on the Citadel, Council war summits with decisions, political events (indoctrinated officials, shipyard sabotage, Terminus mercenaries, STG intelligence), 2183 world states (Destiny Ascension and Council composition, rachni queen), fleet movement with cooperation constraints, Crucible construction, indoctrination pressure, morale, Reaper strategic assessment, autosave and Load Game. Engagements involving your fleets can be fought in the 3D simulator or auto-resolved; outcomes feed back into the war.
