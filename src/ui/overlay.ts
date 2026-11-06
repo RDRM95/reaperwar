@@ -1,6 +1,7 @@
 import type { BattleView } from '@/rendering/battleView';
 import type { ShipState } from '@/simulation/types';
 import { FACTIONS } from '@/data/factions';
+import { useFleetSummary } from './scalePolicy';
 
 /**
  * 2D tactical overlay drawn on a canvas above the WebGL view: ship markers,
@@ -53,7 +54,7 @@ export class TacticalOverlay {
     // individual ship nameplates. This is display-only: no ship is removed
     // from the simulation or from picking/commands.
     const live = sim.ships.filter((s) => s.alive && !s.escaped);
-    const fleetMode = live.length > 64;
+    const fleetMode = useFleetSummary(live.length);
     const focusedIds = view.selectedIds.size <= 12 ? view.selectedIds : new Set<string>();
     const ships: { s: ShipState; x: number; y: number; depth: number }[] = [];
 
