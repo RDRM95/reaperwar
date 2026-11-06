@@ -11,6 +11,7 @@ import { cloneRules, type RuleSet } from '@/timelines/rules';
 import { normaliseRules } from '@/timelines/schema';
 import type { ComparisonReport } from '@/scenarios/comparison';
 import { clear, el } from './dom';
+import type { LabelBox } from './labelLayout';
 import { TacticalOverlay } from './overlay';
 import { createHud, type Hud } from './screens/hud';
 import { renderMenu } from './screens/menu';
@@ -48,6 +49,27 @@ export interface LastBattle {
 
 /** Speed steps available to the player. */
 export const SPEEDS = [0.25, 0.5, 1, 2, 4, 8];
+
+/** Preferences the UI keeps beside the core ones, in the same stored record (storage keeps keys it does not know). */
+export interface UiPreferences {
+  /** Large-battle HUD (brief §12): above this many live hulls on a side, that side's list shows fleets, not ships (0: never). */
+  largeBattleHulls?: number;
+}
+/** Brief §12: the fleet lists collapse above 48 live hulls on a side unless Settings says otherwise. */
+export const DEFAULT_LARGE_BATTLE_HULLS = 48;
+/** The large-battle threshold in force. */
+export const largeBattleHulls = (p: UiPreferences): number => (typeof p.largeBattleHulls === 'number' && p.largeBattleHulls >= 0 ? p.largeBattleHulls : DEFAULT_LARGE_BATTLE_HULLS);
+
+/** The tactical overlay's on/off state lives for the browser session (brief §12: key O and the pause menu). */
+const OVERLAY_SESSION_KEY = 'reaperwar:overlay';
+function sessionOverlay(): boolean | undefined {
+  try {
+    const v = sessionStorage.getItem(OVERLAY_SESSION_KEY);
+    return v === null ? undefined : v === '1';
+  } catch {
+    return undefined;
+  }
+}
 
 /**
  * Drives a live battle: fixed-step simulation at the chosen speed, the 3D
@@ -90,7 +112,7 @@ export class BattleController {
     this.sim = new BattleSimulation(config);
     this.view = new BattleView(canvas, this.sim, app.prefs.graphics);
     this.overlay = new TacticalOverlay(overlayCanvas);
-    this.overlay.visible = app.prefs.showOverlay;
+    this.overlay.visible = app.overlayOn;
     const prevOnEvent = this.sim.onEvent;
     this.sim.onEvent = (e) => {
       prevOnEvent?.(e);
@@ -125,14 +147,37 @@ export class BattleController {
     this.view.rig.setMode(mode);
     this.hud.refresh();
   }
-  /** Cycles full HUD → minimal (top bar only) → none (clean frame for recordings). */
+  /**
+   * Cycles full HUD → minimal (top bar only) → none (clean frame for recordings). The tactical overlay keeps its own
+   * state (O): a no-HUD recording can keep its brackets and labels, a full HUD can hide them (brief §12).
+   */
   hudLevel: 'full' | 'minimal' | 'none' = 'full';
   toggleHud(): void {
     this.hudLevel = this.hudLevel === 'full' ? 'minimal' : this.hudLevel === 'minimal' ? 'none' : 'full';
     this.hudHidden = this.hudLevel !== 'full';
     this.hud.root.classList.toggle('hidden', this.hudHidden);
     this.hud.root.classList.toggle('none', this.hudLevel === 'none');
-    this.overlay.visible = !this.hudHidden && this.app.prefs.showOverlay;
+    this.overlay.blocked = this.hudObstacles();
+  }
+
+  /** Shows or hides the tactical overlay (brackets and labels) whatever the HUD level; the choice lasts the session. */
+  toggleOverlay(): void {
+    this.app.setOverlay(!this.app.overlayOn);
+    this.overlay.visible = this.app.overlayOn;
+    this.hud.toast(`TACTICAL OVERLAY ${this.app.overlayOn ? 'ON' : 'OFF'}`);
+  }
+
+  /** The visible HUD panels in overlay coordinates: labels keep clear of them. */
+  private hudObstacles(): LabelBox[] {
+    if (this.hudLevel === 'none') return [];
+    const c = this.canvas.getBoundingClientRect();
+    const out: LabelBox[] = [];
+    for (const p of this.hud.root.querySelectorAll<HTMLElement>('.panel, .hud-top > .btn')) {
+      const r = p.getBoundingClientRect();
+      if (r.width <= 0 || r.height <= 0) continue;
+      out.push({ x: r.left - c.left, y: r.top - c.top, w: r.width, h: r.height });
+    }
+    return out;
   }
 
   /** Issue a fleet order to all player fleets (or one fleet). */
@@ -171,6 +216,22 @@ export class BattleController {
   selectFleet(): void {
     this.view.selectedIds.clear();
     for (const s of this.sim.ships) if (s.alive && !s.escaped && s.side === this.config.perspectiveSide && s.role !== 'fighter') this.view.selectedIds.add(s.id);
+    this.hud.refresh();
+  }
+
+  /**
+   * Select a set of hulls at once (a fleet or battlegroup row of the large-battle HUD); the first is the one the
+   * follow camera takes. Additive (shift): adds them, or drops them when all are already selected.
+   */
+  selectMany(ids: readonly string[], additive = false): void {
+    const sel = this.view.selectedIds;
+    if (additive && ids.length > 0 && ids.every((id) => sel.has(id))) {
+      for (const id of ids) sel.delete(id);
+    } else {
+      if (!additive) sel.clear();
+      for (const id of ids) sel.add(id);
+      if (ids[0]) this.view.followId = ids[0];
+    }
     this.hud.refresh();
   }
 
@@ -256,6 +317,7 @@ export class BattleController {
     if (this.hudTimer <= 0) {
       this.hudTimer = 0.25;
       this.hud.refresh();
+      this.overlay.blocked = this.hudObstacles();
     }
     if (this.ended && this.sim.result) {
       this.ended = false;
@@ -408,6 +470,9 @@ export class BattleController {
       case 'h':
         this.toggleHud();
         break;
+      case 'o':
+        this.toggleOverlay();
+        break;
       case '1':
         this.setCamera('tactical');
         break;
@@ -452,6 +517,7 @@ export class BattleController {
     const h = this.canvas.clientHeight;
     this.view.resize(w, h);
     this.overlay.resize(w, h, Math.min(window.devicePixelRatio, 2));
+    if (this.hud) this.overlay.blocked = this.hudObstacles();
   }
 
   dispose(): void {
@@ -470,7 +536,9 @@ export class App {
   readonly ui: HTMLElement;
   readonly canvas: HTMLCanvasElement;
   readonly overlayCanvas: HTMLCanvasElement;
-  prefs: Preferences = { ...DEFAULT_PREFERENCES };
+  prefs: Preferences & UiPreferences = { ...DEFAULT_PREFERENCES };
+  /** Whether battles show the tactical overlay: the saved preference, then key O / the pause menu for the session. */
+  overlayOn = DEFAULT_PREFERENCES.showOverlay;
   customTimelines: RuleSet[] = [];
   history: BattleResult[] = [];
   battle?: BattleController;
@@ -501,6 +569,7 @@ export class App {
     this.prefs.audio = { ...DEFAULT_PREFERENCES.audio, ...this.prefs.audio };
     this.prefs.showcase = { ...DEFAULT_PREFERENCES.showcase, ...this.prefs.showcase };
     this.prefs.perf = { ...DEFAULT_PREFERENCES.perf, ...this.prefs.perf, budget: { ...DEFAULT_PERF_BUDGET, ...this.prefs.perf?.budget } };
+    this.overlayOn = sessionOverlay() ?? this.prefs.showOverlay;
     this.customTimelines = (await storage.get<RuleSet[]>('customTimelines', [])).map(normaliseRules);
     this.history = await storage.get('battleHistory', []);
     audio.settings = { ...this.prefs.audio };
@@ -544,6 +613,16 @@ export class App {
   /** Measure the machine's performance budget (stage B's controller measurement loop replaces the stub, which returns the stored budget). */
   async measurePerfBudget(): Promise<PerfBudget> {
     return this.prefs.perf.budget;
+  }
+
+  /** Set the session's overlay state (key O, the pause menu, and Settings, which also saves it as the default). */
+  setOverlay(on: boolean): void {
+    this.overlayOn = on;
+    try {
+      sessionStorage.setItem(OVERLAY_SESSION_KEY, on ? '1' : '0');
+    } catch {
+      // Storage blocked: the state still lasts until the page closes.
+    }
   }
 
   async savePrefs(): Promise<void> {

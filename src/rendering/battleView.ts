@@ -72,6 +72,12 @@ export class BattleView {
   followId?: string;
   /** Cinematic director state. */
   private cine: { fromId?: string; toId?: string; age: number; hold: number } = { age: 0, hold: 0 };
+  /** The hull the camera follows now: the follow and Reaper views' subject, or the cinematic shot's (the overlay names it first). */
+  get followedId(): string | undefined {
+    if (this.rig.mode === 'follow' || this.rig.mode === 'reaper') return this.followId;
+    if (this.rig.mode === 'cinematic') return this.cine.fromId;
+    return undefined;
+  }
   private projectileTrack?: { id: number };
   private readonly glowTex: THREE.Texture;
   private sunLight: THREE.DirectionalLight;
