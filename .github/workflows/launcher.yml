@@ -1,0 +1,47 @@
+name: Launcher package
+
+# Builds the stand-alone launcher (the whole game in one file plus Play launchers for
+# Windows, macOS and Linux), smoke-tests it opened from disk, and attaches the zip to a
+# GitHub Release named after the version, so players can download it and play offline.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: launcher-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run package:launcher
+      - run: npm run test:launcher
+      - uses: actions/upload-artifact@v4
+        with:
+          name: reaperwar-launcher
+          path: release/*.zip
+      - name: Publish on a release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          V=$(node -p "require('./package.json').version")
+          TAG="launcher-v$V"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" release/*.zip --clobber
+          else
+            gh release create "$TAG" release/*.zip --target "$GITHUB_SHA" \
+              --title "Reaper War Simulator $V - play offline on your own GPU" \
+              --notes "Download the zip, unzip it anywhere and double-click the Play launcher for your system (Windows .cmd, macOS .command, Linux .sh). The game opens in Microsoft Edge or Google Chrome as its own window on your graphics card, with no install, no server and no internet. See README.txt inside."
+          fi

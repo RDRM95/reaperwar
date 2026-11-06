@@ -15,7 +15,9 @@
     "test:e2e": "playwright test",
     "sim": "node --import tsx/esm scripts/headless-battle.ts",
     "timeline:threat": "node --import tsx/esm scripts/timeline-threat.ts",
-    "perf": "node scripts/perf.mjs"
+    "perf": "node scripts/perf.mjs",
+    "package:launcher": "node scripts/launcher/package.mjs",
+    "test:launcher": "node scripts/launcher/smoke.mjs"
   },
   "dependencies": {
     "three": "^0.186.1"
@@ -27,6 +29,7 @@
     "tsx": "^4.20.0",
     "typescript": "^5.9.3",
     "vite": "^7.3.7",
+    "vite-plugin-singlefile": "^2.3.4",
     "vitest": "^3.2.7"
   },
   "engines": {

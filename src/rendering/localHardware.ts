@@ -23,6 +23,8 @@ export function isLocalEdition(
   loc: LocationLike | undefined = typeof location === 'undefined' ? undefined : location,
   crossOriginIsolated: boolean = typeof self !== 'undefined' && self.crossOriginIsolated === true,
 ): boolean {
+  // The stand-alone launcher build (opened from disk by the Play launchers) is always the Local Edition.
+  if (typeof __LAUNCHER_BUILD__ !== 'undefined' && __LAUNCHER_BUILD__) return true;
   if (!loc) return false;
   if (new URLSearchParams(loc.search).get('local') === '1') return true;
   return crossOriginIsolated && LOOPBACK_HOSTS.has(loc.hostname);

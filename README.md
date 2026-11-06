@@ -32,6 +32,18 @@ On later double-clicks it checks for the latest `main` commit and updates the lo
 
 If setup fails, the command window stays open with the error message. Files are stored under `%LOCALAPPDATA%\ReaperWar`, not a system-wide installation.
 
+## Play on your own PC (no install)
+
+Download the latest **ReaperWar-v….zip** from the [Releases page](https://github.com/RDRM95/reaperwar/releases) (or build it with `npm run package:launcher`; it lands in `release/`), unzip it anywhere, and double-click the launcher for your system:
+
+| System | Launcher | Needs |
+| --- | --- | --- |
+| Windows | `Play Reaper War (Windows).cmd` | Microsoft Edge (built in) or Google Chrome |
+| macOS | `Play Reaper War (macOS).command` (right-click → Open the first time) | Google Chrome or Microsoft Edge |
+| Linux | `./play-reaper-war-linux.sh` | Google Chrome, Chromium or Microsoft Edge |
+
+The whole game is one self-contained file, so nothing is installed and no internet or server is needed. The launcher opens it as its own window on a separate browser profile, with flags that use your graphics card fully and switch the frame-rate cap off (add `--vsync` to keep it), and the game starts on the Ultra graphics quality. Settings → Graphics names the graphics chip in use. Saves live in that profile and carry over to newer versions. A new zip is built, smoke-tested and attached to a release whenever the game is updated on `main` (`.github/workflows/launcher.yml`); `npm run test:launcher` runs the same smoke test locally: it opens the game from disk in Chromium and runs a battle. Unlike the one-click Windows launcher above, this package needs no internet, no Node.js download and no build, and it does not update itself: download a newer zip to update.
+
 ## Run it locally on your own GPU (Local Edition)
 
 The web version already draws on your graphics card through WebGL, but a browser tab holds it back: the render resolution is capped, the frame rate is locked to the monitor, and detail distances and effect budgets are tuned for average machines. The Local Edition builds the game on your computer, serves it to that computer only, and opens it in Chrome or Edge with settings meant for a dedicated GPU such as an RTX 5090.
