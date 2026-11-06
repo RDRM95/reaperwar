@@ -1,6 +1,7 @@
 import type { App } from '../app';
 import { el } from '../dom';
 import { storage } from '@/core/storage';
+import { FRAME_CAP_OPTIONS } from '@/core/frameLimiter';
 import { QUALITY_ORDER, QUALITY_PRESETS, withQuality, type GraphicsQuality } from '@/rendering/quality';
 import { gpuRenderer, isLocalEdition, localEditionDetails, localEditionStatus } from '@/rendering/localHardware';
 import { timelineTagById } from '@/timelines/alternates';
@@ -26,6 +27,12 @@ export function renderSettings(app: App): HTMLElement {
           void app.savePrefs();
           if (p.graphics.showEngineGlow !== glowBefore) app.show('settings'); // Ultra switched engine glow on
         } }, QUALITY_ORDER.map((q) => el('option', { value: q, selected: p.graphics.quality === q }, QUALITY_PRESETS[q].label)))]),
+        el('label', { class: 'field' }, ['Frame rate limit', el('select', { 'data-setting': 'frame-cap', onchange: (e: Event) => {
+          p.graphics.frameCap = Number((e.target as HTMLSelectElement).value);
+          void app.savePrefs();
+        } }, FRAME_CAP_OPTIONS.map((cap) => el('option', {
+          value: cap, selected: (p.graphics.frameCap ?? 0) === cap,
+        }, cap === 0 ? 'Unlimited' : cap + ' FPS')))]),
         el('label', { class: 'field' }, ['Engine glow sprites', el('select', { 'data-setting': 'engine-glow', onchange: (e: Event) => {
           p.graphics.showEngineGlow = (e.target as HTMLSelectElement).value === 'on';
           p.graphics.chosen = true;
@@ -40,7 +47,7 @@ export function renderSettings(app: App): HTMLElement {
           p.showOverlay = (e.target as HTMLSelectElement).value === 'on';
           void app.savePrefs();
         } }, [el('option', { value: 'on', selected: p.showOverlay }, 'On'), el('option', { value: 'off', selected: !p.showOverlay }, 'Off')])]),
-        el('p', { class: 'dim', style: { fontSize: '12px' } }, 'Changes apply to the next battle. Low quality disables antialiasing and caps the render resolution. Ultra renders at your display’s native resolution, keeps full detail 2.5× farther out and doubles the effect budgets: it is meant for a dedicated GPU, and the battle HUD shows its frame rate.'),
+        el('p', { class: 'dim', style: { fontSize: '12px' } }, 'Graphics and frame cap changes apply to the next battle. For a 144 Hz display choose 144 FPS: this prevents wasted rendering above what the screen can show, but it cannot raise performance if a large simulation is CPU-limited. Low quality disables antialiasing and caps the render resolution. Ultra renders at your display’s native resolution, keeps full detail 2.5× farther out and doubles the effect budgets: it is meant for a dedicated GPU, and the battle HUD shows its frame rate.'),
         local
           ? el('div', { class: 'local-edition', 'data-local-edition': '' }, [
               el('p', { style: { fontSize: '12px', color: 'var(--cyan)', marginBottom: '2px' } }, localEditionStatus(gpuRenderer())),
