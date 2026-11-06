@@ -3,6 +3,7 @@ import {
   FLEET_CROWD_PX,
   GROUP_CROWD_PX,
   HYSTERESIS,
+  LABEL_ENTER_INSET,
   LABEL_GAP_X,
   LABEL_HOLD_GAP_X,
   LABEL_PRIORITY,
@@ -281,6 +282,13 @@ describe('label layout (brief §12, stage L2)', () => {
     const drifted = layoutLabels([n, a], opts({ previousSlots: new Map([['0n', 'right' as const], ['a', 'below' as const]]) }));
     expect(drifted.placed.map((l) => [l.id, l.slot])).toEqual([['0n', 'right'], ['a', 'below']]);
     expect(layoutLabels([n, a], opts({ previousSlots: new Map([['0n', 'right' as const]]) })).placed.find((l) => l.id === 'a')!.slot).not.toBe('below');
+    // At the edge of the view a name appears only well inside it, and once shown holds on to the margin: a hull
+    // drifting along the bottom edge does not blink its name.
+    const low: LabelHull = { ...a, id: 'low', y: H - 2 - 4 + 5 + 2 }; // its slot above ends 4 px inside the 2-px margin
+    expect(layoutLabels([low], opts()).placed).toHaveLength(0);
+    expect(layoutLabels([low], opts({ previousSlots: new Map([['low', 'above' as const]]) })).placed.map((l) => l.slot)).toEqual(['above']);
+    expect(layoutLabels([{ ...low, y: low.y - LABEL_ENTER_INSET }], opts()).placed.map((l) => l.slot)).toEqual(['above']);
+    expect(layoutLabels([{ ...low, y: low.y + 5 }], opts({ previousSlots: new Map([['low', 'above' as const]]) })).placed).toHaveLength(0);
     // Last frame's slot is under a HUD panel now: the name moves, to a clean slot.
     const panel = { x: 440, y: 512, w: 120, h: 30 };
     const moved = layoutLabels([a, b], opts({ blocked: [panel], previousSlots: new Map([['a', 'below' as const]]) }));

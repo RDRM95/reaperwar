@@ -24,8 +24,9 @@
  *    bracket uncovered. When no such clean slot is left, a label shown last frame takes any free slot rather than
  *    vanish (and come back a frame later), and so do aggregates and the higher tiers; a minor name (damaged and the
  *    rest) that is not on screen yet waits for a clean slot, so a melee shows its capitals and flagships rather than a
- *    wall of text. Free means wholly on screen and clear of the blocked areas (the HUD panels), of every label already
- *    placed (by `LABEL_GAP_X`/`_Y`) and of every bar drawn: the bars the overlay draws whatever the labels do
+ *    wall of text. Free means wholly on screen and clear of the blocked areas (the HUD panels) — by `LABEL_ENTER_INSET`
+ *    more for a label appearing, but for the top three tiers — of every label already placed (by `LABEL_GAP_X`/`_Y`)
+ *    and of every bar drawn: the bars the overlay draws whatever the labels do
  *    (`LabelHull.bars`: the command view's, a selected or hovered hull's) and those that come with a hull's name,
  *    which are kept only where they clear the labels and bars already placed. A label with no slot is skipped, and
  *    placing stops at `maxLabels`.
@@ -80,6 +81,11 @@ export const LABEL_GAP_Y = 2;
 /** A label keeping last frame's slot needs only this much space from the labels placed before it, so drifting names do not jostle. */
 export const LABEL_HOLD_GAP_X = 2;
 export const LABEL_HOLD_GAP_Y = 0;
+/**
+ * A label appearing keeps this much further inside the screen edge and clear of the HUD panels than one already shown
+ * must, so a name at the edge of the view does not blink as its hull drifts (selected, named and followed hulls aside).
+ */
+export const LABEL_ENTER_INSET = 6;
 
 export interface LabelBox {
   x: number;
@@ -461,12 +467,12 @@ export function layoutLabels(hulls: readonly LabelHull[], opts: LabelLayoutOptio
   // follows the placing, and a label never has to give way to a bracket or bar that comes back.
   const brackets = new BoxGrid(sorted.map((h) => ({ id: h.id, box: bracketBox(h) })));
   const fixedBars = new BoxGrid(sorted.filter((h) => h.bars).map((h) => ({ id: h.id, box: barBox(h) })));
-  const free = (box: LabelBox, own: readonly string[], gapX = LABEL_GAP_X, gapY = LABEL_GAP_Y): boolean =>
-    box.x >= margin &&
-    box.y >= margin &&
-    box.x + box.w <= opts.width - margin &&
-    box.y + box.h <= opts.height - margin &&
-    !blocked.some((b) => boxesOverlap(box, b)) &&
+  const free = (box: LabelBox, own: readonly string[], gapX = LABEL_GAP_X, gapY = LABEL_GAP_Y, inset = 0): boolean =>
+    box.x >= margin + inset &&
+    box.y >= margin + inset &&
+    box.x + box.w <= opts.width - margin - inset &&
+    box.y + box.h <= opts.height - margin - inset &&
+    !blocked.some((b) => boxesOverlap(box, b, inset)) &&
     !placed.some((p) => boxesOverlap(box, p, gapX, gapY)) &&
     !bars.some((b) => boxesOverlap(box, b)) &&
     !fixedBars.hits(box, own);
@@ -484,11 +490,12 @@ export function layoutLabels(hulls: readonly LabelHull[], opts: LabelLayoutOptio
     }
     // Appearing or moving: the first clean free slot; failing that, any free slot, but not for a minor name appearing.
     if (!pick) {
+      const inset = last === undefined && c.priority > LABEL_PRIORITY.followed ? LABEL_ENTER_INSET : 0;
       let fallback: { box: LabelBox; slot: LabelSlot } | undefined;
       for (const slot of SLOTS) {
         if (slot === last) continue;
         const box = slotBox(c, slot, w, h);
-        if (!free(box, c.members)) continue;
+        if (!free(box, c.members, LABEL_GAP_X, LABEL_GAP_Y, inset)) continue;
         if (!brackets.hits(box, c.members)) {
           pick = { box, slot };
           break;
