@@ -1,8 +1,9 @@
 #!/bin/sh
 # Reaper War Simulator {{VERSION}} - launcher for Linux: ./play-reaper-war-linux.sh [--vsync]
 # Opens the game in Google Chrome, Chromium or Microsoft Edge (installed normally, as a Snap or from
-# Flathub) as its own window on this machine's graphics, with the frame-rate cap off (--vsync keeps
-# it). Nothing is installed. REAPERWAR_BROWSER=/path/to/browser picks the browser.
+# Flathub) as its own window on this machine's graphics, with the browser's frame-rate cap lifted (the
+# game paces battles itself: 144 FPS by default, Settings > Graphics; --vsync keeps the browser on the
+# monitor's refresh). Nothing is installed. REAPERWAR_BROWSER=/path/to/browser picks the browser.
 DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 GAME="$DIR/game/index.html"
 if [ ! -f "$GAME" ]; then echo "The game file is missing: $GAME (unzip the whole folder first)"; exit 1; fi

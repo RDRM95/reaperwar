@@ -1,8 +1,9 @@
 #!/bin/sh
 # Reaper War Simulator {{VERSION}} - launcher for macOS.
 # Double-click to play on this Mac's graphics: the game opens in Google Chrome or Microsoft Edge
-# as its own window, with the frame-rate cap off. Nothing is installed. To keep the cap, run it from
-# Terminal with --vsync. REAPERWAR_BROWSER=/path/to/browser-binary picks the browser.
+# as its own window, with the browser's frame-rate cap lifted (the game paces battles itself: 144 FPS
+# by default, Settings > Graphics). Nothing is installed. Run it from Terminal with --vsync to keep
+# the browser synchronised to the monitor. REAPERWAR_BROWSER=/path/to/browser-binary picks the browser.
 DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 GAME="$DIR/game/index.html"
 if [ ! -f "$GAME" ]; then echo "The game file is missing: $GAME (unzip the whole folder first)"; exit 1; fi

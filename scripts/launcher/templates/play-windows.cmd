@@ -2,9 +2,10 @@
 setlocal EnableExtensions DisableDelayedExpansion
 rem Reaper War Simulator {{VERSION}} - launcher for Windows.
 rem Double-click to play on this PC's graphics card: the game opens in Microsoft Edge or
-rem Google Chrome as its own window, with the frame-rate cap off. Nothing is installed.
+rem Google Chrome as its own window, with the browser's frame-rate cap lifted (the game paces
+rem battles itself: 144 FPS by default, Settings > Graphics). Nothing is installed.
 rem Put --vsync after this file's name (for example at the end of a shortcut's Target) to keep the
-rem monitor's refresh rate. REAPERWAR_BROWSER=<path to a browser .exe> picks the browser.
+rem browser synchronised to the monitor. REAPERWAR_BROWSER=<path to a browser .exe> picks the browser.
 set "GAME=%~dp0game\index.html"
 if not exist "%GAME%" goto missing
 set "PROFILE=%LOCALAPPDATA%\ReaperWarSimulator\browser-profile"

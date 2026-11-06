@@ -128,7 +128,7 @@ jobs:
           - **macOS:** double-click "Play Reaper War (macOS).command". The first time, allow it in System Settings > Privacy & Security > Open Anyway (macOS 14 and earlier: right-click > Open).
           - **Linux:** run ./play-reaper-war-linux.sh in a terminal (Google Chrome, Chromium or Microsoft Edge; Snap Store and Flathub installs work).
 
-          The game opens in Microsoft Edge, Google Chrome or Chromium as its own window on your graphics card, on the Ultra graphics quality with the frame-rate cap off: no install, no server, no internet. README.txt inside covers saves, --vsync and troubleshooting.
+          The game opens in Microsoft Edge, Google Chrome or Chromium as its own window on your graphics card, on the Ultra graphics quality at up to 144 FPS (both adjustable in Settings > Graphics): no install, no server, no internet. README.txt inside covers saves, --vsync and troubleshooting.
 
           What's new: [CHANGELOG]($CHANGELOG_URL). Built from commit $GITHUB_SHA and checked on Windows, macOS and Linux before publishing.
           EOF
