@@ -13,8 +13,8 @@
  *    spread passes `HYSTERESIS` × its threshold, so a label does not flicker on a slowly moving camera. Solo hulls —
  *    selected, hovered, followed, flagships and named unique hulls — are never folded into an aggregate.
  * 2. Greedy placement by priority. Labels are placed best first (priority tier, then fleet before group before ship,
- *    then id): each tries its slots — below its hull (clear of the hull's bars and, close up, of its model), above,
- *    right, left — and takes the first that lies wholly on screen, clear of the blocked areas (the HUD panels), of
+ *    then id): each tries its slots — the one it held last frame first, then below its hull (clear of the hull's bars
+ *    and, close up, of its model), above, right, left — and takes the first that lies wholly on screen, clear of the blocked areas (the HUD panels), of
  *    every label already placed and of the bars under a named hull. A slot should also leave other hulls' brackets
  *    uncovered: the names of the minor hulls (damaged and the rest) take only such a clean slot, so a melee shows its
  *    capitals and flagships rather than a wall of text; aggregates and the higher tiers take a clean slot when there
@@ -142,6 +142,8 @@ export interface LabelLayoutOptions {
   fleetCrowdPx?: number;
   /** Aggregate ids folded last frame (`LabelLayout.collapsed`), for the hysteresis. */
   previous?: ReadonlySet<string>;
+  /** Each label's slot last frame: tried first, so labels do not hop round their hulls as the camera moves. */
+  previousSlots?: ReadonlyMap<string, LabelSlot>;
   /** Labels keep this far inside the viewport (px). */
   margin?: number;
 }
@@ -361,8 +363,9 @@ export function layoutLabels(hulls: readonly LabelHull[], opts: LabelLayoutOptio
     const w = Math.ceil(measure(c.text, c.kind)) + m.pad;
     const h = m.h;
     const minor = c.kind === 'ship' && c.priority > LABEL_PRIORITY.capital;
+    const last = opts.previousSlots?.get(c.id);
     let pick: { box: LabelBox; slot: LabelSlot } | undefined;
-    for (const slot of SLOTS) {
+    for (const slot of last ? [last, ...SLOTS.filter((x) => x !== last)] : SLOTS) {
       const box = slotBox(c, slot, w, h);
       if (box.x < margin || box.y < margin || box.x + box.w > opts.width - margin || box.y + box.h > opts.height - margin) continue;
       if (blocked.some((b) => boxesOverlap(box, b))) continue;

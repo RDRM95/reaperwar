@@ -4,11 +4,17 @@ import { FACTIONS } from '@/data/factions';
 import { RESERVED_NAMES } from '@/data/names';
 import { isCapitalRole } from '@/data/types';
 import { battlegroups, inFight } from './fleetGroups';
-import { DAMAGED_HULL, LABEL_PRIORITY, layoutLabels, type LabelBox, type LabelFleetInfo, type LabelGroupInfo, type LabelHull, type LabelKind, type PlacedLabel } from './labelLayout';
+import { DAMAGED_HULL, LABEL_PRIORITY, MAX_LABELS, layoutLabels, type LabelBox, type LabelFleetInfo, type LabelGroupInfo, type LabelHull, type LabelKind, type LabelSlot, type PlacedLabel } from './labelLayout';
 
 const NAMED = new Set(RESERVED_NAMES);
-/** A close-up label clears its hull's model up to this projected half-length (px); beyond it the label stays nearer. */
+/**
+ * A close-up label clears this share of its hull's projected half-length (a model seen side-on is far shorter than
+ * long), up to `MAX_MODEL_RADIUS` px; beyond that the label stays nearer its bracket.
+ */
+const MODEL_CLEARANCE = 0.6;
 const MAX_MODEL_RADIUS = 140;
+/** Label cap at 1920 × 1080; smaller viewports get proportionally fewer (never under 16). */
+const LABELS_AT_1080P = MAX_LABELS;
 const FONT: Record<LabelKind, string> = {
   ship: '10px Consolas, "Roboto Mono", monospace',
   group: '10px Consolas, "Roboto Mono", monospace',
@@ -52,8 +58,9 @@ export class TacticalOverlay {
   blocked: LabelBox[] = [];
   /** The labels drawn last frame (screen boxes, CSS px): the e2e test hook, empty while the overlay is hidden. */
   lastLabels: PlacedLabel[] = [];
-  /** Aggregates folded last frame (the layout's hysteresis). */
+  /** Aggregates folded last frame (the layout's hysteresis) and each label's slot last frame. */
   private collapsed = new Set<string>();
+  private slots = new Map<string, LabelSlot>();
   private widths = new Map<string, number>();
 
   constructor(private canvas: HTMLCanvasElement) {
@@ -161,11 +168,13 @@ export class TacticalOverlay {
               : s.hull < DAMAGED_HULL * s.maxHull
                 ? LABEL_PRIORITY.damaged
                 : LABEL_PRIORITY.other;
-      const radius = Math.min(MAX_MODEL_RADIUS, view.screenRadius(s.id, depth, h));
+      const radius = Math.min(MAX_MODEL_RADIUS, MODEL_CLEARANCE * view.screenRadius(s.id, depth, h));
       hulls.push({ id: s.id, x, y, size, radius, name: s.name, priority, groupId: bg.groupOf.get(s.id), fleetId: s.fleetId, solo: selected || hovered || named || isFollowed });
     }
-    const layout = layoutLabels(hulls, { width: w, height: h, groups, fleets, measure: this.measure, blocked: this.blocked, previous: this.collapsed });
+    const maxLabels = Math.max(16, Math.min(LABELS_AT_1080P, Math.round((LABELS_AT_1080P * w * h) / (1920 * 1080))));
+    const layout = layoutLabels(hulls, { width: w, height: h, groups, fleets, measure: this.measure, blocked: this.blocked, previous: this.collapsed, previousSlots: this.slots, maxLabels });
     this.collapsed = layout.collapsed;
+    this.slots = new Map(layout.placed.map((l) => [l.id, l.slot]));
     this.lastLabels = layout.placed;
     const withBars = new Set<string>();
     for (const l of layout.placed) if (l.bars) withBars.add(l.id);

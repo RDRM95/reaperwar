@@ -175,6 +175,16 @@ describe('label layout (brief §12, stage L2)', () => {
     expect(FLEET_CROWD_PX).toBeGreaterThan(GROUP_CROWD_PX);
   });
 
+  it("keeps a label in last frame's slot while it still fits, so names do not hop round their hulls", () => {
+    const hull: LabelHull = { id: 'k', x: 800, y: 400, size: 9, name: 'SSV Kilimanjaro', priority: LABEL_PRIORITY.named, solo: true };
+    expect(layoutLabels([hull], opts()).placed[0].slot).toBe('below');
+    const held = layoutLabels([hull], opts({ previousSlots: new Map([['k', 'above' as const]]) }));
+    expect(held.placed[0].slot).toBe('above');
+    // When last frame's slot no longer fits, the usual order takes over.
+    const edge = layoutLabels([{ ...hull, y: 8 }], opts({ previousSlots: new Map([['k', 'above' as const]]) }));
+    expect(edge.placed[0].slot).toBe('below');
+  });
+
   it('skips labels that would leave the screen or cover a HUD panel, trying the other slots first', () => {
     const edge = layoutLabels([{ id: 'e', x: 960, y: H - 4, size: 9, name: 'Bottom edge', priority: LABEL_PRIORITY.capital }], opts());
     expect(edge.placed).toHaveLength(1);
