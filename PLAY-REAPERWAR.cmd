@@ -30,7 +30,7 @@ if errorlevel 1 (
   goto :failed
 )
 
-powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference = 'Stop'; [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; $target = $env:RW_SCRIPT; $temp = $target + '.new'; try { Invoke-WebRequest -UseBasicParsing -UserAgent 'ReaperWar-OneClick/2.0' -Uri 'https://raw.githubusercontent.com/RDRM95/reaperwar/main/scripts/local/one-click-windows.ps1' -OutFile $temp; if (-not (Test-Path -LiteralPath $temp)) { throw 'The downloaded script is missing.' }; if (-not ((Get-Content -LiteralPath $temp -Raw) -match 'function Main')) { throw 'Downloaded script did not pass validation.' }; Move-Item -LiteralPath $temp -Destination $target -Force } finally { if (Test-Path -LiteralPath $temp) { Remove-Item -LiteralPath $temp -Force } }"
+powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference = 'Stop'; [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; $target = $env:RW_SCRIPT; $temp = $target + '.new'; try { Invoke-WebRequest -UseBasicParsing -UserAgent 'ReaperWar-OneClick/2.0' -Uri 'https://raw.githubusercontent.com/RDRM95/reaperwar/main/scripts/local/one-click-windows.ps1?nodefix=20261106' -OutFile $temp; if (-not (Test-Path -LiteralPath $temp)) { throw 'The downloaded script is missing.' }; if (-not ((Get-Content -LiteralPath $temp -Raw) -match 'function Main')) { throw 'Downloaded script did not pass validation.' }; Move-Item -LiteralPath $temp -Destination $target -Force } finally { if (Test-Path -LiteralPath $temp) { Remove-Item -LiteralPath $temp -Force } }"
 if errorlevel 1 (
   echo.
   echo Online update failed.

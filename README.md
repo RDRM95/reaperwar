@@ -28,7 +28,7 @@ On first run the launcher:
 2. Uses an existing compatible Node.js, or obtains an official portable Node.js LTS ZIP from nodejs.org, checks it against the published SHA-256 manifest, and extracts it only for this game. It does not install Node globally or need administrator privileges.
 3. Installs npm dependencies, builds the Local Edition and opens it in its own Chrome/Edge game window using your GPU.
 
-On later double-clicks it checks for the latest `main` commit and updates the local copy if necessary. Your game saves stay in the dedicated `.local-profile` folder and are preserved across updates. When offline it can reuse a previously installed copy. The first download/build requires an internet connection; no remote game server or account is needed for play. Windows may show a security warning for a downloaded unsigned `.cmd`; inspect the launcher source and choose to run it only if you trust this repository.
+On later double-clicks it checks for the latest `main` commit and updates the local copy if necessary. Windows starts the game **maximized** to fit the monitor's usable desktop area. The menu shortens its spacing and scrolls vertically when the available height is limited (including high display scaling); every option remains accessible. If the window is already open before applying the update, close it and relaunch with the same Desktop shortcut. Your game saves stay in the dedicated `.local-profile` folder and are preserved across updates. When offline it can reuse a previously installed copy. The first download/build requires an internet connection; no remote game server or account is needed for play. Windows may show a security warning for a downloaded unsigned `.cmd`; inspect the launcher source and choose to run it only if you trust this repository.
 
 **If a launcher window flashes and disappears:** delete the earlier downloaded `PLAY-REAPERWAR.cmd` and download the current copy from this repository. The updated launcher always pauses before exiting, prints the error, and writes `%LOCALAPPDATA%\\ReaperWar\\launcher-last-run.log`. Do not delete the `ReaperWar` data folder to troubleshoot; it may contain your save profile. If no game appears, copy the error text from the open window or inspect that log.
 
@@ -104,10 +104,17 @@ On macOS the browser stays open after its window closes: quit it (⌘Q) or press
 
 **Confirm it runs on your GPU.** Settings → Graphics shows `Local Edition: running on this machine's GPU (…)` with the renderer the browser reports, for example `ANGLE (NVIDIA, NVIDIA GeForce RTX 5090 … Direct3D11 …)`. For the full picture run `run-local.cmd --gpu-info` (or `./run-local.sh --gpu-info`), which opens `chrome://gpu` on the game's own browser profile (Edge shows it as `edge://gpu`): under *Graphics Feature Status*, WebGL and WebGL2 should read *Hardware accelerated*; *GL_RENDERER* should name your card; *Command Line* lists the flags above. If Settings shows `Local Edition: software rendering (…)`, or `chrome://gpu` shows *SwiftShader*, *Software only* or *Microsoft Basic Render Driver*, the GPU is not in use: update the graphics driver, and on a laptop set Chrome or Edge to *High performance* in Windows Settings → System → Display → Graphics.
 
+**Large battle performance and 144 Hz displays (November 2026)**
+
+- **Settings → Graphics → Frame rate limit:** select **144 FPS** (the Local Edition default on existing saves without a frame cap), 60, 90, 120, 165, 240 or Unlimited. This caps *presented frames* only; the fixed 20 Hz battle simulation and its deterministic outcome are unchanged. The cap cannot force 144 FPS when the engine is overloaded.
+- **GPU instancing for 500+ ships:** repeated ships of the same class share static geometry and materials in class/LOD batches. Their positions and orientations remain independent; the nearest large hulls, selected vessels and followed ships still use individual high-detail models. At greater distance they use the original scalable point cloud. This targets the thousands of draw calls caused by repeated individual ship meshes while retaining original ship silhouettes.
+- **Performance numbers in the battle HUD:** `CPU SIM` measures wall time spent advancing the battle simulation in each presented frame; `CPU VIEW` measures main-thread 3D/overlay preparation and rendering submission, **not** GPU execution time. Use these with `DRAWS` and FPS to identify the next bottleneck.
+- **Architecture limit:** the battle simulation still runs on the browser's main JavaScript thread, at a deterministic 20 Hz. A low overall CPU percentage on an 8-core machine does not indicate spare performance on that specific thread. GPU instancing reduces rendering overhead, but does not make this simulation parallel across cores or guarantee 144 FPS for thousands of combatants. A dedicated worker/simulation data pipeline is a separate architectural change.
+
 **What the Local Edition changes compared with the web version**
 
 - **Ultra — local GPU** graphics quality, selected on the first run (change it in Settings; your choice is kept): native resolution (your display's full pixel density, up to 3×, instead of High's 2× cap) with antialiasing, full detail and hull meshes kept 2.5× farther away before ships become points, doubled effect budgets (sparks, tracers, barrier flashes, debris, point-defence lines), maximum anisotropic filtering on the generated planet and sky textures, a larger environment map for hull reflections, and a frames-per-second readout beside the draw-call count on the battle HUD. Ultra can be picked in the web version too.
-- **Uncapped frame rate**: the battle view draws as many frames as the GPU can, so a high-refresh monitor is never the limit and the FPS readout shows the real headroom (`--vsync` restores the cap).
+- **Selectable frame rate limit:** the launcher leaves Chrome/Edge uncapped, while the in-game Graphics setting defaults to **144 FPS** for Local Edition. You can change the cap or choose Unlimited; `--vsync` also allows the browser to synchronise to the monitor. The FPS readout reports frames actually drawn.
 - **Cross-origin isolation**: the server sends `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp`, which unlock `SharedArrayBuffer` for a later multi-threaded simulation.
 - The main menu shows *Local Edition* next to the version.
 
@@ -124,6 +131,62 @@ On macOS the browser stays open after its window closes: quit it (⌘Q) or press
 - The simulation still runs on one CPU core, on the browser's main thread: very large battles are limited by that core, not by the GPU. Fixing 8× playback and moving the simulation to a worker thread are separate work.
 - Battle results are identical at every graphics quality and in both editions: everything above is drawing only.
 - Saves are kept per address, so the Local Edition starts with its own saves. Move them with Settings → Export save data (web version) and Import save data (Local Edition).
+
+## Copy-paste battle presets from ChatGPT
+
+In **Custom Battle**, expand **AI BATTLE PRESET — PASTE / EXPORT**. Ask ChatGPT to
+"Make me a Reaper War Simulator battle preset in reaperwar-battle-v1 JSON" and
+describe the factions, ship numbers, timeline, formations and arrival times.
+Paste the complete JSON into the box and select **Import battle**. The
+existing side A/B fleet cards fill automatically, so you can review them before
+pressing **Launch**. **Show setup JSON** and **Copy setup** let you share or edit a
+scenario and paste it back later.
+
+The import is **local-only**. It validates every ship class against the
+installed ship catalogue, faction ownership, formations, timeline ID, unique
+flagships and numeric bounds; it rejects unsupported parameters rather than
+silently ignoring them. Fleet arrival times are in seconds. Thousands of ships
+are allowed, but simulation performance still depends on the CPU.
+
+Example (all three fleets are independently editable after import):
+
+    {
+      "format": "reaperwar-battle-v1",
+      "rulesId": "cerberus_reformed",
+      "environment": "earth_orbit",
+      "seed": 2186,
+      "startingDistanceKm": 122,
+      "maxDuration": 900,
+      "sideA": [
+        {
+          "faction": "alliance",
+          "name": "Sword Fleet",
+          "formation": "line_abreast",
+          "arrivalTime": 0,
+          "ships": {"alliance_dreadnought": 6, "alliance_cruiser": 20, "alliance_frigate": 40}
+        },
+        {
+          "faction": "cerberus",
+          "name": "Cerberus Black Fleet (allied)",
+          "formation": "strike_wedge",
+          "arrivalTime": 45,
+          "ships": {"cerberus_dreadnought": 2, "cerberus_cruiser": 18, "cerberus_frigate": 24}
+        }
+      ],
+      "sideB": [
+        {
+          "faction": "reaper",
+          "name": "Reaper blockade",
+          "formation": "swarm_descent",
+          "arrivalTime": 0,
+          "ships": {"reaper_capital": 50, "reaper_destroyer": 100, "harbinger": 1}
+        }
+      ]
+    }
+
+Use only ship IDs already present in Custom Battle. This format currently
+imports fleet rosters and battle conditions, **not** unsimulated scripted
+events, campaign turns, manually specified fighter counts or new technologies.
 
 ## What works today (v0.4.0)
 

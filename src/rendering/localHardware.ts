@@ -36,8 +36,10 @@ export function isLocalEdition(
  * Ultra; a stored choice always wins, and the web build is unchanged.
  */
 export function startupGraphics(graphics: GraphicsSettings, local: boolean = isLocalEdition()): GraphicsSettings {
-  if (!local || graphics.chosen === true) return graphics;
-  return withQuality(graphics, 'ultra');
+  if (!local) return graphics;
+  const capped = { ...graphics, frameCap: graphics.frameCap ?? 144 };
+  if (capped.chosen === true) return capped;
+  return withQuality(capped, 'ultra');
 }
 
 let rendererCache: string | null | undefined;

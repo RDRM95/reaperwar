@@ -35,12 +35,18 @@ function Download-File([string]$uri, [string]$destination) {
 function Compatible-Node([string]$executable) {
   if (-not (Test-Path -LiteralPath $executable -PathType Leaf)) { return $false }
   try {
-    $version = (& $executable --version 2>$null | Select-Object -First 1)
-    if ($LASTEXITCODE -ne 0) { return $false }
-    if (-not ($version -match '^v([0-9]+)\.([0-9]+)\.')) { return $false }
-    $major = [int]$Matches[1]
-    $minor = [int]$Matches[2]
-    return ($major -ge 23) -or ($major -eq 22 -and $minor -ge 12) -or ($major -eq 20 -and $minor -ge 19)
+    # Use direct native output rather than a pipeline, which can obscure
+    # process exit status on some Windows PowerShell configurations.
+    $raw = & $executable --version 2>&1
+    $status = $LASTEXITCODE
+    if ($status -ne 0) { return $false }
+    $versionText = ([string]($raw | Select-Object -First 1)).Trim()
+    $match = [regex]::Match($versionText, '^v([0-9]+)\.([0-9]+)\.([0-9]+)$')
+    if (-not $match.Success) { return $false }
+    $major = [int]$match.Groups[1].Value
+    $minor = [int]$match.Groups[2].Value
+    $compatible = ($major -ge 23) -or ($major -eq 22 -and $minor -ge 12) -or ($major -eq 20 -and $minor -ge 19)
+    return [bool]$compatible
   } catch {
     return $false
   }
@@ -84,8 +90,19 @@ function Install-PortableNode {
       Select-Object -First 1
     if ($null -eq $candidate) { throw 'The Node.js archive did not contain node.exe.' }
     Move-Item -LiteralPath $candidate.FullName -Destination $staging
-    if (-not (Compatible-Node (Join-Path $staging 'node.exe'))) {
-      throw 'The downloaded Node.js runtime was not compatible.'
+    $candidateExe = Join-Path $staging 'node.exe'
+    try {
+      $candidateOutput = & $candidateExe --version 2>&1
+      $candidateExit = $LASTEXITCODE
+      $candidateVersion = ([string]($candidateOutput | Select-Object -First 1)).Trim()
+    } catch {
+      throw ('The downloaded Node.js could not run: ' + $_.Exception.Message)
+    }
+    Say "Official Node.js archive: $version; extracted runtime: $candidateVersion (exit $candidateExit)."
+    # The archive already passed the official SHA-256 check. Compare its
+    # runtime's version directly with the advertised official release.
+    if ($candidateExit -ne 0 -or $candidateVersion -ne $version) {
+      throw "Node.js executable version check failed: expected $version, got '$candidateVersion' (exit $candidateExit)."
     }
 
     if (Test-Path -LiteralPath $backup) { Remove-Item -LiteralPath $backup -Recurse -Force }
