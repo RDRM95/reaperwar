@@ -11,7 +11,7 @@ import { EffectsSystem } from './effects';
 import { buildEnvironment, type EnvironmentBuild } from './environment';
 import { KM } from './geometry';
 import { instantiateShip, type BuiltShip } from './ships';
-import { DETAIL_MESH_NAMES, lodLevel, type LodLevel } from './lod';
+import { DETAIL_MESH_NAMES, detailedHullBudget, farPointCapacity, lodLevel, type LodLevel } from './lod';
 import { FpsMeter, pixelRatioFor, presetFor, type QualityPreset } from './quality';
 
 /**
@@ -54,7 +54,8 @@ function applyAnisotropy(root: THREE.Object3D, anisotropy: number): void {
   });
 }
 
-const MAX_FAR_POINTS = 2048;
+// Start with a small GPU buffer and grow only when a battle requires it.
+const INITIAL_FAR_POINTS = 2048;
 
 export class BattleView {
   readonly renderer: THREE.WebGLRenderer;
@@ -84,9 +85,12 @@ export class BattleView {
   private eventQueue: BattleEvent[] = [];
   /** Shared point cloud for ships beyond mesh range (one draw call). */
   private readonly farPoints: THREE.Points;
-  private readonly farPositions = new Float32Array(MAX_FAR_POINTS * 3);
-  private readonly farColours = new Float32Array(MAX_FAR_POINTS * 3);
+  private farPositions = new Float32Array(INITIAL_FAR_POINTS * 3);
+  private farColours = new Float32Array(INITIAL_FAR_POINTS * 3);
   private readonly tmpColour = new THREE.Color();
+  /** The closest detailed hulls in a large battle; others stay in the GPU point cloud. */
+  private detailedShips?: Set<string>;
+  private detailBudgetFrame = 0;
   /** Draw calls of the last rendered frame. */
   drawCalls = 0;
   lodCounts = { full: 0, reduced: 0, point: 0 };
@@ -153,6 +157,8 @@ export class BattleView {
     this.sim = sim;
     for (const v of this.visuals.values()) this.scene.remove(v.built.group);
     this.visuals.clear();
+    this.detailedShips = undefined;
+    this.detailBudgetFrame = 0;
     this.effects.clear();
     if (this.env) this.scene.remove(this.env.group);
     this.env = buildEnvironment(sim.config.environment);
@@ -161,6 +167,7 @@ export class BattleView {
     this.sunLight.position.copy(this.env.sunDirection).multiplyScalar(10_000);
     this.sunLight.target.position.set(0, 0, 0);
     this.scene.add(this.sunLight.target);
+    this.ensureFarCapacity(sim.ships.length);
     for (const s of sim.ships) this.ensureVisual(s);
     sim.onEvent = (e) => this.eventQueue.push(e);
     this.selectedIds.clear();
@@ -172,6 +179,16 @@ export class BattleView {
     this.rig.distance = 320;
     this.rig.yaw = Math.PI + 0.6;
     this.rig.pitch = 0.42;
+  }
+
+  /** Grow the one-draw-call far-ship cloud; never silently drop ships beyond 2,048. */
+  private ensureFarCapacity(required: number): void {
+    if (required <= this.farPositions.length / 3) return;
+    const capacity = farPointCapacity(this.farPositions.length / 3, required);
+    this.farPositions = new Float32Array(capacity * 3);
+    this.farColours = new Float32Array(capacity * 3);
+    this.farPoints.geometry.setAttribute('position', new THREE.BufferAttribute(this.farPositions, 3));
+    this.farPoints.geometry.setAttribute('color', new THREE.BufferAttribute(this.farColours, 3));
   }
 
   private ensureVisual(ship: ShipState): ShipVisual {
@@ -244,6 +261,30 @@ export class BattleView {
     const sim = this.sim;
     const cam = this.rig.camera.position;
     const lodOn = this.settings.lod !== false;
+    // Ultra quality must not hold thousands of distant individual hull meshes
+    // on screen. The camera still preserves full detail for close subjects.
+    const lodScale = sim.ships.length >= 1500
+      ? Math.min(this.preset.lodDistanceScale, 0.65)
+      : sim.ships.length >= 500
+        ? Math.min(this.preset.lodDistanceScale, 1)
+        : this.preset.lodDistanceScale;
+    this.ensureFarCapacity(sim.ships.length);
+    // A finite draw-call budget matters more than raw GPU throughput when
+    // thousands of hulls each have multiple meshes. Keep nearest models at
+    // full fidelity; draw the rest as one GPU point cloud. Reassess 8 times
+    // per eight frames rather than sorting every animation frame.
+    const meshBudget = detailedHullBudget(sim.ships.length);
+    if (!Number.isFinite(meshBudget)) this.detailedShips = undefined;
+    else if (!this.detailedShips || ++this.detailBudgetFrame % 8 === 0) {
+      const near = sim.ships.filter((s) => s.alive && !s.escaped).map((s) => {
+        const dx = s.pos.x * KM - cam.x;
+        const dy = s.pos.y * KM - cam.y;
+        const dz = s.pos.z * KM - cam.z;
+        return { id: s.id, distanceSq: dx * dx + dy * dy + dz * dz };
+      });
+      near.sort((a, b) => a.distanceSq - b.distanceSq);
+      this.detailedShips = new Set(near.slice(0, meshBudget).map((s) => s.id));
+    }
     let far = 0;
     this.lodCounts = { full: 0, reduced: 0, point: 0 };
     for (const ship of sim.ships) {
@@ -257,13 +298,21 @@ export class BattleView {
         v.built.group.visible = false;
         continue;
       }
-      this.placeVisual(v, alpha);
-      // Level of detail by distance; far ships collapse into the shared point cloud.
-      const dist = cam.distanceTo(v.built.group.position);
-      const level = lodLevel(dist, v.built.lengthUnits, ship.role, lodOn, this.preset.lodDistanceScale);
+      // Do not recompute heading/quaternion for distant point-only ships.
+      const point = this.tmpA.set(
+        (ship.prevPos.x + (ship.pos.x - ship.prevPos.x) * alpha) * KM,
+        (ship.prevPos.y + (ship.pos.y - ship.prevPos.y) * alpha) * KM,
+        (ship.prevPos.z + (ship.pos.z - ship.prevPos.z) * alpha) * KM,
+      );
+      const dist = cam.distanceTo(point);
+      const selected = this.selectedIds.size <= 12 && this.selectedIds.has(ship.id);
+      const detailed = !this.detailedShips || this.detailedShips.has(ship.id) || selected || this.followId === ship.id;
+      const level = detailed ? lodLevel(dist, v.built.lengthUnits, ship.role, lodOn, lodScale) : 'point';
+      if (level === 'point') v.built.group.position.copy(point);
+      else this.placeVisual(v, alpha);
       this.applyLod(v, level);
       this.lodCounts[level]++;
-      if (level === 'point' && far < MAX_FAR_POINTS) {
+      if (level === 'point') {
         const p = v.built.group.position;
         this.farPositions[far * 3] = p.x;
         this.farPositions[far * 3 + 1] = p.y;

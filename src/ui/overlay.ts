@@ -1,6 +1,7 @@
 import type { BattleView } from '@/rendering/battleView';
 import type { ShipState } from '@/simulation/types';
 import { FACTIONS } from '@/data/factions';
+import { useFleetSummary } from './scalePolicy';
 
 /**
  * 2D tactical overlay drawn on a canvas above the WebGL view: ship markers,
@@ -11,6 +12,7 @@ export class TacticalOverlay {
   private ctx: CanvasRenderingContext2D;
   visible = true;
   hoverId?: string;
+  private drawFleetLabels?: () => void;
 
   constructor(private canvas: HTMLCanvasElement) {
     this.ctx = canvas.getContext('2d')!;
@@ -31,7 +33,8 @@ export class TacticalOverlay {
     ctx.font = '10px Consolas, "Roboto Mono", monospace';
     ctx.textBaseline = 'middle';
     // Target lines for selected ships.
-    for (const id of view.selectedIds) {
+    // Selecting an entire fleet must not draw thousands of target lines.
+    for (const id of view.selectedIds.size <= 12 ? view.selectedIds : []) {
       const s = sim.getShip(id);
       if (!s || !s.alive) continue;
       const t = s.targetId ? sim.getShip(s.targetId) : undefined;
@@ -47,23 +50,107 @@ export class TacticalOverlay {
       ctx.stroke();
       ctx.setLineDash([]);
     }
+    // In a large engagement the overlay is a fleet map, not thousands of
+    // individual ship nameplates. This is display-only: no ship is removed
+    // from the simulation or from picking/commands.
+    const live = sim.ships.filter((s) => s.alive && !s.escaped);
+    const fleetMode = useFleetSummary(live.length);
+    const focusedIds = view.selectedIds.size <= 12 ? view.selectedIds : new Set<string>();
     const ships: { s: ShipState; x: number; y: number; depth: number }[] = [];
-    for (const s of sim.ships) {
-      if (!s.alive || s.escaped) continue;
-      const p = view.project(s.pos, w, h);
-      if (!p) continue;
-      if (p.x < -40 || p.y < -40 || p.x > w + 40 || p.y > h + 40) continue;
-      ships.push({ s, x: p.x, y: p.y, depth: p.depth });
+
+    if (fleetMode) {
+      type FleetMarker = {
+        id: string; name: string; faction: ShipState['faction']; count: number;
+        x: number; y: number; z: number; weight: number;
+      };
+      const fleets = new Map<string, FleetMarker>();
+      const camera = view.rig.camera.position;
+      for (const s of live) {
+        let fleet = fleets.get(s.fleetId);
+        if (!fleet) {
+          fleet = {
+            id: s.fleetId, name: sim.fleets.get(s.fleetId)?.spec.name ?? s.fleetId,
+            faction: s.faction, count: 0, x: 0, y: 0, z: 0, weight: 0,
+          };
+          fleets.set(s.fleetId, fleet);
+        }
+        // A fighter flight may represent several craft, not one vessel.
+        fleet.count += s.flight?.craft ?? 1;
+        // Capital and escort positions give a more useful fleet label anchor
+        // than a distant fighter screen; fighter-only fleets still appear.
+        const weight = s.role === 'fighter' ? 0.15 : 1;
+        fleet.x += s.pos.x * weight;
+        fleet.y += s.pos.y * weight;
+        fleet.z += s.pos.z * weight;
+        fleet.weight += weight;
+
+        // Close camera and explicitly inspected ships retain individual
+        // identities, but cap the per-frame label/marker work.
+        const pinned = focusedIds.has(s.id) || this.hoverId === s.id || view.followId === s.id;
+        const dx = s.pos.x * 10 - camera.x;
+        const dy = s.pos.y * 10 - camera.y;
+        const dz = s.pos.z * 10 - camera.z;
+        if (!pinned && (s.role === 'fighter' || dx * dx + dy * dy + dz * dz > 320 * 320)) continue;
+        if (!pinned && ships.length >= 28) continue;
+        const p = view.project(s.pos, w, h);
+        if (p && p.x >= -40 && p.y >= -40 && p.x <= w + 40 && p.y <= h + 40) {
+          ships.push({ s, ...p });
+        }
+      }
+
+      // All fleet counts are computed from live entities, not only the
+      // vessels visible in the camera frustum.
+      const occupied: { x: number; y: number; w: number; h: number }[] = [];
+      const labels = [...fleets.values()].sort((a, b) => b.count - a.count).slice(0, 40);
+      // Fleet nameplates are drawn after the nearby ship markers below.
+      const drawFleetLabels = () => {
+        ctx.font = 'bold 11px Consolas, "Roboto Mono", monospace';
+        ctx.textAlign = 'center';
+        for (const fleet of labels) {
+          const p = view.project({
+            x: fleet.x / fleet.weight, y: fleet.y / fleet.weight, z: fleet.z / fleet.weight,
+          }, w, h);
+          if (!p || p.x < -60 || p.x > w + 60 || p.y < -30 || p.y > h + 30) continue;
+          const label = fleet.name.toUpperCase() + ' · ' + fleet.count.toLocaleString('en-GB') + ' SHIPS';
+          const width = Math.min(w - 16, ctx.measureText(label).width + 20);
+          const x = Math.max(8, Math.min(w - width - 8, p.x - width / 2));
+          let y = Math.max(8, Math.min(h - 26, p.y - 10));
+          for (let n = 0; n < 5 && occupied.some((r) => x < r.x + r.w && x + width > r.x && y < r.y + r.h && y + 22 > r.y); n++) {
+            y = Math.min(h - 26, y + 24);
+          }
+          if (occupied.some((r) => x < r.x + r.w && x + width > r.x && y < r.y + r.h && y + 22 > r.y)) continue;
+          occupied.push({ x, y, w: width, h: 22 });
+          ctx.globalAlpha = 0.92;
+          ctx.fillStyle = 'rgba(5, 11, 19, 0.82)';
+          ctx.fillRect(x, y, width, 22);
+          ctx.strokeStyle = FACTIONS[fleet.faction].colour;
+          ctx.lineWidth = 1;
+          ctx.strokeRect(x + 0.5, y + 0.5, width - 1, 21);
+          ctx.fillStyle = '#e6edf5';
+          ctx.fillText(label, x + width / 2, y + 11, Math.max(0, width - 12));
+        }
+        ctx.globalAlpha = 1;
+      };
+      // Draw fleet labels at the end of the ship-marker pass.
+      this.drawFleetLabels = drawFleetLabels;
+    } else {
+      this.drawFleetLabels = undefined;
+      for (const s of live) {
+        const p = view.project(s.pos, w, h);
+        if (!p || p.x < -40 || p.y < -40 || p.x > w + 40 || p.y > h + 40) continue;
+        ships.push({ s, ...p });
+      }
     }
+
     ships.sort((a, b) => b.depth - a.depth);
     for (const { s, x, y, depth } of ships) {
       const friendly = s.side === sim.config.perspectiveSide;
       const colour = FACTIONS[s.faction].colour;
-      const selected = view.selectedIds.has(s.id);
+      const selected = focusedIds.has(s.id);
       const hovered = this.hoverId === s.id;
       const isFighter = s.role === 'fighter';
       const far = depth > 6000;
-      if (isFighter && (far || !command)) {
+      if (isFighter && (far || (!command && !selected && !hovered))) {
         if (command || depth < 3000) {
           ctx.fillStyle = colour;
           ctx.globalAlpha = 0.5;
@@ -78,14 +165,12 @@ export class TacticalOverlay {
       ctx.globalAlpha = selected || hovered ? 1 : 0.75;
       ctx.beginPath();
       if (friendly) {
-        // Diamond for friendlies.
         ctx.moveTo(x, y - size);
         ctx.lineTo(x + size, y);
         ctx.lineTo(x, y + size);
         ctx.lineTo(x - size, y);
         ctx.closePath();
       } else {
-        // Chevron/triangle for hostiles.
         ctx.moveTo(x, y - size);
         ctx.lineTo(x + size, y + size);
         ctx.lineTo(x - size, y + size);
@@ -96,8 +181,7 @@ export class TacticalOverlay {
         ctx.strokeStyle = '#ff8a1f';
         ctx.strokeRect(x - size - 6, y - size - 6, size * 2 + 12, size * 2 + 12);
       }
-      // Bars + label for larger/closer ships.
-      const showDetail = command || selected || hovered || (!far && size >= 7) || depth < 2500;
+      const showDetail = selected || hovered || (fleetMode ? depth < 280 : command || (!far && size >= 7) || depth < 2500);
       if (showDetail) {
         const bw = 36;
         const bx = x - bw / 2;
@@ -111,11 +195,14 @@ export class TacticalOverlay {
         ctx.fillStyle = colour;
         ctx.globalAlpha = 0.9;
         ctx.textAlign = 'center';
-        const label = selected || hovered || size >= 9 || (size >= 7 && depth < 1200) ? s.name : '';
+        const label = fleetMode
+          ? (selected || hovered || depth < 280 ? s.name : '')
+          : (selected || hovered || size >= 9 || (size >= 7 && depth < 1200) ? s.name : '');
         if (label) ctx.fillText(label.toUpperCase(), x, by + 13);
       }
       ctx.globalAlpha = 1;
     }
+    this.drawFleetLabels?.();
     // Command grid.
     if (command) {
       ctx.strokeStyle = 'rgba(79,163,255,0.12)';

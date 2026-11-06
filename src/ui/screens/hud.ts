@@ -1,5 +1,6 @@
 import type { App, BattleController } from '../app';
 import { SPEEDS } from '../app';
+import { useFleetSummary } from '../scalePolicy';
 import { el, fmtNum, fmtTime, setChildren } from '../dom';
 import { FACTIONS } from '@/data/factions';
 import { getShipClass } from '@/data/ships';
@@ -199,10 +200,35 @@ export function createHud(app: App, ctrl: BattleController): Hud {
   };
 
   const fighterLine = el('div', { class: 'dim mono', style: { padding: '4px 6px', fontSize: '10px' } });
-  const syncList = (container: HTMLElement, ships: ShipState[], extra?: HTMLElement) => {
-    const rows = ships.map((s) => shipRow(s).row);
+  const fleetRowCache = new Map<string, { row: HTMLElement; name: HTMLElement; count: HTMLElement }>();
+  // Keep one stable DOM row per fleet for massive engagements. Clicking a row
+  // focuses an active ship; individual selection remains available on zoom.
+  const fleetRow = (id: string, name: string, count: number, lead?: ShipState): HTMLElement => {
+    let r = fleetRowCache.get(id);
+    if (!r) {
+      const nameEl = el('div', { class: 'name' }, name);
+      const countEl = el('span', { class: 'mono dim', style: { flexShrink: '0' } }, '');
+      const row = el('div', { class: 'ship-row', 'data-fleet': id, onclick: () => {
+        const active = sim().ships.find((s) => s.fleetId === id && s.alive && !s.escaped && s.role !== 'fighter')
+          ?? sim().ships.find((s) => s.fleetId === id && s.alive && !s.escaped);
+        if (active) {
+          ctrl.select(active.id);
+          ctrl.focusOn(active.id);
+          app.playUi('ui_click');
+        }
+      } }, [nameEl, countEl]);
+      r = { row, name: nameEl, count: countEl };
+      fleetRowCache.set(id, r);
+    }
+    r.name.textContent = name;
+    r.count.textContent = count.toLocaleString('en-GB') + ' ships';
+    r.row.classList.toggle('selected', !!lead && ctrl.view.selectedIds.has(lead.id));
+    return r.row;
+  };
+  const syncList = (container: HTMLElement, rows: HTMLElement[], extra?: HTMLElement) => {
     const wanted: Node[] = extra ? [...rows, extra] : rows;
-    // Only touch the DOM when the order/membership changed.
+    // Do not recreate rows every refresh: only membership/order should touch
+    // the container DOM; names, counts and individual bars update in place.
     let same = container.childNodes.length === wanted.length;
     if (same) for (let i = 0; i < wanted.length; i++) if (container.childNodes[i] !== wanted[i]) { same = false; break; }
     if (!same) container.replaceChildren(...wanted);
@@ -210,12 +236,38 @@ export function createHud(app: App, ctrl: BattleController): Hud {
 
   const renderLists = () => {
     const s = sim();
+    if (useFleetSummary(s.ships.reduce((count, ship) => count + (ship.alive && !ship.escaped ? 1 : 0), 0))) {
+      const fleets = new Map<string, { id: string; name: string; side: ShipState['side']; count: number; lead?: ShipState }>();
+      let fighters = 0;
+      for (const ship of s.ships) {
+        if (!ship.alive || ship.escaped) continue;
+        const count = ship.flight?.craft ?? 1;
+        if (ship.role === 'fighter' && ship.side === ctrl.config.perspectiveSide) fighters += count;
+        let group = fleets.get(ship.fleetId);
+        if (!group) {
+          group = { id: ship.fleetId, name: s.fleets.get(ship.fleetId)?.spec.name ?? ship.fleetId, side: ship.side, count: 0 };
+          fleets.set(ship.fleetId, group);
+        }
+        group.count += count;
+        if (!group.lead || (ship.role !== 'fighter' && (group.lead.role === 'fighter' || ship.pointValue > group.lead.pointValue))) group.lead = ship;
+      }
+      const allyRows: HTMLElement[] = [];
+      const enemyRows: HTMLElement[] = [];
+      for (const fleet of fleets.values()) {
+        const row = fleetRow(fleet.id, fleet.name, fleet.count, fleet.lead);
+        (fleet.side === ctrl.config.perspectiveSide ? allyRows : enemyRows).push(row);
+      }
+      fighterLine.textContent = fighters.toLocaleString('en-GB') + ' fighters deployed';
+      syncList(shipList, allyRows, fighters > 0 ? fighterLine : undefined);
+      syncList(enemyList, enemyRows);
+      return;
+    }
     const mine = s.ships.filter((x) => x.side === ctrl.config.perspectiveSide && x.role !== 'fighter' && !x.escaped).sort((a, b) => b.pointValue - a.pointValue).slice(0, 80);
     const theirs = s.ships.filter((x) => x.side !== ctrl.config.perspectiveSide && x.role !== 'fighter' && !x.escaped).sort((a, b) => b.pointValue - a.pointValue).slice(0, 80);
     const fighters = s.ships.filter((x) => x.side === ctrl.config.perspectiveSide && x.role === 'fighter' && x.alive && !x.escaped).length;
-    fighterLine.textContent = `${fighters} fighters deployed`;
-    syncList(shipList, mine, fighters > 0 ? fighterLine : undefined);
-    syncList(enemyList, theirs);
+    fighterLine.textContent = fighters.toLocaleString('en-GB') + ' fighters deployed';
+    syncList(shipList, mine.map((ship) => shipRow(ship).row), fighters > 0 ? fighterLine : undefined);
+    syncList(enemyList, theirs.map((ship) => shipRow(ship).row));
   };
 
   const renderTarget = () => {

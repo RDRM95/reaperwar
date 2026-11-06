@@ -36,3 +36,18 @@ export function lodLevel(distance: number, lengthUnits: number, role: ShipRole, 
   if (d > L * REDUCED_FACTOR) return 'reduced';
   return 'full';
 }
+
+/** Bound individual draw-call-heavy hulls without capping simulated vessels. */
+export function detailedHullBudget(totalShips: number): number {
+  if (totalShips >= 5000) return 240;
+  if (totalShips >= 1500) return 360;
+  if (totalShips >= 500) return 600;
+  return Infinity;
+}
+
+/** Geometric growth avoids reallocating the shared far-point GPU buffer each frame. */
+export function farPointCapacity(current: number, required: number): number {
+  let capacity = Math.max(1, current);
+  while (capacity < required) capacity *= 2;
+  return capacity;
+}

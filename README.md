@@ -18,11 +18,25 @@ npm run dev        # http://localhost:5173
 
 To play on your own graphics card with the best settings, use the Local Edition below.
 
+## One-click Windows launcher (recommended)
+
+**No Git commands, Node.js installation, or admin rights required.** Download [PLAY-REAPERWAR.cmd](PLAY-REAPERWAR.cmd), save it to your Windows Desktop, and **double-click it**. Keep that file on your Desktop to play again later.
+
+On first run the launcher:
+
+1. Downloads this original `reaperwar` repository to `%LOCALAPPDATA%\ReaperWar\game` (not the separate Codex/sandbox repository).
+2. Uses an existing compatible Node.js, or obtains an official portable Node.js LTS ZIP from nodejs.org, checks it against the published SHA-256 manifest, and extracts it only for this game. It does not install Node globally or need administrator privileges.
+3. Installs npm dependencies, builds the Local Edition and opens it in its own Chrome/Edge game window using your GPU.
+
+On later double-clicks it checks for the latest `main` commit and updates the local copy if necessary. Your game saves stay in the dedicated `.local-profile` folder and are preserved across updates. When offline it can reuse a previously installed copy. The first download/build requires an internet connection; no remote game server or account is needed for play. Windows may show a security warning for a downloaded unsigned `.cmd`; inspect the launcher source and choose to run it only if you trust this repository.
+
+If setup fails, the command window stays open with the error message. Files are stored under `%LOCALAPPDATA%\ReaperWar`, not a system-wide installation.
+
 ## Run it locally on your own GPU (Local Edition)
 
 The web version already draws on your graphics card through WebGL, but a browser tab holds it back: the render resolution is capped, the frame rate is locked to the monitor, and detail distances and effect budgets are tuned for average machines. The Local Edition builds the game on your computer, serves it to that computer only, and opens it in Chrome or Edge with settings meant for a dedicated GPU such as an RTX 5090.
 
-**You need:** [Node.js](https://nodejs.org/en/download) 20.19 or newer (on the 22 line, 22.12 or newer; the current LTS is fine), [Git](https://git-scm.com/downloads), and Google Chrome or Microsoft Edge (every Windows 10 and 11 PC has Edge).
+**For the manual Git-based method below, you need:** [Node.js](https://nodejs.org/en/download) 20.19 or newer (on the 22 line, 22.12 or newer; the current LTS is fine), [Git](https://git-scm.com/downloads), and Google Chrome or Microsoft Edge (every Windows 10 and 11 PC has Edge).
 
 **Windows**
 
@@ -80,6 +94,14 @@ On macOS the browser stays open after its window closes: quit it (⌘Q) or press
 - **Uncapped frame rate**: the battle view draws as many frames as the GPU can, so a high-refresh monitor is never the limit and the FPS readout shows the real headroom (`--vsync` restores the cap).
 - **Cross-origin isolation**: the server sends `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp`, which unlock `SharedArrayBuffer` for a later multi-threaded simulation.
 - The main menu shows *Local Edition* next to the version.
+
+**Large-battle visibility and rendering (web and Local Edition)**
+
+- When more than 64 simulated ships/flights are active, tactical labels become **fleet name + current vessel count**, and the side panels show one selectable row per fleet instead of dozens of individual ship rows. As an engagement shrinks, individual ship details return automatically.
+- Zooming in, hovering or selecting a ship preserves its identity and status. Selecting a whole fleet no longer draws thousands of individual targeting lines.
+- The far-ship point cloud now grows beyond its former 2,048-vessel limit; distant ships share one GPU draw call rather than being silently omitted.
+- At very large ship counts, the camera keeps a bounded set of nearby detailed hulls and renders the rest as points. This controls draw calls without changing combat, AI, losses or replay results.
+- These are **rendering/UI optimisations**, not a promise of thousands of fully detailed hull meshes at a fixed frame rate. The single-thread simulation limit below remains.
 
 **What it does not change yet**
 
