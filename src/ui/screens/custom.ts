@@ -6,6 +6,7 @@ import { SHIP_CLASS_LIST, getShipClass } from '@/data/ships';
 import { FORMATION_LABELS, type Environment, type FormationType } from '@/simulation/types';
 import { storage } from '@/core/storage';
 import { timelineOptionLabel } from '../threatBadge';
+import { parseBattlePreset, exportBattlePreset } from '@/scenarios/battlePreset';
 
 const ENVIRONMENTS: { id: Environment; label: string }[] = [
   { id: 'earth_orbit', label: 'Earth orbit' },
@@ -52,6 +53,9 @@ const newFleet = (fac: CustomFaction): CustomFleetInput => ({ faction: fac, name
 
 export function renderCustom(app: App): HTMLElement {
   let input: CustomBattleInput = JSON.parse(JSON.stringify(DEFAULT_INPUT));
+  let importDraft = '';
+  let importError = '';
+  let importOpen = false;
   input.rulesId = app.prefs.lastTimelineId;
   void storage.get<CustomBattleInput | undefined>('customBattle', undefined).then((saved) => {
     if (saved && saved.sideA && saved.sideB) {
@@ -137,6 +141,53 @@ export function renderCustom(app: App): HTMLElement {
     };
     setAuNote();
     body.replaceChildren(
+      el('details', { class: 'panel', open: importOpen, ontoggle: (e: Event) => {
+        importOpen = (e.currentTarget as HTMLDetailsElement).open;
+      } }, [
+        el('summary', { style: { cursor: 'pointer', fontWeight: 'bold' } }, 'AI BATTLE PRESET — PASTE / EXPORT'),
+        el('p', { class: 'dim', style: { margin: '10px 0' } },
+          'Ask ChatGPT for a Reaper War Simulator preset. Paste its JSON here, import, review the fleet cards, then launch. No data is uploaded.'),
+        el('textarea', {
+          rows: 10, value: importDraft, 'data-battle-preset-input': '',
+          placeholder: 'Paste reaperwar-battle-v1 JSON here (plain or in a JSON code block).',
+          style: { width: '100%', resize: 'vertical', fontFamily: 'monospace', fontSize: '12px' },
+          oninput: (e: Event) => { importDraft = (e.target as HTMLTextAreaElement).value; },
+        }),
+        importError ? el('p', { 'data-battle-preset-error': '', style: { color: 'var(--orange)' } }, importError) : null,
+        el('div', { class: 'row', style: { marginTop: '8px' } }, [
+          el('button', { class: 'btn primary', 'data-action': 'import-battle-preset', onclick: () => {
+            try {
+              const parsed = parseBattlePreset(importDraft, app.allTimelines().map((t) => t.id));
+              input = parsed;
+              importError = '';
+              importDraft = '';
+              importOpen = false;
+              void storage.set('customBattle', input);
+              render();
+              app.toast('PRESET IMPORTED — REVIEW FLEETS, THEN LAUNCH');
+            } catch (error) {
+              importError = error instanceof Error ? error.message : 'Could not read preset.';
+              importOpen = true;
+              render();
+            }
+          } }, 'Import battle'),
+          el('button', { class: 'btn', 'data-action': 'export-battle-preset', onclick: () => {
+            importDraft = exportBattlePreset(input);
+            importError = '';
+            importOpen = true;
+            render();
+          } }, 'Show setup JSON'),
+          el('button', { class: 'btn', 'data-action': 'copy-battle-preset', onclick: () => {
+            const json = exportBattlePreset(input);
+            void navigator.clipboard.writeText(json).then(() => app.toast('BATTLE PRESET COPIED')).catch(() => {
+              importDraft = json;
+              importError = 'Clipboard unavailable. Copy the JSON shown above instead.';
+              importOpen = true;
+              render();
+            });
+          } }, 'Copy setup'),
+        ]),
+      ]),
       el('div', { class: 'grid3' }, [
         sideEditor('A', 'SIDE A — PLAYER', ''),
         sideEditor('B', 'SIDE B — OPPONENT', 'red'),
