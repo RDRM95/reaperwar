@@ -17,11 +17,17 @@ EXTRA="--disable-gpu-vsync --disable-frame-rate-limit"
 [ "${1:-}" = "--vsync" ] && EXTRA=""
 FLAGS="--ignore-gpu-blocklist --enable-gpu-rasterization --enable-zero-copy --no-first-run --no-default-browser-check $EXTRA"
 
-# Start the browser detached from this terminal, so closing the terminal does not close the game.
+# Start the browser detached from this terminal, so closing the terminal does not close the game, but
+# still report a browser that stops straight away (its messages go to browser-start.log).
 launch() {
   if command -v setsid >/dev/null 2>&1; then
+    LOG="${PROFILE%/*}/browser-start.log"
+    mkdir -p "${PROFILE%/*}"
     trap '' HUP
-    setsid "$@" >/dev/null 2>&1 </dev/null &
+    setsid "$@" >"$LOG" 2>&1 </dev/null &
+    sleep 2
+    # Still running, or it handed the window to a copy that was already running (exit 0): done.
+    kill -0 $! 2>/dev/null || wait $! || { echo "The browser stopped straight away ($LOG):"; tail -n 5 "$LOG"; exit 1; }
     exit 0
   fi
   exec "$@"
@@ -37,13 +43,15 @@ for B in "${REAPERWAR_BROWSER:-}" google-chrome google-chrome-stable chromium ch
   fi
 done
 # Browsers installed from Flathub (Steam Deck, Bazzite, Fedora Silverblue): give the sandbox the game
-# folder (read-only) and the profile folder.
+# folder (read-only) and the profile folder. flatpak reads "\" as an escape and ends a --filesystem
+# path at the first ":", so both are escaped.
+fsarg() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/:/\\:/g'; }
 if command -v flatpak >/dev/null 2>&1; then
   for F in com.google.Chrome org.chromium.Chromium com.microsoft.Edge; do
     if flatpak info "$F" >/dev/null 2>&1; then
       mkdir -p "$PROFILE"
       # shellcheck disable=SC2086
-      launch flatpak run --filesystem="$DIR:ro" --filesystem="$PROFILE" "$F" --user-data-dir="$PROFILE" $FLAGS --app="$URL"
+      launch flatpak run --filesystem="$(fsarg "$DIR"):ro" --filesystem="$(fsarg "$PROFILE")" "$F" --user-data-dir="$PROFILE" $FLAGS --app="$URL"
     fi
   done
 fi

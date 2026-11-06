@@ -586,7 +586,7 @@ describe('Local Edition detection and first-run default', () => {
     expect(localEditionStatus('ANGLE (NVIDIA, NVIDIA GeForce RTX 5090 Direct3D11 vs_5_0 ps_5_0, D3D11)')).toBe("Local Edition: running on this machine's GPU (ANGLE (NVIDIA, NVIDIA GeForce RTX 5090 Direct3D11 vs_5_0 ps_5_0, D3D11))");
     expect(localEditionStatus(undefined)).toBe("Local Edition: running on this machine's GPU");
     // No WebGL at all (graphics acceleration off, crashed GPU process): said plainly, never "running on the GPU".
-    expect(localEditionStatus(undefined, false)).toMatch(/^Local Edition: WebGL is not available in this window, so battles cannot be drawn/);
+    expect(localEditionStatus(undefined, false)).toMatch(/^Local Edition: WebGL 2 is not available in this window, so battles cannot be drawn/);
     expect(localEditionStatus(undefined, false)).not.toMatch(/running on this machine's GPU/);
     // The advice is self-contained (the launcher package's README.txt has no "Confirm it runs on your GPU" section).
     expect(localEditionStatus('llvmpipe (LLVM 15.0.7, 256 bits)')).toMatch(/update the graphics driver/);

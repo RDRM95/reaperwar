@@ -3,14 +3,17 @@ name: Launcher package
 # Builds the stand-alone launcher package (the whole game in one file plus Play launchers for
 # Windows, macOS and Linux), tests it on all three systems, and publishes it as a GitHub Release
 # once per version:
-#   build    typecheck, unit tests, the package, the smoke test (the game opened from disk runs a
-#            battle) and the launcher check on Linux
+#   build    typecheck, unit tests, the end-to-end suite, the package, the smoke test (the game
+#            opened from disk runs a battle) and the launcher check on Linux
 #   windows  the release zip unzipped with Expand-Archive and the real .cmd started like a double-click
 #   macos    the release zip unzipped with ditto and the real .command started
+#            (both then let the launcher start the runner's real Edge or Chrome: informational)
 #   publish  main only, after every check passed, when launcher-v<version> does not exist yet
 #            (a published zip is never replaced; bump the version to publish a new build)
 on:
   push:
+    # Branches only: path filters do not apply to tag pushes.
+    branches: ['**']
     paths:
       - 'src/**'
       - 'public/**'
@@ -31,7 +34,8 @@ concurrency:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    # Pinned: Playwright 1.56 cannot install Chromium on Ubuntu 26.04, which ubuntu-latest is moving to.
+    runs-on: ubuntu-24.04
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
@@ -46,6 +50,7 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
       - run: npm run package:launcher
       - run: npm run test:launcher
       - run: npm run check:launcher
@@ -75,6 +80,11 @@ jobs:
           path: dl
       # Edge is part of the runner image; the check opens the game in it.
       - run: node scripts/launcher/check-launchers.mjs "dl/ReaperWar-v${{ needs.build.outputs.version }}.zip"
+      - name: The launcher's own browser lookup starts the real Edge (informational)
+        continue-on-error: true
+        env:
+          RW_REAL_BROWSER: '1'
+        run: node scripts/launcher/check-launchers.mjs "dl/ReaperWar-v${{ needs.build.outputs.version }}.zip"
 
   macos:
     needs: build
@@ -94,11 +104,16 @@ jobs:
           name: reaperwar-launcher
           path: dl
       - run: node scripts/launcher/check-launchers.mjs "dl/ReaperWar-v${{ needs.build.outputs.version }}.zip"
+      - name: The launcher's own browser lookup starts the real Chrome (informational)
+        continue-on-error: true
+        env:
+          RW_REAL_BROWSER: '1'
+        run: node scripts/launcher/check-launchers.mjs "dl/ReaperWar-v${{ needs.build.outputs.version }}.zip"
 
   publish:
     needs: [build, windows, macos]
     if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
     concurrency:
@@ -117,9 +132,14 @@ jobs:
           CHANGELOG_URL: ${{ github.server_url }}/${{ github.repository }}/blob/${{ github.sha }}/CHANGELOG.md
         run: |
           TAG="launcher-v$V"
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "$TAG is already published and is never replaced; bump the version in package.json to publish a new launcher build."
+          # Published releases only (a leftover draft does not count).
+          if gh api "repos/$GH_REPO/releases/tags/$TAG" --silent 2>/dev/null; then
+            echo "::notice title=Launcher not published::$TAG is already published and is never replaced; bump the version in package.json to publish this build."
             exit 0
+          fi
+          if gh api "repos/$GH_REPO/git/ref/tags/$TAG" --silent 2>/dev/null; then
+            echo "::error title=Launcher not published::the tag $TAG exists without a published release; delete the tag or bump the version."
+            exit 1
           fi
           cat > notes.md <<EOF
           Download **ReaperWar-v$V.zip** below (not "Source code"), unzip it anywhere and start the Play launcher for your system:

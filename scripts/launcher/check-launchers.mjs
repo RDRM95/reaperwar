@@ -135,7 +135,7 @@ if (!win && !mac) {
   // The Flathub fallback: no browser on PATH, only flatpak with com.google.Chrome installed.
   const bin = path.join(work, 'flatpak-bin');
   mkdirSync(bin);
-  for (const tool of ['dirname', 'od', 'awk', 'setsid', 'mkdir', 'mv', 'basename']) {
+  for (const tool of ['dirname', 'od', 'awk', 'sed', 'setsid', 'mkdir', 'mv', 'basename', 'sleep', 'tail']) {
     const at = execFileSync('/bin/sh', ['-c', `command -v ${tool}`], { encoding: 'utf8' }).trim();
     symlinkSync(at, path.join(bin, tool));
   }
@@ -148,10 +148,43 @@ if (!win && !mac) {
   const i = args.indexOf('com.google.Chrome');
   if (i < 0) fail(`flatpak: com.google.Chrome was not run:\n${args.join('\n')}`);
   const grants = args.slice(0, i);
-  if (!grants.includes(`--filesystem=${pkg}:ro`) || !grants.includes(`--filesystem=${profile}`)) fail(`flatpak: the sandbox was not given the game folder and the profile:\n${grants.join('\n')}`);
+  // flatpak reads "\" as an escape and ends the path at the first ":": the launcher escapes both (this folder has a \).
+  const fsEscaped = (p) => p.replace(/[\\:]/g, '\\$&');
+  if (!grants.includes(`--filesystem=${fsEscaped(pkg)}:ro`) || !grants.includes(`--filesystem=${fsEscaped(profile)}`)) fail(`flatpak: the sandbox was not given the game folder and the profile (escaped for flatpak):\n${grants.join('\n')}`);
   if (checkArgs('flatpak', args.slice(i + 1), { vsync: false }) !== url) fail('flatpak: a different --app address');
   if (!existsSync(profile)) fail('flatpak: the profile folder was not created for the sandbox');
   checked.push('Flathub fallback');
+}
+
+// 2b. With RW_REAL_BROWSER=1 on Windows or macOS (the CI runners have Edge and Chrome): the launcher's own
+// browser lookup, with no override, must start a real Edge or Chrome on the game's profile and address.
+if (process.env.RW_REAL_BROWSER === '1' && (win || mac)) {
+  const env = { ...process.env, ...(mac ? { HOME: home } : {}) };
+  delete env.REAPERWAR_BROWSER;
+  if (win) {
+    powershell(
+      '$ErrorActionPreference = "Stop"; $p = Start-Process -FilePath $env:RW_LAUNCHER -PassThru; $null = $p.Handle; ' +
+        'if (-not $p.WaitForExit(90000)) { Stop-Process -Id $p.Id -Force; throw "the launcher did not finish" }; if ($p.ExitCode -ne 0) { throw "the launcher exited with $($p.ExitCode)" }',
+      { ...env, RW_LAUNCHER: launcher },
+    );
+  } else {
+    const r = spawnSync(launcher, [], { env, encoding: 'utf8', timeout: 90_000 });
+    if (r.status !== 0) fail(`real browser: ${path.basename(launcher)} exited with ${r.status}:\n${r.stdout}${r.stderr}`);
+  }
+  /** Command lines of running processes: [pid, command line]. */
+  const processes = () =>
+    win
+      ? JSON.parse(powershell('$a = @(Get-CimInstance Win32_Process | Where-Object { $_.CommandLine } | ForEach-Object { [pscustomobject]@{ pid = $_.ProcessId; cmd = $_.CommandLine } }); ConvertTo-Json -InputObject $a -Compress') || '[]').map((x) => [x.pid, x.cmd])
+      : execFileSync('ps', ['-axww', '-o', 'pid=,command='], { encoding: 'utf8' }).split('\n').filter(Boolean).map((l) => { const m = /^\s*(\d+)\s+(.*)$/.exec(l); return [Number(m[1]), m[2]]; });
+  let mine = [];
+  for (let i = 0; i < 60 && !mine.some(([, c]) => c.includes(url) && !/--type=/.test(c)); i++) {
+    await sleep(500);
+    mine = processes().filter(([, c]) => c.includes(profile));
+  }
+  const main = mine.find(([, c]) => c.includes(url) && !/--type=/.test(c));
+  for (const [pid] of mine) { try { process.kill(pid); } catch { /* already gone */ } }
+  if (!main) fail(`real browser: no Edge or Chrome started with the game's profile and address within 30 s (found ${mine.length} process(es) on the profile)`);
+  checked.push(`real browser: ${/msedge|Microsoft Edge/i.test(main[1]) ? 'Edge' : /chrome/i.test(main[1]) ? 'Chrome' : 'a browser'} started by the launcher's own lookup`);
 }
 
 // 3. The exact address in a real browser.

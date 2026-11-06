@@ -39,7 +39,7 @@ CONFIRM IT RUNS ON YOUR GPU
   Settings -> Graphics names the graphics chip in use. If it says "software rendering",
   update the graphics driver; on a laptop, also set Chrome or Edge to High performance in the
   system's graphics settings (Windows: Settings > System > Display > Graphics). If it says
-  WebGL is not available, turn on graphics acceleration in the browser's settings.
+  WebGL 2 is not available, turn on graphics acceleration in the browser's settings.
 
 OPTIONS
   Add --vsync after the launcher's name to keep the browser synchronised to the monitor's

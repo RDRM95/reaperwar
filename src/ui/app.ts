@@ -691,11 +691,12 @@ export class App {
       // cannot be created: go back to the menu and say why, instead of leaving a blank screen.
       console.error(err);
       this.canvas.style.visibility = 'hidden';
-      this.show('menu');
+      // A campaign engagement stays pending: back on the campaign map it can still be auto-resolved.
+      this.show(opts.campaign ? 'campaign' : 'menu');
       this.toast(
         webglAvailable()
           ? 'THE BATTLE COULD NOT START: SEE THE BROWSER CONSOLE (F12)'
-          : 'NO WEBGL: BATTLES CANNOT BE DRAWN. TURN ON GRAPHICS ACCELERATION IN THE BROWSER OR UPDATE THE GRAPHICS DRIVER',
+          : 'NO WEBGL 2: BATTLES CANNOT BE DRAWN. TURN ON GRAPHICS ACCELERATION IN THE BROWSER OR UPDATE THE GRAPHICS DRIVER',
         10_000,
       );
       return;

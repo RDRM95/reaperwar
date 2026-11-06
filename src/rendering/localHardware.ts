@@ -58,9 +58,11 @@ export function gpuRenderer(): string | undefined {
   webglCache = false;
   try {
     const canvas = document.createElement('canvas');
-    const gl: WebGL2RenderingContext | WebGLRenderingContext | null = canvas.getContext('webgl2') ?? canvas.getContext('webgl');
+    const gl2 = canvas.getContext('webgl2');
+    const gl: WebGL2RenderingContext | WebGLRenderingContext | null = gl2 ?? canvas.getContext('webgl');
     if (gl) {
-      webglCache = true;
+      // The renderer (three.js r163 and later) needs WebGL 2; WebGL 1 can still name the GPU.
+      webglCache = gl2 !== null;
       const info = gl.getExtension('WEBGL_debug_renderer_info');
       const raw: unknown = gl.getParameter(info ? info.UNMASKED_RENDERER_WEBGL : gl.RENDERER);
       if (typeof raw === 'string' && raw.trim() !== '') rendererCache = raw.trim();
@@ -72,7 +74,7 @@ export function gpuRenderer(): string | undefined {
   return rendererCache ?? undefined;
 }
 
-/** Whether this window can create a WebGL context at all (battles need one). Probed once, with gpuRenderer(). */
+/** Whether this window can create a WebGL 2 context, which battles need. Probed once, with gpuRenderer(). */
 export function webglAvailable(): boolean {
   if (webglCache === undefined) gpuRenderer();
   return webglCache !== false;
@@ -84,7 +86,7 @@ export const SOFTWARE_RENDERER = /swiftshader|llvmpipe|softpipe|software|basic r
 /** The Settings screen's Local Edition line; a software renderer or a missing WebGL is called out, never reported as the GPU. */
 export function localEditionStatus(renderer: string | undefined, webgl: boolean = true): string {
   if (!webgl) {
-    return 'Local Edition: WebGL is not available in this window, so battles cannot be drawn: turn on graphics acceleration in the browser or update the graphics driver.';
+    return 'Local Edition: WebGL 2 is not available in this window, so battles cannot be drawn: turn on graphics acceleration in the browser or update the graphics driver.';
   }
   if (renderer && SOFTWARE_RENDERER.test(renderer)) {
     return `Local Edition: software rendering (${renderer}). The GPU is not in use: update the graphics driver; on a laptop, also set Chrome or Edge to High performance in the system's graphics settings.`;
