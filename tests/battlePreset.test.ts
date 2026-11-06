@@ -44,11 +44,11 @@ describe('shareable battle preset', () => {
 
   it('rejects invented ship types and ships under the wrong faction', () => {
     const invented = structuredClone(sample);
-    invented.sideA[0].ships = { mystery_ship: 99 } as typeof invented.sideA[0]['ships'];
+    invented.sideA[0].ships = { mystery_ship: 99 } as unknown as typeof invented.sideA[0]['ships'];
     expect(() => parseBattlePreset(JSON.stringify(invented), rules)).toThrow('unknown ship class');
 
     const wrong = structuredClone(sample);
-    wrong.sideA[0].ships = { reaper_capital: 1 } as typeof wrong.sideA[0]['ships'];
+    wrong.sideA[0].ships = { reaper_capital: 1 } as unknown as typeof wrong.sideA[0]['ships'];
     expect(() => parseBattlePreset(JSON.stringify(wrong), rules)).toThrow('belongs to reaper');
   });
 
