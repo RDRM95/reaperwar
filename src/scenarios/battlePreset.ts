@@ -9,7 +9,7 @@ export const BATTLE_PRESET_FORMAT = 'reaperwar-battle-v1';
 
 const ENVIRONMENTS: readonly Environment[] = [
   'earth_orbit', 'palaven_orbit', 'thessia_orbit', 'rannoch_orbit',
-  'surkesh_orbit', 'citadel', 'deep_space', 'relay',
+  'surkesh_orbit', 'citadel', 'deep_space',
 ];
 const FACTION_IDS = Object.keys(FACTIONS) as CustomFaction[];
 const UNIQUE_IDS = new Set(UNIQUE_CLASS_IDS);
@@ -48,7 +48,7 @@ function fleet(value: unknown, location: string, namedShips: Map<string, number>
     throw new Error(location + '.name must be 1-120 characters.');
   }
   const formation = data.formation ?? 'line_abreast';
-  if (typeof formation !== 'string' || !(formation in FORMATION_LABELS)) {
+  if (typeof formation !== 'string' || !Object.prototype.hasOwnProperty.call(FORMATION_LABELS, formation)) {
     throw new Error(location + '.formation is not recognised.');
   }
   const arrivalTime = number(data.arrivalTime ?? 0, location + '.arrivalTime', 0, 86400, true);
