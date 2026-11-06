@@ -54,7 +54,8 @@ function applyAnisotropy(root: THREE.Object3D, anisotropy: number): void {
   });
 }
 
-const MAX_FAR_POINTS = 2048;
+// Start with a small GPU buffer and grow only when a battle requires it.
+const INITIAL_FAR_POINTS = 2048;
 
 export class BattleView {
   readonly renderer: THREE.WebGLRenderer;
@@ -84,8 +85,8 @@ export class BattleView {
   private eventQueue: BattleEvent[] = [];
   /** Shared point cloud for ships beyond mesh range (one draw call). */
   private readonly farPoints: THREE.Points;
-  private readonly farPositions = new Float32Array(MAX_FAR_POINTS * 3);
-  private readonly farColours = new Float32Array(MAX_FAR_POINTS * 3);
+  private farPositions = new Float32Array(INITIAL_FAR_POINTS * 3);
+  private farColours = new Float32Array(INITIAL_FAR_POINTS * 3);
   private readonly tmpColour = new THREE.Color();
   /** Draw calls of the last rendered frame. */
   drawCalls = 0;
@@ -161,6 +162,7 @@ export class BattleView {
     this.sunLight.position.copy(this.env.sunDirection).multiplyScalar(10_000);
     this.sunLight.target.position.set(0, 0, 0);
     this.scene.add(this.sunLight.target);
+    this.ensureFarCapacity(sim.ships.length);
     for (const s of sim.ships) this.ensureVisual(s);
     sim.onEvent = (e) => this.eventQueue.push(e);
     this.selectedIds.clear();
@@ -172,6 +174,17 @@ export class BattleView {
     this.rig.distance = 320;
     this.rig.yaw = Math.PI + 0.6;
     this.rig.pitch = 0.42;
+  }
+
+  /** Grow the one-draw-call far-ship cloud; never silently drop ships beyond 2,048. */
+  private ensureFarCapacity(required: number): void {
+    if (required <= this.farPositions.length / 3) return;
+    let capacity = this.farPositions.length / 3;
+    while (capacity < required) capacity *= 2;
+    this.farPositions = new Float32Array(capacity * 3);
+    this.farColours = new Float32Array(capacity * 3);
+    this.farPoints.geometry.setAttribute('position', new THREE.BufferAttribute(this.farPositions, 3));
+    this.farPoints.geometry.setAttribute('color', new THREE.BufferAttribute(this.farColours, 3));
   }
 
   private ensureVisual(ship: ShipState): ShipVisual {
@@ -244,6 +257,14 @@ export class BattleView {
     const sim = this.sim;
     const cam = this.rig.camera.position;
     const lodOn = this.settings.lod !== false;
+    // Ultra quality must not hold thousands of distant individual hull meshes
+    // on screen. The camera still preserves full detail for close subjects.
+    const lodScale = sim.ships.length >= 1500
+      ? Math.min(this.preset.lodDistanceScale, 0.65)
+      : sim.ships.length >= 500
+        ? Math.min(this.preset.lodDistanceScale, 1)
+        : this.preset.lodDistanceScale;
+    this.ensureFarCapacity(sim.ships.length);
     let far = 0;
     this.lodCounts = { full: 0, reduced: 0, point: 0 };
     for (const ship of sim.ships) {
@@ -260,10 +281,10 @@ export class BattleView {
       this.placeVisual(v, alpha);
       // Level of detail by distance; far ships collapse into the shared point cloud.
       const dist = cam.distanceTo(v.built.group.position);
-      const level = lodLevel(dist, v.built.lengthUnits, ship.role, lodOn, this.preset.lodDistanceScale);
+      const level = lodLevel(dist, v.built.lengthUnits, ship.role, lodOn, lodScale);
       this.applyLod(v, level);
       this.lodCounts[level]++;
-      if (level === 'point' && far < MAX_FAR_POINTS) {
+      if (level === 'point') {
         const p = v.built.group.position;
         this.farPositions[far * 3] = p.x;
         this.farPositions[far * 3 + 1] = p.y;
