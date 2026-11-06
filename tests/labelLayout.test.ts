@@ -9,10 +9,12 @@ import {
   MAX_LABELS,
   barBox,
   boxesOverlap,
+  estimateTextWidth,
   layoutLabels,
   type LabelFleetInfo,
   type LabelGroupInfo,
   type LabelHull,
+  type LabelKind,
   type LabelLayoutOptions,
 } from '@/ui/labelLayout';
 import { battlegroups, fleetSummaries } from '@/ui/fleetGroups';
@@ -165,6 +167,28 @@ describe('label layout (brief §12, stage L2)', () => {
     const wide = layoutLabels([...group('a', 5, 500, 500, 150), ...group('b', 4, 1400, 520, 150)], opts({ groups, fleets }));
     expect(wide.placed.every((l) => l.kind === 'ship')).toBe(true);
     expect(wide.placed).toHaveLength(9);
+  });
+
+  it('names a crowd whose fleet label finds no room by its battlegroups, and a group whose label finds none by its hulls', () => {
+    const groups = new Map<string, LabelGroupInfo>([
+      ['a-0', { name: 'SSV Everest', count: 5 }],
+      ['b-0', { name: 'SSV Fuji', count: 4 }],
+    ]);
+    const fleets = new Map<string, LabelFleetInfo>([['fleet-a', { name: 'Sword Fleet (Alliance)', live: 9, deployed: 12 }]]);
+    const hulls = [...group('a', 5, 900, 500, 10), ...group('b', 4, 960, 520, 10)];
+    // A fleet label too wide for the screen: the two group labels stand in for it.
+    const noFleet = (text: string, kind: LabelKind): number => (kind === 'fleet' ? 5000 : estimateTextWidth(text, kind));
+    const byGroups = layoutLabels(hulls, opts({ groups, fleets, measure: noFleet }));
+    expect(byGroups.collapsed.has('fleet:fleet-a')).toBe(true);
+    expect(byGroups.placed.map((l) => l.text).sort()).toEqual(['SSV Everest group · 5', 'SSV Fuji group · 4']);
+    expect(byGroups.foldedInto.size).toBe(9);
+    // No room for any aggregate label: the hulls are named one by one, and none counts as folded into a label.
+    const noAggregate = (text: string, kind: LabelKind): number => (kind === 'ship' ? estimateTextWidth(text, kind) : 5000);
+    const byHulls = layoutLabels(hulls, opts({ groups, fleets, measure: noAggregate }));
+    expect(byHulls.placed.length).toBeGreaterThan(1);
+    expect(byHulls.placed.every((l) => l.kind === 'ship')).toBe(true);
+    expect(byHulls.foldedInto.size).toBe(0);
+    expect(byHulls.hidden.size).toBe(0);
   });
 
   it('holds a folded label until the spread clearly passes the threshold (no flicker)', () => {

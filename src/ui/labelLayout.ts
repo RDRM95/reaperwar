@@ -14,7 +14,8 @@
  *    for their names, are named one by one, so a pair is never folded and zooming in brings the names back. An
  *    aggregate folded last frame stays folded until either measure passes `HYSTERESIS` × its threshold, so a label does
  *    not flicker on a slowly moving camera. Solo hulls — selected, hovered, followed, flagships and named unique hulls
- *    — are never folded into an aggregate.
+ *    — are never folded into an aggregate. A folded fleet whose label finds no room (step 2) is named by its folded
+ *    battlegroups instead, and a folded group whose label finds no room by its hulls, so no crowd goes unnamed.
  * 2. Greedy placement by priority. Labels are placed best first (priority tier, then fleet before group before ship,
  *    then id). A label shown last frame keeps its slot while that slot is still free, whatever bracket has since moved
  *    under it, and needs only `LABEL_HOLD_GAP_X`/`_Y` from the labels placed before it, so names hold still while the
@@ -173,9 +174,9 @@ export interface LabelLayoutOptions {
 export interface LabelLayout {
   /** The labels to draw, in placement (priority) order. */
   placed: PlacedLabel[];
-  /** Aggregates that stood for their hulls this frame (`group:<key>`, `fleet:<id>`): pass back as `previous`. */
+  /** Aggregates whose hulls crowded this frame (`group:<key>`, `fleet:<id>`), labelled or not: pass back as `previous`. */
   collapsed: Set<string>;
-  /** Hull id → the aggregate id that stands for it this frame. */
+  /** Hull id → the placed aggregate label (`group:<key>`, `fleet:<id>`) that stands for it this frame. */
   foldedInto: Map<string, string>;
   /** Hulls whose bracket and bars the overlay leaves out this frame: `hideFolded` hulls a placed aggregate label stands for. */
   hidden: Set<string>;
@@ -209,6 +210,8 @@ interface Candidate {
   members: string[];
   /** A hull's bars that come with its name (not drawn otherwise), which later labels keep clear of once it is placed. */
   bars?: LabelBox;
+  /** An aggregate's stand-ins when its label finds no room: a fleet's crowded groups and other hulls, a group's hulls. */
+  fallback?: () => Candidate[];
 }
 
 /** Boxes of hulls (brackets, drawn bars) in a coarse screen grid, for the "covers another hull's ..." tests. */
@@ -246,6 +249,44 @@ class BoxGrid {
 }
 
 const byId = (a: { id: string }, b: { id: string }): number => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+
+/** A binary min-heap: the placement queue, which an aggregate's fallback joins wherever its order puts it. */
+class Queue<T> {
+  private readonly items: T[] = [];
+  constructor(private readonly before: (a: T, b: T) => number) {}
+  get size(): number {
+    return this.items.length;
+  }
+  push(item: T): void {
+    const a = this.items;
+    a.push(item);
+    for (let i = a.length - 1; i > 0; ) {
+      const p = (i - 1) >> 1;
+      if (this.before(a[i], a[p]) >= 0) break;
+      [a[i], a[p]] = [a[p], a[i]];
+      i = p;
+    }
+  }
+  pop(): T | undefined {
+    const a = this.items;
+    const top = a[0];
+    const last = a.pop();
+    if (a.length > 0 && last !== undefined) {
+      a[0] = last;
+      for (let i = 0; ; ) {
+        const l = 2 * i + 1;
+        const r = l + 1;
+        let m = i;
+        if (l < a.length && this.before(a[l], a[m]) < 0) m = l;
+        if (r < a.length && this.before(a[r], a[m]) < 0) m = r;
+        if (m === i) break;
+        [a[i], a[m]] = [a[m], a[i]];
+        i = m;
+      }
+    }
+    return top;
+  }
+}
 
 /** Centre and spread (largest distance from the centre) of a set of hulls, and the box round their brackets and drawn bars. */
 function cluster(hulls: readonly LabelHull[]): { cx: number; cy: number; spread: number; x0: number; y0: number; x1: number; y1: number } {
@@ -318,7 +359,6 @@ export function layoutLabels(hulls: readonly LabelHull[], opts: LabelLayoutOptio
   const previous = opts.previous;
   const collapsed = new Set<string>();
   const foldedInto = new Map<string, string>();
-  const candidates: Candidate[] = [];
   // Input order never matters: everything below walks hulls, groups and fleets by id.
   const sorted = [...hulls].sort(byId);
   const nameWidth = (h: LabelHull): number => Math.ceil(measure(h.name, 'ship')) + LABEL_METRICS.ship.pad;
@@ -333,58 +373,11 @@ export function layoutLabels(hulls: readonly LabelHull[], opts: LabelLayoutOptio
     // Every hull lies within `spread` of the centre, so none is more than 2 × spread from its nearest neighbour.
     return 2 * spread < limit || meanNearest(members) < limit;
   };
-  const aggregate = (key: string, kind: 'group' | 'fleet', text: string, members: readonly LabelHull[], c: ReturnType<typeof cluster>): void => {
-    collapsed.add(key);
-    for (const m of members) foldedInto.set(m.id, key);
-    candidates.push({ id: key, kind, text, priority: Math.min(...members.map((m) => m.priority)), ax: c.cx, ay: c.cy, anchor: c, members: members.map((m) => m.id) });
-  };
   const foldable = (h: LabelHull): boolean => !h.solo && !h.unnamed;
-
-  // Fleets first: a crowded fleet stands for all its hulls but the solo ones.
-  if (opts.fleets) {
-    const byFleet = new Map<string, LabelHull[]>();
-    for (const h of sorted) {
-      if (!foldable(h) || h.fleetId === undefined || !opts.fleets.has(h.fleetId)) continue;
-      let list = byFleet.get(h.fleetId);
-      if (!list) byFleet.set(h.fleetId, (list = []));
-      list.push(h);
-    }
-    for (const fleetId of [...byFleet.keys()].sort()) {
-      const members = byFleet.get(fleetId)!;
-      if (members.length < MIN_FOLD) continue;
-      const key = `fleet:${fleetId}`;
-      const c = cluster(members);
-      if (!crowded(key, members, c.spread, fleetCrowd)) continue;
-      const info = opts.fleets.get(fleetId)!;
-      aggregate(key, 'fleet', fleetLabelText(info.name, info.live, info.deployed), members, c);
-    }
-  }
-
-  // Then battlegroups whose fleet did not fold.
-  if (opts.groups) {
-    const byGroup = new Map<string, LabelHull[]>();
-    for (const h of sorted) {
-      if (!foldable(h) || h.groupId === undefined || foldedInto.has(h.id) || !opts.groups.has(h.groupId)) continue;
-      let list = byGroup.get(h.groupId);
-      if (!list) byGroup.set(h.groupId, (list = []));
-      list.push(h);
-    }
-    for (const groupId of [...byGroup.keys()].sort()) {
-      const members = byGroup.get(groupId)!;
-      if (members.length < MIN_FOLD) continue;
-      const key = `group:${groupId}`;
-      const c = cluster(members);
-      if (!crowded(key, members, c.spread, groupCrowd)) continue;
-      const info = opts.groups.get(groupId)!;
-      aggregate(key, 'group', groupLabelText(info.name, info.count), members, c);
-    }
-  }
-
-  // Every hull no aggregate stands for is named on its own, outside its bracket and bars (and close up its model).
-  for (const h of sorted) {
-    if (h.unnamed || foldedInto.has(h.id)) continue;
+  /** A hull's own name, outside its bracket and bars (and close up its model). */
+  const shipCandidate = (h: LabelHull): Candidate => {
     const r = Math.max(h.size, h.radius ?? 0);
-    candidates.push({
+    return {
       id: h.id,
       kind: 'ship',
       text: h.name,
@@ -394,10 +387,72 @@ export function layoutLabels(hulls: readonly LabelHull[], opts: LabelLayoutOptio
       anchor: { x0: h.x - r, y0: h.y - r, x1: h.x + r, y1: Math.max(h.y + r, h.y + h.size + BAR_SPACE) },
       members: [h.id],
       ...(h.bars ? {} : { bars: barBox(h) }),
-    });
-  }
-
-  candidates.sort((a, b) => a.priority - b.priority || KIND_RANK[a.kind] - KIND_RANK[b.kind] || byId(a, b));
+    };
+  };
+  /** Hulls by fleet or battlegroup key, in id order. */
+  const by = (key: (h: LabelHull) => string | undefined, pool: readonly LabelHull[]): Map<string, LabelHull[]> => {
+    const out = new Map<string, LabelHull[]>();
+    for (const h of pool) {
+      const k = key(h);
+      if (k === undefined) continue;
+      let list = out.get(k);
+      if (!list) out.set(k, (list = []));
+      list.push(h);
+    }
+    return out;
+  };
+  /**
+   * The candidates standing for a pool of hulls: a label for each crowded fleet (`fleets`) or else each crowded
+   * battlegroup, and every other hull's own name. An aggregate's fallback — its groups, or its hulls — is only built
+   * if its label finds no room.
+   */
+  const stand = (pool: readonly LabelHull[], fleets: boolean): Candidate[] => {
+    const out: Candidate[] = [];
+    const taken = new Set<string>();
+    /** Fold the crowded fleets or groups of the pool (`label`: an aggregate's text, undefined when it is unknown). */
+    const fold = (kind: 'fleet' | 'group', key: (h: LabelHull) => string | undefined, label: (id: string) => string | undefined): void => {
+      const lists = by((h) => (foldable(h) && !taken.has(h.id) ? key(h) : undefined), pool);
+      for (const id of [...lists.keys()].sort()) {
+        const members = lists.get(id)!;
+        const text = label(id);
+        if (text === undefined || members.length < MIN_FOLD) continue;
+        const aggregateId = `${kind}:${id}`;
+        const c = cluster(members);
+        if (!crowded(aggregateId, members, c.spread, kind === 'fleet' ? fleetCrowd : groupCrowd)) continue;
+        collapsed.add(aggregateId);
+        for (const m of members) taken.add(m.id);
+        out.push({
+          id: aggregateId,
+          kind,
+          text,
+          priority: Math.min(...members.map((m) => m.priority)),
+          ax: c.cx,
+          ay: c.cy,
+          anchor: c,
+          members: members.map((m) => m.id),
+          fallback: () => (kind === 'fleet' ? stand(members, false) : members.map(shipCandidate)),
+        });
+      }
+    };
+    const { fleets: fleetInfo, groups: groupInfo } = opts;
+    if (fleets && fleetInfo) {
+      fold('fleet', (h) => h.fleetId, (id) => {
+        const f = fleetInfo.get(id);
+        return f && fleetLabelText(f.name, f.live, f.deployed);
+      });
+    }
+    if (groupInfo) {
+      fold('group', (h) => h.groupId, (id) => {
+        const g = groupInfo.get(id);
+        return g && groupLabelText(g.name, g.count);
+      });
+    }
+    for (const h of pool) if (!h.unnamed && !taken.has(h.id)) out.push(shipCandidate(h));
+    return out;
+  };
+  // Crowded fleets, crowded battlegroups among the rest and every other hull, placed best first.
+  const queue = new Queue<Candidate>((a, b) => a.priority - b.priority || KIND_RANK[a.kind] - KIND_RANK[b.kind] || byId(a, b));
+  for (const c of stand(sorted, true)) queue.push(c);
   const placed: PlacedLabel[] = [];
   /** The bars that came with the names placed so far. */
   const bars: LabelBox[] = [];
@@ -415,8 +470,8 @@ export function layoutLabels(hulls: readonly LabelHull[], opts: LabelLayoutOptio
     !placed.some((p) => boxesOverlap(box, p, gapX, gapY)) &&
     !bars.some((b) => boxesOverlap(box, b)) &&
     !fixedBars.hits(box, own);
-  for (const c of candidates) {
-    if (placed.length >= maxLabels) break;
+  while (queue.size > 0 && placed.length < maxLabels) {
+    const c = queue.pop()!;
     const m = LABEL_METRICS[c.kind];
     const w = Math.ceil(measure(c.text, c.kind)) + m.pad;
     const h = m.h;
@@ -443,17 +498,21 @@ export function layoutLabels(hulls: readonly LabelHull[], opts: LabelLayoutOptio
       const minor = c.kind === 'ship' && c.priority > LABEL_PRIORITY.capital;
       if (!pick && fallback && (!minor || last !== undefined)) pick = fallback;
     }
-    if (!pick) continue;
+    if (!pick) {
+      // An aggregate with no room hands over to its groups or hulls, which come after it (its priority is their best).
+      for (const f of c.fallback?.() ?? []) queue.push(f);
+      continue;
+    }
     // A hull's bars come with its name only where they clear the labels and bars already placed.
     const own = c.bars;
     const keepBars = own !== undefined && !placed.some((p) => boxesOverlap(own, p)) && !bars.some((b) => boxesOverlap(own, b)) && !fixedBars.hits(own, c.members);
     placed.push({ ...pick.box, id: c.id, kind: c.kind, text: c.text, priority: c.priority, slot: pick.slot, ax: c.ax, ay: c.ay, members: c.members, ...(keepBars ? { bars: own } : {}) });
     if (keepBars) bars.push(own);
+    if (c.kind !== 'ship') for (const id of c.members) foldedInto.set(id, c.id);
   }
 
   // Large battles: a placed aggregate label stands for its `hideFolded` hulls, whose brackets and bars are left out.
   const hidden = new Set<string>();
-  const hideable = new Set(sorted.filter((h) => h.hideFolded).map((h) => h.id));
-  for (const l of placed) if (l.kind !== 'ship') for (const id of l.members) if (hideable.has(id)) hidden.add(id);
+  for (const h of sorted) if (h.hideFolded && foldedInto.has(h.id)) hidden.add(h.id);
   return { placed, collapsed, foldedInto, hidden };
 }
