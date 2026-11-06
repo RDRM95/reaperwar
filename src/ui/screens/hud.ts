@@ -1,6 +1,7 @@
 import type { App, BattleController } from '../app';
-import { SPEEDS } from '../app';
+import { SPEEDS, largeBattleHulls } from '../app';
 import { el, fmtNum, fmtTime, setChildren } from '../dom';
+import { battlegroups, fleetSummaries, inFight, type Battlegroup, type FleetSummary } from '../fleetGroups';
 import { FACTIONS } from '@/data/factions';
 import { getShipClass } from '@/data/ships';
 import type { BattleEvent, BattleResult, FormationType, OrderType, ShipState, TargetPriority } from '@/simulation/types';
@@ -112,7 +113,7 @@ export function createHud(app: App, ctrl: BattleController): Hud {
       el('div', { class: 'panel-title' }, 'FLEET ORDERS'),
       el('div', { class: 'row', style: { marginBottom: '8px' } }, [el('label', { class: 'field', style: { flex: '1' } }, ['Formation', formationSel]), el('label', { class: 'field', style: { flex: '1' } }, ['Priority', prioritySel])]),
       ordersPanel,
-      el('div', { class: 'dim', style: { fontSize: '10px', marginTop: '6px' } }, 'Left-click: select · Shift: multi-select · Right-click enemy: attack · Right-click ally: follow · Double-click: focus camera · Tab: select fleet · Space: pause · [ ]: speed · 1–7: cameras · H: hide HUD'),
+      el('div', { class: 'dim', style: { fontSize: '10px', marginTop: '6px' } }, 'Left-click: select · Shift: multi-select · Right-click enemy: attack · Right-click ally: follow · Double-click: focus camera · Tab: select fleet · Space: pause · [ ]: speed · 1–7: cameras · H: hide HUD · O: tactical overlay'),
     ]),
     el('div', { class: 'panel red', style: { flex: '1', minHeight: '0', overflow: 'auto' } }, [el('div', { class: 'panel-title' }, 'REAPER INTELLIGENCE ASSESSMENT'), intelBox]),
   ]);
@@ -139,12 +140,10 @@ export function createHud(app: App, ctrl: BattleController): Hud {
             ctrl.toggleHud();
             toggleMenu();
           } }, ctrl.hudLevel === 'full' ? 'HUD: minimal (H)' : ctrl.hudLevel === 'minimal' ? 'HUD: none for recording (H)' : 'HUD: full (H)'),
-          el('button', { class: 'btn', onclick: () => {
-            app.prefs.showOverlay = !app.prefs.showOverlay;
-            ctrl.overlay.visible = app.prefs.showOverlay;
-            void app.savePrefs();
+          el('button', { class: 'btn', 'data-action': 'toggle-overlay', onclick: () => {
+            ctrl.toggleOverlay();
             buildMenu();
-          } }, `Tactical overlay: ${app.prefs.showOverlay ? 'ON' : 'OFF'}`),
+          } }, `Tactical overlay: ${app.overlayOn ? 'ON' : 'OFF'} (O)`),
           el('button', { class: 'btn', onclick: () => {
             app.prefs.audio.muted = !app.prefs.audio.muted;
             void app.savePrefs();
@@ -198,24 +197,132 @@ export function createHud(app: App, ctrl: BattleController): Hud {
     return r;
   };
 
+  // Large-battle HUD (brief §12): above the Settings threshold of live hulls on a side, that side's list shows one row
+  // per fleet with live/deployed counts and strength bars; a fleet expands into its battlegroups and a battlegroup into
+  // its hulls. A row selects its hulls (shift adds), a double-click points the camera at its lead hull, and a
+  // right-click on a hostile row sends the selection against that lead hull.
+  interface GroupRowRefs { row: HTMLElement; toggle: HTMLElement; name: HTMLElement; count: HTMLElement; barrier: HTMLElement; hull: HTMLElement; ids: string[]; lead?: string; side: string }
+  const expanded = new Set<string>();
+  const groupRowCache = new Map<string, GroupRowRefs>();
+  const aggregateRow = (key: string, kind: 'fleet' | 'group', depth: number): GroupRowRefs => {
+    let r = groupRowCache.get(key);
+    if (!r) {
+      const toggle = el('span', { class: 'agg-toggle', title: kind === 'fleet' ? 'Show battlegroups' : 'Show hulls', onclick: (e: MouseEvent) => {
+        e.stopPropagation();
+        if (expanded.has(key)) expanded.delete(key);
+        else expanded.add(key);
+        app.playUi('ui_click');
+        renderLists();
+      } }, '▸');
+      const name = el('span', { class: 'agg-name' });
+      const count = el('span', { class: 'agg-count mono' });
+      const barrier = el('i');
+      const hull = el('i');
+      const refs: GroupRowRefs = { row: el('div'), toggle, name, count, barrier, hull, ids: [], side: '' };
+      refs.row = el('div', { class: `ship-row agg-row ${kind}-row`, [`data-${kind}`]: key.slice(key.indexOf(':') + 1), onclick: (e: MouseEvent) => {
+        ctrl.selectMany(refs.ids, e.shiftKey);
+        app.playUi('ui_click');
+      }, ondblclick: () => {
+        if (refs.lead) ctrl.focusOn(refs.lead);
+      }, oncontextmenu: (e: MouseEvent) => {
+        e.preventDefault();
+        if (refs.lead && refs.side !== ctrl.config.perspectiveSide) ctrl.attackWithSelection(refs.lead);
+      } }, [el('div', { class: 'name' }, [toggle, name]), el('div', { class: 'bars' }, [count, el('div', { class: 'bar barrier' }, [barrier]), el('div', { class: 'bar hull' }, [hull])])]);
+      refs.row.style.paddingLeft = `${6 + depth * 12}px`;
+      r = refs;
+      groupRowCache.set(key, r);
+    }
+    return r;
+  };
+  const fillAggregate = (r: GroupRowRefs, key: string, label: string, live: readonly ShipState[], deployed: number, hull: number, barriers: number, side: string): HTMLElement => {
+    r.ids = live.map((s) => s.id);
+    r.lead = live[0]?.id;
+    r.side = side;
+    r.toggle.textContent = expanded.has(key) ? '▾' : '▸';
+    r.name.textContent = label;
+    r.name.title = label;
+    r.count.textContent = `${live.length}/${deployed}`;
+    r.barrier.style.width = `${100 * barriers}%`;
+    r.hull.style.width = `${100 * hull}%`;
+    const sel = ctrl.view.selectedIds;
+    const picked = r.ids.filter((id) => sel.has(id)).length;
+    r.row.classList.toggle('selected', picked > 0 && picked === r.ids.length);
+    r.row.classList.toggle('partial', picked > 0 && picked < r.ids.length);
+    r.row.classList.toggle('dead', live.length === 0);
+    return r.row;
+  };
+  const strength = (ships: readonly ShipState[]): { hull: number; barriers: number } => {
+    let hull = 0;
+    let maxHull = 0;
+    let barriers = 0;
+    let maxBarriers = 0;
+    for (const s of ships) {
+      maxHull += s.maxHull;
+      maxBarriers += s.maxBarriers;
+      if (!inFight(s)) continue;
+      hull += s.hull;
+      barriers += s.barriers;
+    }
+    return { hull: maxHull > 0 ? hull / maxHull : 0, barriers: maxBarriers > 0 ? barriers / maxBarriers : 0 };
+  };
+  const fleetRows = (fleets: FleetSummary[]): Node[] => {
+    const rows: Node[] = [];
+    for (const f of fleets) {
+      const key = `fleet:${f.id}`;
+      rows.push(fillAggregate(aggregateRow(key, 'fleet', 0), key, f.name, f.live, f.deployed, f.hull, f.barriers, f.side));
+      if (!expanded.has(key)) continue;
+      for (const g of f.groups) {
+        if (g.live.length === 0) continue;
+        rows.push(...groupRows(g, f.side));
+      }
+    }
+    return rows;
+  };
+  const groupRows = (g: Battlegroup, side: string): Node[] => {
+    const key = `group:${g.id}`;
+    const st = strength(g.members);
+    const rows: Node[] = [fillAggregate(aggregateRow(key, 'group', 1), key, `${g.leader.name} group`, g.live, g.members.length, st.hull, st.barriers, side)];
+    if (expanded.has(key)) {
+      for (const s of g.members) {
+        const r = shipRow(s);
+        r.row.classList.add('nested');
+        rows.push(r.row);
+      }
+    }
+    return rows;
+  };
+
   const fighterLine = el('div', { class: 'dim mono', style: { padding: '4px 6px', fontSize: '10px' } });
-  const syncList = (container: HTMLElement, ships: ShipState[], extra?: HTMLElement) => {
-    const rows = ships.map((s) => shipRow(s).row);
+  const syncRows = (container: HTMLElement, rows: Node[], extra?: HTMLElement) => {
     const wanted: Node[] = extra ? [...rows, extra] : rows;
     // Only touch the DOM when the order/membership changed.
     let same = container.childNodes.length === wanted.length;
     if (same) for (let i = 0; i < wanted.length; i++) if (container.childNodes[i] !== wanted[i]) { same = false; break; }
     if (!same) container.replaceChildren(...wanted);
   };
+  const shipRows = (ships: ShipState[]): Node[] =>
+    ships.map((s) => {
+      const r = shipRow(s);
+      r.row.classList.remove('nested');
+      return r.row;
+    });
 
   const renderLists = () => {
     const s = sim();
-    const mine = s.ships.filter((x) => x.side === ctrl.config.perspectiveSide && x.role !== 'fighter' && !x.escaped).sort((a, b) => b.pointValue - a.pointValue).slice(0, 80);
-    const theirs = s.ships.filter((x) => x.side !== ctrl.config.perspectiveSide && x.role !== 'fighter' && !x.escaped).sort((a, b) => b.pointValue - a.pointValue).slice(0, 80);
-    const fighters = s.ships.filter((x) => x.side === ctrl.config.perspectiveSide && x.role === 'fighter' && x.alive && !x.escaped).length;
+    const own = ctrl.config.perspectiveSide;
+    const mine = s.ships.filter((x) => x.side === own && x.role !== 'fighter' && !x.escaped).sort((a, b) => b.pointValue - a.pointValue);
+    const theirs = s.ships.filter((x) => x.side !== own && x.role !== 'fighter' && !x.escaped).sort((a, b) => b.pointValue - a.pointValue);
+    const fighters = s.ships.filter((x) => x.side === own && x.role === 'fighter' && x.alive && !x.escaped).length;
     fighterLine.textContent = `${fighters} fighters deployed`;
-    syncList(shipList, mine, fighters > 0 ? fighterLine : undefined);
-    syncList(enemyList, theirs);
+    const threshold = largeBattleHulls(app.prefs);
+    const large = (list: ShipState[]) => threshold > 0 && list.filter(inFight).length > threshold;
+    const largeMine = large(mine);
+    const largeTheirs = large(theirs);
+    const summaries = largeMine || largeTheirs ? fleetSummaries(s.ships, s.fleets, battlegroups(s.ships)) : [];
+    shipList.classList.toggle('fleet-mode', largeMine);
+    enemyList.classList.toggle('fleet-mode', largeTheirs);
+    syncRows(shipList, largeMine ? fleetRows(summaries.filter((f) => f.side === own)) : shipRows(mine.slice(0, 80)), fighters > 0 ? fighterLine : undefined);
+    syncRows(enemyList, largeTheirs ? fleetRows(summaries.filter((f) => f.side !== own)) : shipRows(theirs.slice(0, 80)));
   };
 
   const renderTarget = () => {

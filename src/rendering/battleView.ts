@@ -72,6 +72,12 @@ export class BattleView {
   followId?: string;
   /** Cinematic director state. */
   private cine: { fromId?: string; toId?: string; age: number; hold: number } = { age: 0, hold: 0 };
+  /** The hull the camera follows now: the follow and Reaper views' subject, or the cinematic shot's (the overlay names it first). */
+  get followedId(): string | undefined {
+    if (this.rig.mode === 'follow' || this.rig.mode === 'reaper') return this.followId;
+    if (this.rig.mode === 'cinematic') return this.cine.fromId;
+    return undefined;
+  }
   private projectileTrack?: { id: number };
   private readonly glowTex: THREE.Texture;
   private sunLight: THREE.DirectionalLight;
@@ -611,6 +617,13 @@ export class BattleView {
       }
     }
     return best;
+  }
+
+  /** Projected half-length (CSS px) of a hull's model at a camera distance (render units), for a viewport `height` px tall. */
+  screenRadius(id: string, distance: number, height: number): number {
+    const v = this.visuals.get(id);
+    if (!v) return 0;
+    return ((v.built.lengthUnits * 0.5) / Math.max(1, distance)) * (height / (2 * Math.tan((this.rig.camera.fov * Math.PI) / 360)));
   }
 
   /** Project a world position (km) to screen; returns undefined when behind the camera. */

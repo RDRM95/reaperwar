@@ -1,9 +1,16 @@
 import type { App } from '../app';
+import { largeBattleHulls } from '../app';
 import { el } from '../dom';
 import { storage } from '@/core/storage';
 import { QUALITY_ORDER, QUALITY_PRESETS, withQuality, type GraphicsQuality } from '@/rendering/quality';
 import { gpuRenderer, isLocalEdition, localEditionDetails, localEditionStatus } from '@/rendering/localHardware';
 import { timelineTagById } from '@/timelines/alternates';
+
+/** Large-battle HUD thresholds offered in Settings (live hulls on a side; 0 = never collapse). Brief §12 default: 48. */
+const LARGE_BATTLE_CHOICES = [24, 32, 48, 64, 96, 128, 0];
+/** The choices, with a stored value that is not among them (an imported save) kept in order. */
+const largeBattleChoices = (current: number): number[] =>
+  LARGE_BATTLE_CHOICES.includes(current) ? LARGE_BATTLE_CHOICES : [...LARGE_BATTLE_CHOICES.filter((n) => n > 0), current].sort((a, b) => a - b).concat(0);
 
 export function renderSettings(app: App): HTMLElement {
   const p = app.prefs;
@@ -36,10 +43,15 @@ export function renderSettings(app: App): HTMLElement {
           p.graphics.chosen = true;
           void app.savePrefs();
         } }, [el('option', { value: 'on', selected: p.graphics.lod !== false }, 'On: distant ships simplify to hull and points'), el('option', { value: 'off', selected: p.graphics.lod === false }, 'Off: full detail at any distance')])]),
-        el('label', { class: 'field' }, ['Tactical overlay', el('select', { onchange: (e: Event) => {
+        el('label', { class: 'field' }, ['Tactical overlay (O in battle)', el('select', { 'data-setting': 'overlay', onchange: (e: Event) => {
           p.showOverlay = (e.target as HTMLSelectElement).value === 'on';
+          app.setOverlay(p.showOverlay);
           void app.savePrefs();
         } }, [el('option', { value: 'on', selected: p.showOverlay }, 'On'), el('option', { value: 'off', selected: !p.showOverlay }, 'Off')])]),
+        el('label', { class: 'field' }, ['Large-battle fleet lists', el('select', { 'data-setting': 'large-battle-hulls', onchange: (e: Event) => {
+          p.largeBattleHulls = Number((e.target as HTMLSelectElement).value);
+          void app.savePrefs();
+        } }, largeBattleChoices(largeBattleHulls(p)).map((n) => el('option', { value: n, selected: largeBattleHulls(p) === n }, n === 0 ? 'Never: one row per ship' : `One row per fleet above ${n} live hulls a side`)))]),
         el('p', { class: 'dim', style: { fontSize: '12px' } }, 'Changes apply to the next battle. Low quality disables antialiasing and caps the render resolution. Ultra renders at your display’s native resolution, keeps full detail 2.5× farther out and doubles the effect budgets: it is meant for a dedicated GPU, and the battle HUD shows its frame rate.'),
         local
           ? el('div', { class: 'local-edition', 'data-local-edition': '' }, [
