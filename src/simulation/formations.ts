@@ -329,6 +329,11 @@ const lineHeight = (p: number): number => [0.55, -0.7, 0.15, 0.9, -0.4, -1, 0.65
 /** Fixed-pattern height sequence in [−1, 1] by group index: no three neighbouring groups at one height. */
 const heightPattern = (g: number): number => [0, 0.85, -0.7, 0.45, -1, 0.7, -0.4, 1, -0.85, 0.25][g % 10];
 
+/**
+ * A line keeps its groups within about this many fleet ranges across before it wraps into a second rank (Q1b's three
+ * ranges stay the hard bound): wider, its wing capitals stand out of reach of a compact enemy at the line's standoff.
+ */
+export const LINE_FRONTAGE_RANGES = 1.6;
 /** Lines (the line abreast, the fighter screen, the platforms' arc) put at most this many groups abreast before Q1b. */
 export const LINE_RANK_GROUPS = 8;
 
@@ -358,7 +363,10 @@ function placeGroupCentres(groups: Group[], formation: FormationType, rangeNom: 
    * alternately forward and back by `echelon` and up and down by `rise` × the line's height pattern.
    */
   const line = (spacing: number, echelon: number, rankDepth: number, rise: number, maxAbreast = LINE_RANK_GROUPS): void => {
-    const perMax = Math.max(1, Math.min(G, maxAbreast, abreast(spacing)));
+    // Q1b is the hard bound; a line also keeps its capitals within about `LINE_FRONTAGE_RANGES` of the fleet's range
+    // across (so the line can still mass its fire), wrapping the rest into ranks behind and above or below.
+    const soft = rangeNom === undefined ? Infinity : Math.max(1, Math.floor((LINE_FRONTAGE_RANGES * rangeNom) / spacing) + 1);
+    const perMax = Math.max(1, Math.min(G, maxAbreast, abreast(spacing), soft));
     const ranks = Math.ceil(G / perMax);
     const per = Math.ceil(G / ranks);
     used = per;
@@ -372,15 +380,16 @@ function placeGroupCentres(groups: Group[], formation: FormationType, rangeNom: 
       const shift = rank % 2 === 1 && n === per ? 0.5 : 0;
       const x = (p - (n - 1) / 2 + shift) * spacing;
       const z = (p % 2 === 0 ? 1 : -1) * echelon - rank * rankDepth;
-      centres.push(v3(x, rise * lineHeight(p + 3 * rank), z));
+      const lift = rank === 0 ? 0 : (rank % 2 ? 1 : -1) * 0.8 * gy;
+      centres.push(v3(x, lift + rise * lineHeight(p + 3 * rank), z));
     }
   };
   switch (formation) {
     case 'line_abreast':
-      line(gx, 0.15 * gz, 0.9 * gz, 0.45 * gy);
+      line(gx, 0.15 * gz, 0.5 * gz, 0.45 * gy);
       break;
     case 'fighter_screen':
-      line(gx, 0.12 * gz, 0.85 * gz, 0.4 * gy);
+      line(gx, 0.12 * gz, 0.5 * gz, 0.4 * gy);
       break;
     case 'layered_line': {
       // Three height layers (the line itself, above and below), the groups closer laterally since the layers keep
@@ -526,6 +535,17 @@ function placeGroupCentres(groups: Group[], formation: FormationType, rangeNom: 
     g.centre = v3(c.x + s() * 0.06 * gx, c.y + s() * 0.12 * gy, c.z + s() * 0.1 * gz);
   });
   separateGroups(groups, Math.max(GROUP_GAP_MIN, GROUP_CLEAR_FRACTION * rad));
+  // The anchor is the formation's centre: the groups' centres average to it across and along the heading (a wedge's
+  // apex leads it, its ranks trail it), so a fleet's standoff and closing distances are measured to its main body.
+  if (formation !== 'static') {
+    let mx = 0;
+    let mz = 0;
+    for (const g of groups) {
+      mx += g.centre.x / G;
+      mz += g.centre.z / G;
+    }
+    for (const g of groups) g.centre = v3(g.centre.x - mx, g.centre.y, g.centre.z - mz);
+  }
   return used;
 }
 
@@ -614,10 +634,11 @@ function placeGroup(g: Group, formation: FormationType, jit: Map<string, Jitter>
     const j = jit.get(s.id)!;
     const n = shell.length;
     const slot = (i + 0.5) / n;
-    // A Reaper capital leads its destroyers (they swarm beside, above, below and behind it, never screening it).
-    const theta = broadside ? ((20 + 140 * slot) * Math.PI) / 180 : reaper ? ((75 + 210 * slot) * Math.PI) / 180 + g.phase / (2 * n) : ((-150 + 300 * slot) * Math.PI) / 180 + g.phase / n;
+    // A Reaper capital leads its destroyers: they swarm above, below and behind it (never screening it, and keeping
+    // the cluster narrow, so the harvest group's capitals stand only a little over their clearance apart).
+    const theta = broadside ? ((20 + 140 * slot) * Math.PI) / 180 : reaper ? ((120 + 120 * slot) * Math.PI) / 180 + g.phase / (3 * n) : ((-150 + 300 * slot) * Math.PI) / 180 + g.phase / n;
     const up = (i + (g.tilt < 0.5 ? 0 : 1)) % 2 === 0 ? 1 : -1;
-    const phi = up * (0.22 + 0.4 * golden(i + 2 + Math.floor(g.tilt * 7))) + j.elevation;
+    const phi = up * (reaper ? 0.55 + 0.35 * golden(i + 2 + Math.floor(g.tilt * 7)) : 0.22 + 0.4 * golden(i + 2 + Math.floor(g.tilt * 7))) + j.elevation;
     put(s, scaleV(dir(theta + j.azimuth, phi), ring * j.spacing));
   });
   // The frigate screen: a cap ahead of the capital (for a broadside line: out on its +x side), scattered by the
@@ -836,7 +857,9 @@ function breakRows(ships: SlotShip[], slots: Map<string, Vec3>, jit: Map<string,
     for (let j = 0; j < pts.length; j++) if (Math.abs(pts[j].x - pts[i].x) <= near && Math.abs(pts[j].z - pts[i].z) <= near) out.push(j);
     return out;
   };
-  // A moved hull keeps every clearance and stays out of the other groups' space (`groupClear`, brief §22).
+  // A moved hull keeps every clearance (small craft included) and stays out of the other groups' space (`groupClear`,
+  // brief §22).
+  const craft = ships.filter((s) => slots.has(s.id) && s.role === 'fighter');
   const clear = (i: number, p: Vec3): boolean => {
     const gi = groupOf.get(live[i].id);
     for (let j = 0; j < live.length; j++) {
@@ -845,6 +868,10 @@ function breakRows(ships: SlotShip[], slots: Map<string, Vec3>, jit: Map<string,
       const d = Math.hypot(p.x - q.x, p.y - q.y, p.z - q.z);
       if (d < minSeparationKm(live[i], live[j]) - 1e-9) return false;
       if (gi !== undefined && groupOf.get(live[j].id) !== gi && d < groupClear) return false;
+    }
+    for (const c of craft) {
+      const q = slots.get(c.id)!;
+      if (Math.hypot(p.x - q.x, p.y - q.y, p.z - q.z) < minSeparationKm(live[i], c) - 1e-9) return false;
     }
     return true;
   };
