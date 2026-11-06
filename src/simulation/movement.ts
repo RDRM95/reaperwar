@@ -1,3 +1,4 @@
+import { dcos, dsin } from '@/core/detmath';
 import { v3, type Vec3 } from '@/core/vec3';
 import { FACTIONS } from '@/data/factions';
 import { isCapitalRole } from '@/data/types';
@@ -34,6 +35,8 @@ const STATION_LATERAL_KM = 3;
 
 /** Alliance and Cerberus dreadnought lines hold at the outer band of their spinal guns (INTEGRATION_NOTES.md, owner). */
 export const SPINAL_STANDOFF = { band: [0.8, 0.95] as const, want: 0.875 } as const;
+/** A spinal line capital leans in to hold its gun target at `SPINAL_STANDOFF.want` by up to this × its spinal range. */
+export const SPINAL_LEAN = 0.3;
 const UNLOCK_OFF_BOW_RAD = Math.PI / 3;
 const REAIM_DONE_RAD = 0.0175;
 /** Wingtip speed of a turning formation stays under this fraction of its slowest hull's speed. */
@@ -97,6 +100,13 @@ export interface FleetMotion {
   explicitAttack: boolean;
   /** Approach progress of the converging arcs (brief §22): 1 far out, 0 once within the lock range (`APPROACH_ARC`). */
   approach: number;
+  /**
+   * In contact: an enemy combatant within `CONTACT_RANGE_FACTOR` × the fleet's engagement range of any of its fighting
+   * hulls (refreshed with the fleet's slow view, `ai.ts`). Once the fleet has been engaged it keeps it engaged.
+   */
+  contact: boolean;
+  /** The fleet's heading has locked at least once (its first engagement has begun). */
+  engagedOnce: boolean;
 }
 
 const FLEET_MOTION = new WeakMap<FleetState, FleetMotion>();
@@ -105,7 +115,7 @@ export function fleetMotion(fleet: FleetState): FleetMotion {
   let m = FLEET_MOTION.get(fleet);
   if (!m) {
     const o = fleet.spec.initialOrder?.order;
-    m = { anchorVel: v3(), reaiming: false, offSince: -1, closeFrom: 0, explicitAttack: o === 'attack' || o === 'attack_target', approach: 1 };
+    m = { anchorVel: v3(), reaiming: false, offSince: -1, closeFrom: 0, explicitAttack: o === 'attack' || o === 'attack_target', approach: 1, contact: false, engagedOnce: false };
     FLEET_MOTION.set(fleet, m);
   }
   return m;
@@ -164,8 +174,12 @@ export function spreadSlot(ship: ShipState, approach: number): Vec3 {
   return v3(g.x * lat + (ship.slot.x - g.x), g.y * ver + (ship.slot.y - g.y), ship.slot.z);
 }
 
-/** A leader whose escorts keep station on it: present, in the line (not withdrawing, hunting, arriving or on a run). */
-const leads = (lead: ShipState): boolean => lead.alive && !lead.escaped && !lead.withdrawing && !lead.stealth && lead.arrival === undefined && lead.driveRun === undefined;
+/**
+ * A leader whose escorts keep station on it: present, in the line (not withdrawing, hunting, arriving, on a run, or
+ * crossing to a new slot in a Reaper slot exchange — its escorts hold their slots meanwhile).
+ */
+const leads = (lead: ShipState): boolean =>
+  lead.alive && !lead.escaped && !lead.withdrawing && !lead.stealth && lead.arrival === undefined && lead.driveRun === undefined && !(SHIP_MOTION.get(lead)?.transferring ?? false);
 
 /**
  * A hull's station (brief §22, "station keeping relative to the group leader"): an escort whose group leader leads
@@ -184,12 +198,21 @@ export function stationOf(ctx: Pick<AiContext, 'getShip'>, ship: ShipState, flee
 }
 
 /**
- * Separation (brief §22, "friendly avoidance between hulls and between groups"; any two hulls, either side): a hull
- * inside `reach` × the size-scaled minimum separation of another (`minSeparationKm`) gets a velocity bias straight
- * away from it — `gain` × its top speed × (1 − d/need)^`power` — and, closing on it, a step to starboard. Small
- * craft neither give nor take it.
+ * Separation (brief §22, "friendly avoidance between hulls and between groups"): a hull inside `reach` × the
+ * size-scaled minimum separation of a hull of its own side (`minSeparationKm`) gets a velocity bias straight away from
+ * it — `gain` × its top speed × (1 − d/need), times its share of the pair's give (`separationShare`: the smaller hull
+ * gives way, a capital barely yields to an escort) — and, closing on it, a step to starboard. Small craft neither give
+ * nor take it. It acts from the full minimum separation, rising linearly: the stations are laid out at least that far
+ * apart, so a hull keeping station feels nothing, while two hulls pressed together (a gentler, shorter-reaching bias
+ * let pairs settle at 0.5–0.75 of it for minutes) part to about 0.9 of it against their station-keeping. Enemy hulls
+ * do not repel (an enemy screen closing on a Reaper capital shoved it about at full thrust, every shove a hard
+ * manoeuvre costing every gun's solution on it); the clearance backstop keeps any two hulls from clipping.
  */
-export const SEPARATION = { reach: 0.7, gain: 1, sidestep: 0.8, power: 2 } as const;
+export const SEPARATION = { reach: 1, gain: 1, sidestep: 0.8 } as const;
+
+/** A hull's share of the give between it and `other`: 2 × other's length over both, at most 1 (equal hulls give equally). */
+export const separationShare = (ship: { lengthKm: number }, other: { lengthKm: number }): number =>
+  Math.min(1, (2 * other.lengthKm) / Math.max(1e-6, ship.lengthKm + other.lengthKm));
 
 export function separationRepel(ctx: Pick<AiContext, 'hullsNear' | 'largestHullKm'>, ship: ShipState): Vec3 | undefined {
   if (ship.role === 'fighter') return undefined;
@@ -200,7 +223,7 @@ export function separationRepel(ctx: Pick<AiContext, 'hullsNear' | 'largestHullK
   let rz = 0;
   let any = false;
   for (const o of ctx.hullsNear(ship.pos, radius)) {
-    if (o === ship || o.role === 'fighter') continue;
+    if (o === ship || o.role === 'fighter' || o.side !== ship.side) continue;
     const need = SEPARATION.reach * minSeparationKm(ship, o);
     let dx = ship.pos.x - o.pos.x;
     let dy = ship.pos.y - o.pos.y;
@@ -210,14 +233,14 @@ export function separationRepel(ctx: Pick<AiContext, 'hullsNear' | 'largestHullK
     if (d < 1e-6) {
       // Coincident hulls split along a direction fixed by the pair's ids.
       const a = hash01(ship.id < o.id ? ship.id + o.id : o.id + ship.id, 23) * 2 * Math.PI * (ship.id < o.id ? 1 : -1);
-      dx = Math.cos(a);
+      dx = dcos(a);
       dy = 0;
-      dz = Math.sin(a);
+      dz = dsin(a);
       d = 1;
     }
-    // Gentle: a quadratic rise from nothing at the clearance (the clearance backstop catches the rest).
+    // A linear rise from nothing at the minimum separation (the clearance backstop catches the rest).
     const r = Math.min(1, Math.hypot(ship.pos.x - o.pos.x, ship.pos.y - o.pos.y, ship.pos.z - o.pos.z) / need);
-    const k = (SEPARATION.gain * (1 - r) ** SEPARATION.power * ship.maxSpeed) / d;
+    const k = (SEPARATION.gain * (1 - r) * separationShare(ship, o) * ship.maxSpeed) / d;
     rx += dx * k;
     ry += dy * k;
     rz += dz * k;
@@ -235,6 +258,54 @@ export function separationRepel(ctx: Pick<AiContext, 'hullsNear' | 'largestHullK
     any = true;
   }
   return any ? v3(rx, ry, rz) : undefined;
+}
+
+/**
+ * A goal kept clear of the hulls of its own side (brief §22, "rational spacing"): a goal point inside another hull's
+ * size-scaled minimum separation is moved straight out to it. Stations are laid out that far apart, but they move with
+ * their group capitals, and a capital moving through another group (or an escort lagging its station in its own
+ * capital's wake) set an escort's station inside a capital's clearance: separation then fought the station-keeping and
+ * the pair sat at 0.6 of it for minutes. Small craft and transit goals (runs, passes) are left alone.
+ */
+export const CLEAR_GOAL = 0.9;
+
+export function clearOfFriends(ctx: Pick<AiContext, 'hullsNear' | 'largestHullKm'>, ship: ShipState, p: Vec3): Vec3 {
+  if (ship.role === 'fighter') return p;
+  const far = minSeparationKm(ship, { role: 'reaper_capital', lengthKm: Math.max(ship.lengthKm, ctx.largestHullKm()) });
+  let x = p.x;
+  let y = p.y;
+  let z = p.z;
+  let moved = false;
+  for (const o of ctx.hullsNear(p, far)) {
+    if (o === ship || o.side !== ship.side || o.role === 'fighter' || !o.alive || o.escaped) continue;
+    // Out to `CLEAR_GOAL` of the minimum separation: a station a little inside it (the layouts pack a harvest group's
+    // capitals just over their clearance) is left to separation's gentle push, so neighbours never jostle each other.
+    const need = CLEAR_GOAL * minSeparationKm(ship, o);
+    let dx = x - o.pos.x;
+    let dy = y - o.pos.y;
+    let dz = z - o.pos.z;
+    let d = Math.hypot(dx, dy, dz);
+    if (d >= need) continue;
+    if (d < 1e-6) {
+      // The goal on the hull itself: out on the side the ship is on (or a direction fixed by the pair's ids).
+      dx = ship.pos.x - o.pos.x;
+      dy = ship.pos.y - o.pos.y;
+      dz = ship.pos.z - o.pos.z;
+      d = Math.hypot(dx, dy, dz);
+      if (d < 1e-6) {
+        const a = hash01(ship.id < o.id ? ship.id + o.id : o.id + ship.id, 19) * 2 * Math.PI;
+        dx = dcos(a);
+        dy = 0;
+        dz = dsin(a);
+        d = 1;
+      }
+    }
+    x = o.pos.x + (dx / d) * need;
+    y = o.pos.y + (dy / d) * need;
+    z = o.pos.z + (dz / d) * need;
+    moved = true;
+  }
+  return moved ? v3(x, y, z) : p;
 }
 
 /**
@@ -266,9 +337,9 @@ export function enforceClearance(ctx: Pick<AiContext, 'hullsNear' | 'largestHull
       if (wa + wb <= 0) continue;
       if (d < 1e-6) {
         const ang = hash01(a.id + b.id, 29) * 2 * Math.PI;
-        dx = Math.cos(ang);
+        dx = dcos(ang);
         dy = 0;
-        dz = Math.sin(ang);
+        dz = dsin(ang);
         d = 1;
       }
       const ux = dx / d;
@@ -306,8 +377,8 @@ const flatNorm = (x: number, z: number): Vec3 | undefined => {
 const signedYaw = (a: Vec3, b: Vec3): number => Math.atan2(a.x * b.z - a.z * b.x, a.x * b.x + a.z * b.z);
 
 const rotateFlat = (h: Vec3, angle: number): Vec3 => {
-  const c = Math.cos(angle);
-  const s = Math.sin(angle);
+  const c = dcos(angle);
+  const s = dsin(angle);
   const x = h.x * c - h.z * s;
   const z = h.x * s + h.z * c;
   const l = Math.hypot(x, z) || 1;
@@ -527,6 +598,15 @@ export interface ShipMotion {
   outSince: number;
   /** The move-up in force: toward which enemy, under which order, and why (lean in or back up an ally). */
   moveUp?: { targetId: string; order: OrderType; kind: 'lean' | 'backup'; allyId?: string; hold?: Vec3 };
+  /** The lane in use toward `targetId` (`LANE`): its offset in the search spiral and when it is next re-checked. */
+  lane?: { targetId: string; k: number; at: number };
+  /** A Reaper capital crossing to its new slot in a rotate-protection exchange (reaperAi.ts). */
+  transferring?: boolean;
+  /** Stealth hunters (stealth.ts): net turn of the flat velocity heading (rad), its last value, the mirrored-pass state. */
+  netTurn: number;
+  lastYaw?: number;
+  mirror: boolean;
+  unwindSign: number;
 }
 
 const SHIP_MOTION = new WeakMap<ShipState, ShipMotion>();
@@ -534,7 +614,7 @@ const SHIP_MOTION = new WeakMap<ShipState, ShipMotion>();
 export function shipMotion(ship: ShipState): ShipMotion {
   let m = SHIP_MOTION.get(ship);
   if (!m) {
-    m = { accelFrac: 0, hardFor: -1, manoeuvres: 0, hardCounted: false, side: hash01(ship.id, 7) < 0.5 ? 1 : -1, cycle: 0, withdrawnAt: -1e9, reengagedAt: -1e9, keepOut: 0, reachAt: -1, inReach: false, outSince: -1 };
+    m = { accelFrac: 0, hardFor: -1, manoeuvres: 0, hardCounted: false, side: hash01(ship.id, 7) < 0.5 ? 1 : -1, cycle: 0, withdrawnAt: -1e9, reengagedAt: -1e9, keepOut: 0, reachAt: -1, inReach: false, outSince: -1, netTurn: 0, mirror: false, unwindSign: 0 };
     SHIP_MOTION.set(ship, m);
   }
   return m;
@@ -726,7 +806,7 @@ export function carrierGoal(ctx: AiContext, ship: ShipState, fleet: FleetState, 
   const slotSpeed = Math.hypot(slotVel.x, slotVel.z);
   const hold = Math.max(0, 1 - slotSpeed / (0.25 * ship.maxSpeed));
   const amp = hold * Math.min(CARRIER_WEAVE_KM, (0.5 * ship.maxSpeed * CARRIER_WEAVE_PERIOD) / (2 * Math.PI));
-  const w = Math.sin(phase) * amp;
+  const w = dsin(phase) * amp;
   let px = slotPos.x + r.x * w;
   const py = slotPos.y;
   let pz = slotPos.z + r.z * w;
@@ -748,7 +828,7 @@ export function carrierGoal(ctx: AiContext, ship: ShipState, fleet: FleetState, 
   pz -= fleet.heading.z * m.keepOut;
   const driftV = drift / DT_HINT;
   // The weave's own velocity rides on the slot's.
-  const wv = (Math.cos(phase) * amp * 2 * Math.PI) / CARRIER_WEAVE_PERIOD;
+  const wv = (dcos(phase) * amp * 2 * Math.PI) / CARRIER_WEAVE_PERIOD;
   return { position: v3(px, py, pz), speedFraction: 1, velocity: v3(slotVel.x + r.x * wv - fleet.heading.x * driftV, slotVel.y, slotVel.z + r.z * wv - fleet.heading.z * driftV), face: faceIfBearing(ship, target) };
 }
 
@@ -781,18 +861,21 @@ export function faceIfBearing(ship: ShipState, target: ShipState | undefined): V
   if (facing === undefined) return undefined;
   if (Math.abs(facing) < 1e-6) return target.pos;
   const flat = Math.hypot(dx, dz);
-  return v3(ship.pos.x + Math.sin(bearing - facing) * flat, ship.pos.y, ship.pos.z + Math.cos(bearing - facing) * flat);
+  return v3(ship.pos.x + dsin(bearing - facing) * flat, ship.pos.y, ship.pos.z + dcos(bearing - facing) * flat);
 }
 
 /**
  * The default station: hold the slot (moving with the anchor), face the target when a forward mount bears, and —
- * every unit with a weapon fires or moves for a solution — close on a target that is out of range by up to the
- * 2 km slot leash at half speed under an attack order.
+ * every unit with a weapon fires or moves for a solution — close on a target that is out of range under an attack
+ * order, at half speed: a capital by up to the 2 km slot leash; an escort by up to the same leash on the approach and
+ * by up to `SCREEN_LEASH_KM` once its fleet is engaged, along its lane (`LANE`: the group's screen leans in as a group,
+ * its escorts on parallel lanes and never onto a point another hull holds — leaning straight at a shared target, the
+ * escorts of a group converged and sat pressed together).
  */
-export function stationGoal(ship: ShipState, fleet: FleetState, slotPos: Vec3, slotVel: Vec3, target: ShipState | undefined): MovementGoal {
+export function stationGoal(ctx: AiContext, ship: ShipState, fleet: FleetState, slotPos: Vec3, slotVel: Vec3, target: ShipState | undefined): MovementGoal {
   const face = fleet.doctrineFacing === 'broadside' ? undefined : faceIfBearing(ship, target);
   const o = fleet.orders.order;
-  if (target && (o === 'attack' || o === 'attack_target' || o === 'advance' || o === 'intercept')) {
+  if (target && ENGAGE_ORDERS.has(o)) {
     const range = mainRange(ship);
     const dx = target.pos.x - slotPos.x;
     const dy = target.pos.y - slotPos.y;
@@ -801,9 +884,30 @@ export function stationGoal(ship: ShipState, fleet: FleetState, slotPos: Vec3, s
     // The capital line holds its standoff and leans at most the 2 km leash; the escorts screen forward to their own
     // weapon range (a frigate's guns reach 9.6 km, a spinal line holds at 15–17 km) — once the fleet is engaged: on
     // the approach the battlegroups close intact, escorts on their stations round their capitals (brief §22).
-    const leash = isCapitalRole(ship.role) || !fleet.headingLocked ? SLOT_LEASH_KM : SCREEN_LEASH_KM;
-    const close = isCapitalRole(ship.role) ? range : 0.9 * range;
+    const capital = isCapitalRole(ship.role);
+    const engaged = fleetEngaged(fleet);
+    // A spinal line capital holds its own gun target at its standoff (brief §22, "capitals keep their standoff band";
+    // the owner's doctrine, `SPINAL_STANDOFF`): once engaged it leans in along its lane to the band's middle, by up to
+    // `SPINAL_LEAN` × its spinal range. The battlegroups spread the line, and its wing capitals otherwise fought at the
+    // very edge of their guns, too few hits to break a Reaper capital's barrier (its full recovery under fire).
+    const spinal = capital && (fleet.spec.faction === 'alliance' || fleet.spec.faction === 'cerberus') ? spinalOf(ship) : 0;
+    const band = spinal > 0 && engaged && isCapitalRole(target.role);
+    const leash = band ? SPINAL_LEAN * spinal : capital || !engaged ? SLOT_LEASH_KM : SCREEN_LEASH_KM;
+    const close = band ? SPINAL_STANDOFF.want * spinal : capital ? range : 0.9 * range;
     if (range > 0 && d > close && d > 1e-6) {
+      if ((band || !capital) && engaged && target.role !== 'fighter') {
+        const p = laneEnd(ctx, ship, fleet, target, close);
+        let lx = p.x - slotPos.x;
+        let ly = p.y - slotPos.y;
+        let lz = p.z - slotPos.z;
+        const ll = Math.hypot(lx, ly, lz);
+        if (ll > leash) {
+          lx *= leash / ll;
+          ly *= leash / ll;
+          lz *= leash / ll;
+        }
+        return { position: v3(slotPos.x + lx, slotPos.y + ly, slotPos.z + lz), speedFraction: 0.5, velocity: slotVel, face: face ?? target.pos };
+      }
       const k = Math.min(leash, d - close) / d;
       return { position: v3(slotPos.x + dx * k, slotPos.y + dy * k, slotPos.z + dz * k), speedFraction: 0.5, velocity: slotVel, face: face ?? target.pos };
     }
@@ -868,13 +972,14 @@ export function bearVertically(ship: ShipState, goal: MovementGoal, target: Ship
  * once its fleet is engaged under an attack-type order, an organic hull with no enemy hull within its longest weapon
  * range for `seconds` moves up — into a forward gap a loss left in its fleet, else beside the nearest ally in trouble
  * (damaged, or with more enemy hulls than friends in its reach), else straight in — until something is in reach:
- * escorts to `escortReach` × their range, capitals only to their standoff band. Once there it holds that point (a
- * steady gun platform; `HOLD_SLACK`) and keeps the lean while its fleet stays engaged under the same order (no
- * oscillating between the lean and its slot). The count runs from the fleet's contact (its heading lock), whether or
- * not the anchor is still settling: the battlegroups spread the capitals across the line, and a wing group waiting
- * for the anchor to stop left the centre to fight alone (Q2b's anchor gate, measured on the reference engagement).
- * Reapers never idle once their fleet is engaged (`reaperAdvanceGoal`). Only Hold and Defend (and the non-attack
- * orders) keep ships back.
+ * escorts to `escortReach` × their range, capitals only to their standoff band — each along its own lane (`LANE`:
+ * an escort keeps its place in its group, the group leans in as a group), never onto a point another hull holds. Once
+ * there it holds that point (a steady gun platform; `HOLD_SLACK`) and keeps the lean while its fleet stays engaged
+ * under the same order (no oscillating between the lean and its slot). The count runs from the fleet's contact
+ * (`fleetEngaged`), whether or not the anchor is still settling: the battlegroups spread the capitals across the line,
+ * and a wing group waiting for the anchor to stop left the centre to fight alone (Q2b's anchor gate, measured on the
+ * reference engagement). Reapers never idle once their fleet is engaged (`reaperAdvanceGoal`). Only Hold and Defend
+ * (and the non-attack orders) keep ships back.
  */
 export const NO_IDLE = {
   seconds: 10,
@@ -903,8 +1008,59 @@ function farOut(ctx: AiContext, ship: ShipState, reach: number): boolean {
 /** The orders under which every hull engages (brief §21.4, "Attack means everyone fights"). */
 export const ENGAGE_ORDERS: ReadonlySet<OrderType> = new Set<OrderType>(['attack', 'attack_target', 'advance', 'intercept']);
 
-/** A fleet is engaged once its heading has locked: the enemy within 1.1 × its range (PACING_PLAN.md §3.2, "in contact"). */
-export const fleetEngaged = (fleet: FleetState): boolean => fleet.headingLocked;
+/** A fleet is in contact while an enemy combatant is within this × its engagement range of any of its fighting hulls. */
+export const CONTACT_RANGE_FACTOR = 1.1;
+
+/**
+ * A fleet is engaged once its heading has locked (the enemy centroid within 1.1 × its range, PACING_PLAN.md §3.2) and
+ * stays engaged while it is in contact — an enemy combatant within `CONTACT_RANGE_FACTOR` × its range of any of its
+ * hulls (`FleetMotion.contact`). The heading lock alone left a gap: when a reserve wave appears the enemy centroid
+ * jumps, the heading unlocks and no hull moved up although the first wave's survivors were still fighting inside the
+ * formation. Contact does not start the first engagement: on the approach the forward screen meets the enemy first,
+ * and a fleet engaged by its screen sent every hull behind it in at full speed, out of its group.
+ */
+export const fleetEngaged = (fleet: FleetState): boolean => {
+  const m = fleetMotion(fleet);
+  if (fleet.headingLocked) m.engagedOnce = true;
+  return fleet.headingLocked || (m.engagedOnce && m.contact);
+};
+
+/**
+ * Whether any of `mine` has an enemy combatant within `reach` (the contact test, on the fleet's slow refresh): a
+ * bounding-sphere test first, so fleets far apart cost two centroid passes; then hull by hull, stopping at the first.
+ */
+export function inContact(mine: readonly ShipState[], enemies: readonly ShipState[], reach: number): boolean {
+  if (mine.length === 0 || enemies.length === 0 || !(reach > 0)) return false;
+  const sphere = (list: readonly ShipState[]): { x: number; y: number; z: number; r: number } => {
+    let x = 0;
+    let y = 0;
+    let z = 0;
+    for (const s of list) {
+      x += s.pos.x;
+      y += s.pos.y;
+      z += s.pos.z;
+    }
+    x /= list.length;
+    y /= list.length;
+    z /= list.length;
+    let r = 0;
+    for (const s of list) r = Math.max(r, Math.hypot(s.pos.x - x, s.pos.y - y, s.pos.z - z));
+    return { x, y, z, r };
+  };
+  const a = sphere(mine);
+  const b = sphere(enemies);
+  if (Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z) > a.r + b.r + reach) return false;
+  const r2 = reach * reach;
+  for (const s of mine) {
+    for (const e of enemies) {
+      const dx = e.pos.x - s.pos.x;
+      const dy = e.pos.y - s.pos.y;
+      const dz = e.pos.z - s.pos.z;
+      if (dx * dx + dy * dy + dz * dz <= r2) return true;
+    }
+  }
+  return false;
+}
 
 /** Longest weapon range of a hull (every mount; for nearly every hull its main battery). */
 export function longestRange(ship: ShipState): number {
@@ -1110,6 +1266,7 @@ export function moveUpGoal(ctx: AiContext, ship: ShipState, fleet: FleetState): 
   const m = shipMotion(ship);
   const o = fleet.orders.order;
   if (!ENGAGE_ORDERS.has(o) || !fleetEngaged(fleet) || fleet.static) {
+    if (m.moveUp) dropLane(ctx, ship);
     m.moveUp = undefined;
     m.outSince = -1;
     return undefined;
@@ -1135,7 +1292,8 @@ export function moveUpGoal(ctx: AiContext, ship: ShipState, fleet: FleetState): 
       const foe = ally && ally.alive && !ally.escaped ? pressing(ctx, ally) : undefined;
       const e = foe ?? nearest();
       // The same target keeps the point the hull holds; a new one starts a new approach.
-      m.moveUp = e ? { targetId: e.id, order: o, kind: foe ? 'backup' : 'lean', allyId: foe ? m.moveUp.allyId : undefined, hold: e.id === m.moveUp.targetId ? m.moveUp.hold : undefined } : undefined;
+      const same = e !== undefined && e.id === m.moveUp.targetId;
+      m.moveUp = e ? { targetId: e.id, order: o, kind: foe ? 'backup' : 'lean', allyId: foe ? m.moveUp.allyId : undefined, hold: same ? m.moveUp.hold : undefined } : undefined;
     } else if (m.outSince >= 0 && (now - m.outSince >= NO_IDLE.seconds - 1e-9 || farOut(ctx, ship, reach))) {
       const e = nearest();
       if (e) {
@@ -1148,11 +1306,14 @@ export function moveUpGoal(ctx: AiContext, ship: ShipState, fleet: FleetState): 
       }
     }
   }
-  if (!m.moveUp) return undefined;
+  if (!m.moveUp) {
+    dropLane(ctx, ship);
+    return undefined;
+  }
   const t = ctx.getShip(m.moveUp.targetId);
   if (!t || !t.alive) return undefined;
   const line = lineTarget(ctx, ship);
-  return closeOn(ship, t, moveUpDistance(ship, fleet), NO_IDLE.baseSpeed, weaponTarget(ctx, ship), line ? line.range : longestRange(ship));
+  return laneGoal(ctx, ship, fleet, t, moveUpDistance(ship, fleet), NO_IDLE.baseSpeed, weaponTarget(ctx, ship), line ? line.range : longestRange(ship));
 }
 
 /** The hull's own gun target (its fire control may well have chosen another hull than the one it moves up on). */
@@ -1162,37 +1323,196 @@ const weaponTarget = (ctx: AiContext, ship: ShipState): ShipState | undefined =>
 };
 
 /**
- * Close on `t` to `want` km (never backing off when nearer) at `pace0` × top speed — at full speed while still beyond
- * `NO_IDLE.farPace` × `want` — then hold the point reached (`HOLD_SLACK`; never past the hull's `reach`). Without a
- * move-up in force it keeps the distance, matching the target's velocity as far as the hull's speed allows. The hull
- * faces its own gun target when a forward mount bears on it (else `t`), so moving up never turns a spinal gun off
- * the hull it is shooting.
+ * Lanes for hulls moving up (brief §22: "never a crowd", "escorts spread around their group", "groups a camera can tell
+ * apart"). A hull moving up does not close on the one point every hull on the same enemy would reach along its own
+ * bearing (they converged on it and parked there, a ball of frigates from three fleets): its lane ends `want` from the
+ * enemy on its group's side — an escort of a leading capital keeps its station's offset across the line from the
+ * enemy to that capital, so the group leans in as a group, its escorts on parallel lanes; any other hull keeps its own
+ * bearing — and that end is kept at least `need` from every other lane end and every hull of its side keeping station
+ * there (`laneNeed`: the pair's minimum separation, never under `spacingKm`) by a deterministic search round the enemy
+ * (`SPIRAL`, `need` per step, the hull's own side first), re-checked on the no-idle cadence. The hull holds the end
+ * once there. All SIMULATION_ESTIMATE.
  */
-function closeOn(ship: ShipState, t: ShipState, want: number, pace0: number, gunTarget?: ShipState, reach = Infinity): MovementGoal {
-  const dx = ship.pos.x - t.pos.x;
-  const dy = ship.pos.y - t.pos.y;
-  const dz = ship.pos.z - t.pos.z;
-  const d = Math.hypot(dx, dy, dz) || 1e-6;
-  const pace = d > NO_IDLE.farPace * want ? 1 : pace0;
-  const face = faceIfBearing(ship, gunTarget) ?? t.pos;
-  // Arrived: hold that point (a steady gun platform, no chasing round a moving target) until the target draws off
-  // beyond `HOLD_SLACK` × the wanted distance, then close again.
-  const mu = shipMotion(ship).moveUp;
-  if (mu) {
-    const h = mu.hold;
-    if (h && Math.hypot(h.x - t.pos.x, h.y - t.pos.y, h.z - t.pos.z) <= Math.min(HOLD_SLACK * want, reach)) return { position: h, speedFraction: pace, velocity: ZERO, face };
-    mu.hold = undefined;
-    if (d <= want) {
-      mu.hold = v3(ship.pos.x, ship.pos.y, ship.pos.z);
-      return { position: mu.hold, speedFraction: pace, velocity: ZERO, face };
+export const LANE = {
+  /** No two lane ends nearer than this (km): about the spacing of a group's escorts (1.8 nominal km × SLOT_COMPRESSION). */
+  spacingKm: 1,
+  /** An escort's offset across its group's axis is kept within this × the distance it closes to. */
+  maxLateral: 0.6,
+  /** A hull this near its lane end (km) holds it. */
+  arriveKm: 0.3,
+} as const;
+
+/** Lane-end offsets round the enemy, in steps across (`a`, mirrored by the hull's own side) and up (`b`): nearest first. */
+const SPIRAL: readonly (readonly [number, number])[] = (() => {
+  const out: [number, number][] = [[0, 0]];
+  for (let k = 1; k <= 4; k++) {
+    const ring: [number, number][] = [];
+    for (let a = -k; a <= k; a++) for (let b = -k; b <= k; b++) if (Math.max(Math.abs(a), Math.abs(b)) === k) ring.push([a, b]);
+    ring.sort((p, q) => p[0] * p[0] + p[1] * p[1] - (q[0] * q[0] + q[1] * q[1]) || Math.abs(p[1]) - Math.abs(q[1]) || q[0] - p[0] || q[1] - p[1]);
+    out.push(...ring);
+  }
+  return out;
+})();
+
+/** The lane end a hull keeps from another hull's (or from a hull keeping station there): km. */
+const laneNeed = (a: ShipState, b: ShipState): number => Math.max(LANE.spacingKm, minSeparationKm(a, b));
+
+interface LaneEnd {
+  p: Vec3;
+  ship: ShipState;
+  time: number;
+}
+/** The current lane ends of the hulls moving up, per battle (its AI context) and side; each hull refreshes its own every step. */
+const LANE_ENDS = new WeakMap<object, { A: Map<string, LaneEnd>; B: Map<string, LaneEnd> }>();
+function laneBook(ctx: AiContext, side: 'A' | 'B'): Map<string, LaneEnd> {
+  let b = LANE_ENDS.get(ctx);
+  if (!b) LANE_ENDS.set(ctx, (b = { A: new Map(), B: new Map() }));
+  return b[side];
+}
+/** An entry refreshed this step or the last is current (ship order: a later hull refreshes after an earlier one looks). */
+const laneCurrent = (ctx: AiContext, e: LaneEnd): boolean => e.time >= ctx.time - 1.5 * DT_HINT && e.ship.alive && !e.ship.escaped;
+
+/** Drop a hull's lane end (its move-up ended). */
+function dropLane(ctx: AiContext, ship: ShipState): void {
+  const b = LANE_ENDS.get(ctx);
+  if (b) b[ship.side].delete(ship.id);
+}
+
+/** Whether `p` keeps every pair's `laneNeed` from the other lane ends of the hull's side and from its hulls keeping station. */
+function laneClear(ctx: AiContext, ship: ShipState, p: Vec3, book: Map<string, LaneEnd>): boolean {
+  for (const [id, e] of book) {
+    if (id === ship.id || !laneCurrent(ctx, e)) continue;
+    const need = laneNeed(ship, e.ship);
+    if ((p.x - e.p.x) ** 2 + (p.y - e.p.y) ** 2 + (p.z - e.p.z) ** 2 < need * need) return false;
+  }
+  const far = Math.max(LANE.spacingKm, minSeparationKm(ship, { role: 'reaper_capital', lengthKm: Math.max(ship.lengthKm, ctx.largestHullKm()) }));
+  for (const o of ctx.hullsNear(p, far)) {
+    if (o === ship || o.side !== ship.side || o.role === 'fighter' || !o.alive || o.escaped) continue;
+    const e = book.get(o.id);
+    if (e && laneCurrent(ctx, e)) continue;
+    const need = laneNeed(ship, o);
+    if ((p.x - o.pos.x) ** 2 + (p.y - o.pos.y) ** 2 + (p.z - o.pos.z) ** 2 < need * need) return false;
+  }
+  return true;
+}
+
+/**
+ * The end of a hull's lane toward `t` at `want` km (see `LANE`), registered as the hull's lane end for this step. The
+ * lane is chosen when the hull first leans on `t` and re-checked on the no-idle cadence: the nearest clear end.
+ */
+function laneEnd(ctx: AiContext, ship: ShipState, fleet: FleetState, t: ShipState, want: number): Vec3 {
+  const m = shipMotion(ship);
+  const book = laneBook(ctx, ship.side);
+  // The lane's axis: from the enemy to the group capital the escort keeps station on, else to the hull itself.
+  const lead = ship.groupLeaderId ? ctx.getShip(ship.groupLeaderId) : undefined;
+  const grouped = lead !== undefined && ship.groupSlot !== undefined && leads(lead);
+  const ref = grouped ? lead.pos : ship.pos;
+  let ex = ref.x - t.pos.x;
+  let ey = ref.y - t.pos.y;
+  let ez = ref.z - t.pos.z;
+  let el = Math.hypot(ex, ey, ez);
+  if (el < 1e-6) {
+    ex = -fleet.heading.x;
+    ey = 0;
+    ez = -fleet.heading.z;
+    el = Math.hypot(ex, ez) || 1;
+  }
+  ex /= el;
+  ey /= el;
+  ez /= el;
+  // An escort's offset across that axis (its place in the group, turned with the fleet), within `maxLateral` × want.
+  let ox = 0;
+  let oy = 0;
+  let oz = 0;
+  if (grouped) {
+    const g = ship.groupSlot!;
+    const o = offsetToWorld(fleet.heading, v3(ship.slot.x - g.x, ship.slot.y - g.y, ship.slot.z - g.z));
+    const along = o.x * ex + o.y * ey + o.z * ez;
+    ox = o.x - along * ex;
+    oy = o.y - along * ey;
+    oz = o.z - along * ez;
+    const ol = Math.hypot(ox, oy, oz);
+    const cap = LANE.maxLateral * want;
+    if (ol > cap) {
+      ox *= cap / ol;
+      oy *= cap / ol;
+      oz *= cap / ol;
     }
   }
-  const keep = Math.min(d, want);
+  const back = Math.sqrt(Math.max(0, want * want - (ox * ox + oy * oy + oz * oz)));
+  // The base lane end and the basis round the enemy for the search: `u` from the enemy to it, `s` across, `v` up.
+  let ux = ex * back + ox;
+  let uy = ey * back + oy;
+  let uz = ez * back + oz;
+  const ul = Math.hypot(ux, uy, uz) || 1;
+  ux /= ul;
+  uy /= ul;
+  uz /= ul;
+  let sx = uz;
+  let sz = -ux;
+  const sl = Math.hypot(sx, sz);
+  if (sl < 1e-6) {
+    sx = fleet.heading.z;
+    sz = -fleet.heading.x;
+  } else {
+    sx /= sl;
+    sz /= sl;
+  }
+  // v = u × s (u and s are orthogonal unit vectors, s horizontal).
+  const vx = uy * sz;
+  const vy = uz * sx - ux * sz;
+  const vz = -uy * sx;
+  const step = laneNeed(ship, ship) / want;
+  const side = hash01(ship.id, 43) < 0.5 ? 1 : -1;
+  const at = (k: number): Vec3 => {
+    const [a, b] = SPIRAL[k];
+    const px = ux + (a * side * sx + b * vx) * step;
+    const py = uy + b * vy * step;
+    const pz = uz + (a * side * sz + b * vz) * step;
+    const pl = Math.hypot(px, py, pz) || 1;
+    return v3(t.pos.x + (px / pl) * want, t.pos.y + (py / pl) * want, t.pos.z + (pz / pl) * want);
+  };
+  let lane = m.lane;
+  if (!lane || lane.targetId !== t.id) lane = m.lane = { targetId: t.id, k: 0, at: -Infinity };
+  if (ctx.time >= lane.at - 1e-9) {
+    lane.at = ctx.time + NO_IDLE.checkEvery;
+    if (!laneClear(ctx, ship, at(lane.k), book)) {
+      const free = SPIRAL.findIndex((_, i) => laneClear(ctx, ship, at(i), book));
+      if (free >= 0) lane.k = free;
+    }
+  }
+  const p = at(lane.k);
+  book.set(ship.id, { p, ship, time: ctx.time });
+  return p;
+}
+
+/**
+ * Close on `t` to `want` km along the hull's lane (`LANE`) at `pace0` × top speed — at full speed while still beyond
+ * `NO_IDLE.farPace` × `want` — then hold the lane end (or, already within `want` with its own spot clear, that spot)
+ * until the target draws off beyond `HOLD_SLACK` × `want` (never past the hull's `reach`). The hull faces its own gun
+ * target when a forward mount bears on it (else `t`), so moving up never turns a spinal gun off the hull it is shooting.
+ */
+function laneGoal(ctx: AiContext, ship: ShipState, fleet: FleetState, t: ShipState, want: number, pace0: number, gunTarget: ShipState | undefined, reach: number): MovementGoal {
+  const mu = shipMotion(ship).moveUp!;
+  const book = laneBook(ctx, ship.side);
+  const d = Math.hypot(ship.pos.x - t.pos.x, ship.pos.y - t.pos.y, ship.pos.z - t.pos.z) || 1e-6;
+  const pace = d > NO_IDLE.farPace * want ? 1 : pace0;
+  const face = faceIfBearing(ship, gunTarget) ?? t.pos;
+  const hold = (p: Vec3): MovementGoal => {
+    book.set(ship.id, { p, ship, time: ctx.time });
+    return { position: p, speedFraction: pace, velocity: ZERO, face };
+  };
+  // Holding: a steady gun platform, no chasing round a moving target, until it draws off beyond the slack.
+  const h = mu.hold;
+  if (h && Math.hypot(h.x - t.pos.x, h.y - t.pos.y, h.z - t.pos.z) <= Math.min(HOLD_SLACK * want, reach)) return hold(h);
+  mu.hold = undefined;
+  // Already within the wanted distance on a spot of its own: hold it.
+  if (d <= want && laneClear(ctx, ship, ship.pos, book)) return hold((mu.hold = v3(ship.pos.x, ship.pos.y, ship.pos.z)));
+  const p = laneEnd(ctx, ship, fleet, t, want);
+  // At the lane end: hold it.
+  if (Math.hypot(p.x - ship.pos.x, p.y - ship.pos.y, p.z - ship.pos.z) <= LANE.arriveKm) return hold((mu.hold = p));
   // While short it closes on the point (a fast target's own velocity would only drag a slow hull alongside it).
-  const tv = Math.hypot(t.vel.x, t.vel.y, t.vel.z);
-  const cap = tv > 0.5 * ship.maxSpeed ? (0.5 * ship.maxSpeed) / tv : 1;
-  const velocity = d > want ? undefined : v3(t.vel.x * cap, t.vel.y * cap, t.vel.z * cap);
-  return { position: v3(t.pos.x + (dx / d) * keep, t.pos.y + (dy / d) * keep, t.pos.z + (dz / d) * keep), speedFraction: pace, velocity, face };
+  return { position: p, speedFraction: pace, face };
 }
 
 /** A hull that has moved up holds its point until its target is beyond this × the distance it closed to (or its reach). */
@@ -1211,6 +1531,7 @@ export function reaperAdvanceGoal(ctx: AiContext, ship: ShipState, fleet: FleetS
   const o = fleet.orders.order;
   const av = fleetMotion(fleet).anchorVel;
   if (!ENGAGE_ORDERS.has(o) || (!fleetEngaged(fleet) && Math.hypot(av.x, av.y, av.z) >= 0.1 * ship.maxSpeed)) {
+    if (m.moveUp) dropLane(ctx, ship);
     m.moveUp = undefined;
     return undefined;
   }
@@ -1225,14 +1546,21 @@ export function reaperAdvanceGoal(ctx: AiContext, ship: ShipState, fleet: FleetS
     if (m.moveUp || !m.inReach) {
       const e = gunOut ?? (m.moveUp ? ctx.getShip(m.moveUp.targetId) : undefined) ?? nearestEnemyCombatant(ctx, ship);
       const live = e && e.alive && !e.escaped ? e : nearestEnemyCombatant(ctx, ship);
-      m.moveUp = live ? { targetId: live.id, order: o, kind: 'lean', hold: m.moveUp && m.moveUp.targetId === live.id ? m.moveUp.hold : undefined } : undefined;
+      const same = live !== undefined && m.moveUp !== undefined && m.moveUp.targetId === live.id;
+      m.moveUp = live ? { targetId: live.id, order: o, kind: 'lean', hold: same ? m.moveUp!.hold : undefined } : undefined;
     }
   }
-  if (!m.moveUp) return undefined;
+  if (!m.moveUp) {
+    dropLane(ctx, ship);
+    return undefined;
+  }
   const t = ctx.getShip(m.moveUp.targetId);
   if (!t || !t.alive || t.escaped) return undefined;
-  return closeOn(ship, t, 0.8 * range, REAPER_ADVANCE_FRACTION, target, range);
+  return laneGoal(ctx, ship, fleet, t, 0.8 * range, REAPER_ADVANCE_FRACTION, target, range);
 }
+
+/** A frigate's run line sits up to this far above or below its target (km; seeded per frigate). */
+export const RUN_LANE_KM = 1.2;
 
 /** Frigates fly straight runs and turn-ins under loose formations and attack orders (CINEMATIC_DESIGN.md §7.1 item 5). */
 export const frigateRuns = (ship: ShipState, fleet: FleetState): boolean => {
@@ -1262,15 +1590,20 @@ export function frigateRunGoal(ctx: AiContext, ship: ShipState, fleet: FleetStat
   const r = rightOf(b);
   const speed = ship.maxSpeed;
   const runSeconds = 12 + 8 * ((hash01(ship.id, 5) + golden(m.cycle + 1)) % 1);
+  // Each frigate flies its own run line (brief §22, never a crowd): every frigate of a fleet on one target shared one
+  // line, so their runs bunched into a ball; its height (±`RUN_LANE_KM`) and the line's centre along the front (± a
+  // quarter of its length) are its own, seeded by its id; the stand-off stays 0.85 × torpedo range.
   const D = 0.85 * torp;
   const L = Math.max(2, speed * runSeconds);
+  const lift = (hash01(ship.id, 53) * 2 - 1) * RUN_LANE_KM;
+  const shift = (hash01(ship.id, 57) * 2 - 1) * 0.25 * L;
   const now = ctx.time;
   let man = ship.manoeuvre;
   if (!man) man = ship.manoeuvre = { phase: 'approach', until: now + 40 };
   const tp = target.pos;
   const lineFor = (side: number): { from: Vec3; to: Vec3 } => ({
-    from: v3(tp.x - b.x * D - r.x * side * (L / 2), tp.y, tp.z - b.z * D - r.z * side * (L / 2)),
-    to: v3(tp.x - b.x * D + r.x * side * (L / 2), tp.y, tp.z - b.z * D + r.z * side * (L / 2)),
+    from: v3(tp.x - b.x * D + r.x * (shift - side * (L / 2)), tp.y + lift, tp.z - b.z * D + r.z * (shift - side * (L / 2))),
+    to: v3(tp.x - b.x * D + r.x * (shift + side * (L / 2)), tp.y + lift, tp.z - b.z * D + r.z * (shift + side * (L / 2))),
   });
   const dist = (p: Vec3): number => Math.hypot(p.x - ship.pos.x, p.y - ship.pos.y, p.z - ship.pos.z);
   switch (man.phase) {

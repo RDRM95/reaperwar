@@ -1,3 +1,4 @@
+import { dpow } from '@/core/detmath';
 import { Rng } from '@/core/rng';
 import { v3 } from '@/core/vec3';
 import { FACTIONS } from '@/data/factions';
@@ -428,7 +429,7 @@ function reaperAi(state: CampaignState, rng: Rng): void {
       const value = t.population * ts.population * (t.homeworldOf ? 1.6 : 1) + t.industry * 0.5;
       // Competent Reapers avoid engagements they would lose; less competent ones blunder in.
       const risk = defenders > own * (0.6 + competence * 0.5) ? 0.25 : 1;
-      const score = (value * risk) / Math.pow(path.length - 1, 1.2) + rng.next() * (1.5 - competence);
+      const score = (value * risk) / dpow(path.length - 1, 1.2) + rng.next() * (1.5 - competence);
       if (score > bestScore) {
         bestScore = score;
         best = t.id;

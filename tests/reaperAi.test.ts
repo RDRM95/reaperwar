@@ -278,6 +278,57 @@ describe('never idle, platforms first, rogue hulls', () => {
     expect(dist(hc, start)).toBeLessThan(1);
   });
 
+  it('in a locked fleet whose anchor holds, the capital with nothing in reach closes while the one in reach keeps its station (brief §22, Q3)', () => {
+    // The battle half of the test above passes on the Reaper fleet's own approach as well; here the fleet's anchor is
+    // held where it is (reset after every step) and the enemy stands on a flank, about 1.05 × the fleet's range from
+    // the anchor — inside the heading lock — so only the never-idle rule can bring the far capital into reach.
+    const canon = getPreset('canon_me3');
+    const r = fleet('r', 'reaper', canon, { counts: { reaper_capital: 2 }, name: 'R', side: 'B', formation: 'line_abreast', position: v3(0, 0, 30), heading: v3(0, 0, -1), mult: 1, initialOrder: { order: 'attack', fightersDeployed: false } });
+    const a = fleet('a', 'alliance', canon, { counts: { alliance_frigate: 1 }, name: 'A', position: v3(0, 0, -60), mult: 1, initialOrder: { order: 'hold_formation' } });
+    const sim = new BattleSimulation(config([a, r]));
+    muteAll(sim.ships);
+    sim.step();
+    const rf = sim.fleets.get('r')!;
+    const anchor = { ...rf.anchor };
+    const [c1, c2] = sim.ships.filter((s) => s.role === 'reaper_capital');
+    const range = Math.max(...c1.weapons.filter((w) => !w.def.antiSmall).map((w) => w.def.range));
+    // The frigate on the near capital's flank: within its reach, beyond the far one's, ~1.05 × range from the anchor.
+    // Abeam of the fleet's heading, on the near capital's side.
+    const right = v3(rf.heading.z, 0, -rf.heading.x);
+    const sign = (c1.pos.x - c2.pos.x) * right.x + (c1.pos.z - c2.pos.z) * right.z > 0 ? 1 : -1;
+    const side = v3(right.x * sign, 0, right.z * sign);
+    const f = sim.ships.find((s) => s.role === 'frigate')!;
+    let p = v3();
+    for (let k = 1; k >= 0.2; k -= 0.01) {
+      const fwd = Math.sqrt(Math.max(0, (1.05 * range) ** 2 - (k * range) ** 2));
+      p = v3(anchor.x + side.x * k * range + rf.heading.x * fwd, c1.pos.y, anchor.z + side.z * k * range + rf.heading.z * fwd);
+      if (dist(c1, p) < 0.97 * range && dist(c2, p) > 1.1 * range) break;
+    }
+    f.pos = { ...p };
+    f.prevPos = { ...p };
+    f.vel = v3();
+    f.maxSpeed = 0;
+    expect(dist(c1, p)).toBeLessThan(0.97 * range);
+    expect(dist(c2, p)).toBeGreaterThan(1.1 * range);
+    expect(Math.hypot(p.x - anchor.x, p.z - anchor.z)).toBeGreaterThan(range);
+    expect(Math.hypot(p.x - anchor.x, p.z - anchor.z)).toBeLessThan(1.1 * range);
+    const d0 = dist(c2, p);
+    const start1 = { ...c1.pos };
+    let fastest = 0;
+    for (let i = 0; i < 600; i++) {
+      sim.step();
+      rf.anchor = { ...anchor };
+      fastest = Math.max(fastest, Math.hypot(c2.vel.x, c2.vel.y, c2.vel.z));
+    }
+    expect(rf.headingLocked).toBe(true);
+    // The far capital closed under its own never-idle rule; the near one, with the frigate in reach, held its station
+    // (giving way to its neighbour as that one passes by within their clearance).
+    expect(dist(c2, p)).toBeLessThan(d0 - 3);
+    expect(fastest).toBeGreaterThan(0.3 * c2.maxSpeed);
+    expect(dist(c1, start1)).toBeLessThan(4);
+    expect(dist(c1, start1)).toBeLessThan(d0 - dist(c2, p));
+  });
+
   it('a Reaper in range of a platform and a cruiser takes the platform first — except while its fleet holds a pending volley', () => {
     const canon = getPreset('canon_me3');
     const build = (): BattleSimulation => {

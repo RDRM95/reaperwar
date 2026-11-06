@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { DIGEST_PIN } from '../tests/support/digests';
 
 /** Advance the simulation instantly (software GL in CI renders slowly). */
 const advance = (page: Page, seconds: number) =>
@@ -167,5 +168,24 @@ test.describe('Reaper War Simulator', () => {
     await page.mouse.move(cx + 120, cy, { steps: 8 });
     await page.mouse.up();
     expect(Math.abs((await rig()).yaw - zoomed.yaw)).toBeGreaterThan(0.1);
+  });
+
+  // ARCHITECTURE.md: replay = re-simulation. The browser plays the battle the tests pin in Node, bit for bit
+  // (tests/battlegroups.test.ts pins the same digest; the simulation keeps engine-dependent arithmetic out).
+  test('the browser plays the canon Battle of Earth (seed 42) bit for bit as Node does', async ({ page }) => {
+    await page.goto('/');
+    await page.click('[data-menu="quick-battle"]');
+    await expect(page.locator('.screen-body h2')).toHaveText('Battle of Earth');
+    await page.locator('label.field', { hasText: 'Timeline' }).locator('select').selectOption(DIGEST_PIN.rules);
+    await page.fill('input[type="number"]', String(DIGEST_PIN.seed));
+    await page.click('[data-action="launch"]');
+    await expect(page.locator('[data-action="pause"]')).toBeVisible();
+    const digest = await page.evaluate((tick) => {
+      const b = (window as unknown as { reaperwar: { battle: { config: { seed: number; scenarioId: string; rules: { id: string } }; sim: { tick: number; step(): void; positionDigest(): string } } } }).reaperwar.battle;
+      if (b.sim.tick > tick) return `too late: tick ${b.sim.tick}`;
+      while (b.sim.tick < tick) b.sim.step();
+      return `${b.config.scenarioId}/${b.config.rules.id}/${b.config.seed}@${b.sim.tick}:${b.sim.positionDigest()}`;
+    }, DIGEST_PIN.tick);
+    expect(digest).toBe(`${DIGEST_PIN.scenario}/${DIGEST_PIN.rules}/${DIGEST_PIN.seed}@${DIGEST_PIN.tick}:${DIGEST_PIN.digest}`);
   });
 });

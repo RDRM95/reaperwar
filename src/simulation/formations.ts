@@ -1,3 +1,4 @@
+import { dcos, dsin } from '@/core/detmath';
 import { Rng } from '@/core/rng';
 import { v3, type Vec3 } from '@/core/vec3';
 import type { ShipRole } from '@/data/types';
@@ -159,6 +160,13 @@ const CARRIER_BACK = 3.6;
 const CARRIER_UP = 3.0;
 /** Craft fly ahead of and above the screen. */
 const CRAFT_AHEAD = 2.5;
+/**
+ * A group's shell and screen grow with their numbers beyond these (radius × √(n / this)), so their escorts keep about
+ * the same spacing in a large group (the Geth fleet's one capital leads 8 cruisers and 12 frigates: on the fixed
+ * screen its 12 frigates sat within 1.5 km of each other, a ball, brief §22 "never a crowd").
+ */
+export const SHELL_ESCORTS = 6;
+export const SCREEN_ESCORTS = 5;
 /**
  * Clear space between neighbouring battlegroups (brief §22, "groups separated so a camera can tell them apart"): this
  * × the largest group's radius, and at least `GROUP_GAP_MIN` nominal km, between the outer hulls of two groups.
@@ -597,7 +605,10 @@ function separateGroups(groups: Group[], clear: number): void {
 }
 
 /** Unit vector at azimuth θ (from +z toward +x) and elevation φ. */
-const dir = (theta: number, phi: number): Vec3 => v3(Math.sin(theta) * Math.cos(phi), Math.sin(phi), Math.cos(theta) * Math.cos(phi));
+const dir = (theta: number, phi: number): Vec3 => {
+  const cp = dcos(phi);
+  return v3(dsin(theta) * cp, dsin(phi), dcos(theta) * cp);
+};
 const scaleV = (a: Vec3, s: number): Vec3 => v3(a.x * s, a.y * s, a.z * s);
 
 /**
@@ -630,6 +641,7 @@ function placeGroup(g: Group, formation: FormationType, jit: Map<string, Jitter>
   // Shell escorts (cruisers, Reaper destroyers): azimuths over the forward 300° from the group's phase (the broadside
   // line's over its +x side), alternately above and below by the group's tilt.
   const shell = byTier(1);
+  const shellScale = Math.max(1, Math.sqrt(shell.length / SHELL_ESCORTS));
   shell.forEach((s, i) => {
     const j = jit.get(s.id)!;
     const n = shell.length;
@@ -639,12 +651,13 @@ function placeGroup(g: Group, formation: FormationType, jit: Map<string, Jitter>
     const theta = broadside ? ((20 + 140 * slot) * Math.PI) / 180 : reaper ? ((120 + 120 * slot) * Math.PI) / 180 + g.phase / (3 * n) : ((-150 + 300 * slot) * Math.PI) / 180 + g.phase / n;
     const up = (i + (g.tilt < 0.5 ? 0 : 1)) % 2 === 0 ? 1 : -1;
     const phi = up * (reaper ? 0.55 + 0.35 * golden(i + 2 + Math.floor(g.tilt * 7)) : 0.22 + 0.4 * golden(i + 2 + Math.floor(g.tilt * 7))) + j.elevation;
-    put(s, scaleV(dir(theta + j.azimuth, phi), ring * j.spacing));
+    put(s, scaleV(dir(theta + j.azimuth, phi), ring * shellScale * j.spacing));
   });
   // The frigate screen: a cap ahead of the capital (for a broadside line: out on its +x side), scattered by the
   // golden sequence from the group's phase.
   const screen = byTier(2);
   const off = Math.floor(g.phase * 10);
+  const screenAhead = (SCREEN_AHEAD + ring - ESCORT_RING) * Math.max(1, Math.sqrt(screen.length / SCREEN_ESCORTS));
   screen.forEach((s, i) => {
     const j = jit.get(s.id)!;
     const n = screen.length;
@@ -653,7 +666,7 @@ function placeGroup(g: Group, formation: FormationType, jit: Map<string, Jitter>
     const theta = (broadside ? Math.PI / 2 : 0) + 2 * a * SCREEN_AZIMUTH + j.azimuth;
     const phi = 2 * b * SCREEN_ELEVATION * (g.tilt < 0.5 ? 1 : -1) + j.elevation;
     // A cloud, not a shell: the screen has depth as well as width and height.
-    const reach = (SCREEN_AHEAD + ring - ESCORT_RING) * j.spacing + (j.u - 0.5) * 0.5 * ring;
+    const reach = screenAhead * j.spacing + (j.u - 0.5) * 0.5 * ring;
     put(s, scaleV(dir(theta, phi), reach));
   });
   // Carriers: behind and above, a pair side by side.
@@ -673,7 +686,7 @@ function placeGroup(g: Group, formation: FormationType, jit: Map<string, Jitter>
   craft.forEach((s, i) => {
     const j = jit.get(s.id)!;
     const a = craft.length > 1 ? golden(i + off + 5) - 0.5 : 0;
-    const ahead = SCREEN_AHEAD + ring - ESCORT_RING + CRAFT_AHEAD;
+    const ahead = screenAhead + CRAFT_AHEAD;
     if (broadside) put(s, v3(ahead * j.spacing, 1.5 + golden(i + 2) * 1.5, a * ring * 1.6));
     else put(s, v3(a * ring * 1.6, 1.5 + golden(i + 2) * 1.5, ahead * j.spacing));
   });
@@ -712,9 +725,9 @@ function spacingGuard(ships: SlotShip[], slots: Map<string, Vec3>): void {
           uz = dz / d;
         } else {
           const a = golden(i + 1) * Math.PI * 2;
-          ux = Math.cos(a) * 0.96;
+          ux = dcos(a) * 0.96;
           uy = 0.28;
-          uz = Math.sin(a) * 0.96;
+          uz = dsin(a) * 0.96;
         }
         const push = need - d + 1e-3;
         p.x += ux * push;

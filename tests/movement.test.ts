@@ -3,7 +3,7 @@ import { v3 } from '@/core/vec3';
 import { buildScenario, fleet } from '@/scenarios';
 import { slotToWorld } from '@/simulation/formations';
 import { BattleSimulation, SIM_DT } from '@/simulation/battle';
-import { MOVEMENT, SPINAL_STANDOFF, fleetMotion } from '@/simulation/movement';
+import { MOVEMENT, SPINAL_STANDOFF, fleetMotion, stationOf } from '@/simulation/movement';
 import type { BattleConfig, FleetSpec, ShipState } from '@/simulation/types';
 import { getPreset } from '@/timelines/presets';
 import { duelConfig, mute } from './support/calibration';
@@ -27,7 +27,7 @@ const wrap = (a: number): number => Math.atan2(Math.sin(a), Math.cos(a));
 
 interface Trace {
   maxHeadingRate: number;
-  /** Mean angular rate about the anchor per fleet per 10 s window after first contact. */
+  /** Mean angular rate of the stations about the anchor per fleet per 10 s window after first contact. */
   windows: { fleet: string; t: number; omega: number }[];
   /** Largest one-way turn of a non-fighter's path (rad). */
   maxPathTurn: number;
@@ -39,6 +39,7 @@ interface Trace {
 /** Battle of Earth canon seed 42 for 120 s, sampled every step. */
 async function traceEarth(): Promise<Trace> {
   const sim = new BattleSimulation(buildScenario('battle_of_earth', 'canon_me3', 42));
+  const prevStation = new Map<string, { x: number; z: number; tick: number }>();
   const prevHeading = new Map<string, number>();
   const pathTurn = new Map<string, number>();
   const lastYaw = new Map<string, number>();
@@ -73,21 +74,29 @@ async function traceEarth(): Promise<Trace> {
       const prev = prevHeading.get(f.spec.id);
       if (prev !== undefined) maxHeadingRate = Math.max(maxHeadingRate, Math.abs(wrap(yaw - prev)) / SIM_DT);
       prevHeading.set(f.spec.id, yaw);
-      // Angular rate of the formation about its anchor: (Σ (r × v)·ŷ) / Σ |r|², relative to the anchor's motion.
+      // Angular rate of the formation about its anchor: (Σ (r × v)·ŷ) / Σ |r|² over its station keepers' stations (their
+      // places in the formation: a slot on the anchor for a group capital, the capital's position plus the escort's
+      // offset for an escort), relative to the anchor's motion — the turntable itself (brief §8.1). The hulls' own
+      // manoeuvres off their stations by design (a screen leaning in on its lanes, a hull moving up, a group re-forming
+      // after a loss) are not the formation turning; each hull's own path is held to 360° below.
       const c = contact.get(f.spec.id);
-      if (c === undefined || sim.time < c) continue;
       const av = fleetMotion(f).anchorVel;
       let num = 0;
       let den = 0;
       for (const s of sim.membersOf(f.spec.id)) {
         if (!stationKeeper(s)) continue;
-        const rx = s.pos.x - f.anchor.x;
-        const rz = s.pos.z - f.anchor.z;
-        const vx = s.vel.x - av.x;
-        const vz = s.vel.z - av.z;
+        const st = stationOf(sim, s, f).pos;
+        const prev = prevStation.get(s.id);
+        prevStation.set(s.id, { x: st.x, z: st.z, tick: sim.tick });
+        if (c === undefined || sim.time < c || !prev || prev.tick !== sim.tick - 1) continue;
+        const rx = st.x - f.anchor.x;
+        const rz = st.z - f.anchor.z;
+        const vx = (st.x - prev.x) / SIM_DT - av.x;
+        const vz = (st.z - prev.z) / SIM_DT - av.z;
         num += rz * vx - rx * vz;
         den += rx * rx + rz * rz;
       }
+      if (c === undefined || sim.time < c) continue;
       if (den < 1) continue;
       const a = acc.get(f.spec.id) ?? { sum: 0, n: 0, start: sim.time };
       a.sum += num / den;
@@ -145,7 +154,7 @@ describe('fleet movement: lines, not wheels (Battle of Earth canon seed 42, 120 
     expect(MOVEMENT.headingRateRad).toBeLessThanOrEqual(0.06);
   }, 120_000);
 
-  it('mean angular rate of each formation about its anchor < 0.02 rad/s over every 10 s window after its first contact', () => {
+  it('mean angular rate of each formation (its stations) about its anchor < 0.02 rad/s over every 10 s window after its first contact', () => {
     expect(trace.windows.length).toBeGreaterThan(10);
     for (const w of trace.windows) expect(Math.abs(w.omega), `${w.fleet} @ ${w.t.toFixed(0)} s`).toBeLessThan(0.02);
   });
@@ -213,7 +222,10 @@ describe('formation cohesion and stable engagement range (owner regression, INTE
     const line = fleet('line', 'alliance', rules, { counts: { alliance_cruiser: 4 }, name: 'Line', formation: 'broadside_line', position: v3(0, 0, -20), mult: 1 });
     const foe = fleet('foe', 'reaper', rules, { counts: { reaper_destroyer: 1 }, name: 'Foe', side: 'B', position: v3(0, 0, 20), mult: 1, initialOrder: { order: 'hold_formation', fightersDeployed: false } });
     const sim = new BattleSimulation(config([line, foe]));
+    // Both sides silent, so the battle runs the full minute: since brief §22 the line's screen leans in on its lanes and
+    // its four cruisers killed the lone destroyer 28 s in, which ended the battle before the turn was complete.
     mute(sim, 'B');
+    mute(sim, 'A');
     const f = sim.fleets.get('line')!;
     expect(f.doctrineFacing).toBe('broadside');
     for (let i = 0; i < 1600 && !f.headingLocked; i++) sim.step();

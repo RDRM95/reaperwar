@@ -6,14 +6,17 @@ import type { RuleSet } from '@/timelines/rules';
 import { ARC_VERTICAL_REACH, BATTLESPACE_SCALE as S } from './constants';
 import { slotToWorld } from './formations';
 import {
+  CONTACT_RANGE_FACTOR,
   REWITHDRAW_COOLDOWN,
   WITHDRAWAL,
   bearVertically,
   carrierGoal,
+  clearOfFriends,
   fighterPassGoal,
   fleetMotion,
   frigateRunGoal,
   frigateRuns,
+  inContact,
   moveUpGoal,
   reaperAdvanceGoal,
   recoveryStation,
@@ -345,18 +348,28 @@ function refreshFleetSlow(ctx: AiContext, fleet: FleetState): FleetSlowState {
   // The capital line's width limits how fast the formation may turn (escort screens are excluded: they can catch up).
   for (const s of mine) if (!s.stealth && isCapitalRole(s.role)) slotRadius = Math.max(slotRadius, Math.hypot(s.slot.x, s.slot.z));
   const slow: FleetSlowState = { mine, enemyCentre, myCentre, anchorSpeed: 0, range, spinal: spinalRange(mine), slotRadius, slotCentre };
+  // Contact (brief §21.4, §22): an enemy combatant within 1.1 × the fleet's range of any of its hulls in the line.
+  fleetMotion(fleet).contact = inContact(keepers, ctx.enemyCombatants(fleet.spec.side), CONTACT_RANGE_FACTOR * range);
   if (mine.length === 0) return slow;
 
   // Focus target: periodically re-evaluated (never a silent stealth hull nobody can see).
   const current = fleet.focusTargetId ? ctx.getShip(fleet.focusTargetId) : undefined;
-  if (current && (!current.alive || current.escaped || (current.stealth && current.stealth.state === 'silent'))) fleet.focusTargetId = undefined;
+  if (current && (!current.alive || current.escaped || (current.stealth && current.stealth.state === 'silent'))) {
+    fleet.focusTargetId = undefined;
+    // The line takes its next target at once: left without a focus until the decision timer ran out (up to a decision
+    // interval), each capital picked its own and the line's fire scattered just when the next kill had to be massed.
+    fleet.decisionTimer = 0;
+  }
   if (fleet.decisionTimer <= 0) {
     fleet.decisionTimer = doctrine.decisionInterval * (0.8 + 0.4 * ctx.rng.next());
     const cur = fleet.focusTargetId ? ctx.getShip(fleet.focusTargetId) : undefined;
     if (!cur || !cur.alive || cur.escaped || ctx.rng.chance(0.3)) {
       const representative = mine.reduce((a, b) => (a.pointValue >= b.pointValue ? a : b));
       // The line masses on what it can reach: with the capitals spread across battlegroups (brief §22), each candidate
-      // is weighed by the share of the fleet's line capitals that have it within their main battery's range.
+      // is weighed by the share of the fleet's line capitals that have it within their main battery's range — and, for
+      // a battery on a forward or beam arc (a spinal gun), within its vertical reach (`ARC_VERTICAL_REACH`): the 3D
+      // layouts stack groups in height, and a focus steeply over most of the line silenced its spinal guns for the
+      // half-minute the hulls took to climb onto it (the Prime/Apex reference engagement lost on that, seeds 2 and 15).
       const line = mine.filter((s) => isCapitalRole(s.role) && s.role !== 'carrier' && !s.stealth);
       let best: ShipState | undefined;
       let bestScore = -Infinity;
@@ -368,8 +381,13 @@ function refreshFleetSlow(ctx: AiContext, fleet: FleetState): FleetSlowState {
           for (const c of line) {
             const d = Math.hypot(e.pos.x - c.pos.x, e.pos.y - c.pos.y, e.pos.z - c.pos.z);
             let reach = 0;
-            for (const w of c.weapons) if (!w.def.antiSmall && w.def.range > reach) reach = w.def.range;
-            if (d <= reach) mass++;
+            let arcOnly = true;
+            for (const w of c.weapons) {
+              if (w.def.antiSmall || w.def.range <= reach) continue;
+              reach = w.def.range;
+              arcOnly = w.def.arc < 360;
+            }
+            if (d <= reach && (!arcOnly || d < 1e-6 || Math.abs(e.pos.y - c.pos.y) / d < ARC_VERTICAL_REACH)) mass++;
           }
           s *= MASS_FLOOR + mass / line.length;
         }
@@ -479,13 +497,21 @@ export function movementGoal(ctx: AiContext, ship: ShipState, fleet: FleetState)
   return withSeparation(ctx, ship, hullGoal(ctx, ship, fleet));
 }
 
-/** Add the separation bias (brief §22) to a hull's goal; small craft fly their own passes without it. */
+/**
+ * Add the separation bias (brief §22) to a hull's goal, and keep a held goal clear of the hulls of its side
+ * (`clearOfFriends`); small craft fly their own passes without either, and transits (runs, passes) keep their lines.
+ */
 function withSeparation(ctx: AiContext, ship: ShipState, goal: MovementGoal): MovementGoal {
   if (ship.role === 'fighter') return goal;
+  let g = goal;
+  if (!g.transit) {
+    const p = clearOfFriends(ctx, ship, g.position);
+    if (p !== g.position) g = { ...g, position: p };
+  }
   const rep = separationRepel(ctx, ship);
-  if (!rep) return goal;
-  const r = goal.repel;
-  return { ...goal, repel: r ? v3(r.x + rep.x, r.y + rep.y, r.z + rep.z) : rep };
+  if (!rep) return g;
+  const r = g.repel;
+  return { ...g, repel: r ? v3(r.x + rep.x, r.y + rep.y, r.z + rep.z) : rep };
 }
 
 function hullGoal(ctx: AiContext, ship: ShipState, fleet: FleetState): MovementGoal {
@@ -562,5 +588,5 @@ function stationedGoal(ctx: AiContext, ship: ShipState, fleet: FleetState, stati
     if (up) return up;
   }
   if (ship.role === 'carrier') return carrierGoal(ctx, ship, fleet, station.pos, station.vel, target);
-  return stationGoal(ship, fleet, station.pos, station.vel, target);
+  return stationGoal(ctx, ship, fleet, station.pos, station.vel, target);
 }

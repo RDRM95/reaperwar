@@ -2,6 +2,7 @@ import { v3, type Vec3 } from '@/core/vec3';
 import { isCapitalRole } from '@/data/types';
 import type { AiContext, MovementGoal } from './ai';
 import { minSeparationKm, slotToWorld } from './formations';
+import { shipMotion } from './movement';
 import { silentHull } from './stealth';
 import type { FleetState, InterposeState, ShipState } from './types';
 
@@ -134,10 +135,24 @@ export function rotateProtection(ctx: AiContext, ship: ShipState, fleet: FleetSt
   const slot = ship.slot;
   ship.slot = partner.slot;
   partner.slot = slot;
+  // The groups stay where they are and only the two capitals cross (brief §22, groups keep station): each capital's
+  // escorts now keep station on the capital that takes their group's slot, and hold that slot on the formation while
+  // the capitals pass (`transferring`, movement.ts `stationOf`). Crossing the formation with their capitals, the two
+  // groups' escorts wheeled about the anchor (Battle of Earth seed 42: 0.02–0.03 rad/s for ten seconds).
+  const ga = ship.groupSlot;
+  const gb = partner.groupSlot;
+  for (const e of ctx.membersOf(fleet.spec.id)) {
+    if (e.groupLeaderId === ship.id) e.groupLeaderId = partner.id;
+    else if (e.groupLeaderId === partner.id) e.groupLeaderId = ship.id;
+  }
+  ship.groupSlot = gb;
+  partner.groupSlot = ga;
   LAST_ROTATION.set(ship, now);
   LAST_ROTATION.set(partner, now);
   TRANSFER.set(ship, { partner, until: now + TRANSFER_SECONDS });
   TRANSFER.set(partner, { partner: ship, until: now + TRANSFER_SECONDS });
+  shipMotion(ship).transferring = true;
+  shipMotion(partner).transferring = true;
   return partner;
 }
 
@@ -152,6 +167,7 @@ export function transferGoal(ctx: AiContext, ship: ShipState, slotPos: Vec3, slo
   const d = Math.hypot(slotPos.x - ship.pos.x, slotPos.y - ship.pos.y, slotPos.z - ship.pos.z);
   if (ctx.time > t.until || d < TRANSFER_DONE_KM || !t.partner.alive || t.partner.escaped || ship.withdrawing) {
     TRANSFER.delete(ship);
+    shipMotion(ship).transferring = false;
     return undefined;
   }
   const speedOf = (s: ShipState): number => s.maxSpeed * (0.25 + 0.75 * s.subsystems.engines);

@@ -68,6 +68,27 @@ describe('determinism lint', () => {
     expect(violations, `simulation-affecting code reads a clock or Math.random:\n${violations.join('\n')}`).toEqual([]);
     ALLOW.forEach((e, i) => expect(allowHits[i], `allow-list entry missing or duplicated: ${e.path} (${e.why})`).toBe(1));
   });
+
+  /**
+   * Engine-dependent arithmetic (src/core/detmath.ts): `Math.sin`, `Math.cos` and `Math.pow`, and `**` with any exponent
+   * but 2, round differently in the last bit between JavaScript engines (Node 22 and Chromium 141 measured), so the same
+   * battle played differently in the browser and in Node. The simulation uses `dsin`, `dcos` and `dpow` instead.
+   */
+  it('uses no engine-dependent Math.sin, Math.cos, Math.pow or ** (other than ** 2) outside src/core/detmath.ts', () => {
+    const violations: string[] = [];
+    for (const file of files) {
+      const rel = posix(relative(ROOT, file));
+      if (rel === 'src/core/detmath.ts') continue;
+      // Code only: block and line comments are blanked (keeping the line numbers), strings are left alone.
+      const code = readFileSync(file, 'utf8')
+        .replace(/\/\*[\s\S]*?\*\//g, (c) => c.replace(/[^\n]/g, ' '))
+        .replace(/(^|[^:'"`\\])\/\/.*$/gm, '$1');
+      code.split('\n').forEach((line, i) => {
+        if (/\bMath\.(sin|cos|pow)\s*\(/.test(line) || /\*\*(?!\s*2(?![\d.]))/.test(line)) violations.push(`${rel}:${i + 1}: ${line.trim()}`);
+      });
+    }
+    expect(violations, `engine-dependent arithmetic in simulation-affecting code:\n${violations.join('\n')}`).toEqual([]);
+  });
 });
 
 describe('HADES wording lint helpers', () => {

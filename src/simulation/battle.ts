@@ -1,3 +1,4 @@
+import { dcos, dsin } from '@/core/detmath';
 import { Rng } from '@/core/rng';
 import {
   add,
@@ -125,8 +126,8 @@ export function mountWorldPosition(ship: ShipState, mountIndex: number): Vec3 | 
   const w = ship.weapons[mountIndex];
   if (!w) return undefined;
   const yaw = Math.atan2(ship.heading.x, ship.heading.z);
-  const sin = Math.sin(yaw);
-  const cos = Math.cos(yaw);
+  const sin = dsin(yaw);
+  const cos = dcos(yaw);
   const o = w.offset;
   return v3(ship.pos.x + o.x * cos + o.z * sin, ship.pos.y + o.y, ship.pos.z - o.x * sin + o.z * cos);
 }
@@ -139,6 +140,9 @@ export const hadesGateOpen = (target: ShipState): boolean =>
   target.role === 'reaper_capital' && (target.barriers <= 0 || barrierFraction(target) < HADES_GATE.barrierFractionBelow);
 
 const EMPTY_SHIPS: ShipState[] = [];
+/** Scratch words of `positionDigest` (one double, read as two 32-bit words). */
+const DIGEST_F64 = new Float64Array(1);
+const DIGEST_U32 = new Uint32Array(DIGEST_F64.buffer);
 
 /** Doctrine facing of a fleet (CINEMATIC_DESIGN.md §7.1): a broadside line turns its flank to the enemy; Reapers always fight bow-on. */
 const doctrineFacingFor = (faction: FactionId, formation: FormationType): 'bow' | 'broadside' => (formation === 'broadside_line' && faction !== 'reaper' ? 'broadside' : 'bow');
@@ -1119,6 +1123,42 @@ export class BattleSimulation implements AiContext {
     }
   }
 
+  /**
+   * A digest of the battle's state at this step: every hull's id, life, position, velocity, heading, hull and barriers,
+   * bit for bit (FNV-1a over the IEEE-754 words). The same config and seed give the same digest on every engine — the
+   * cross-engine determinism check (tests/battlegroups.test.ts pins it in Node, e2e/game.spec.ts recomputes it in the
+   * browser; ARCHITECTURE.md: replay = re-simulation).
+   */
+  positionDigest(): string {
+    const f = DIGEST_F64;
+    const u = DIGEST_U32;
+    let h = 0x811c9dc5;
+    const mix = (x: number): void => {
+      h = Math.imul((h ^ x) >>> 0, 0x01000193) >>> 0;
+    };
+    const num = (v: number): void => {
+      f[0] = v;
+      mix(u[0]);
+      mix(u[1]);
+    };
+    for (const s of this.ships) {
+      for (let i = 0; i < s.id.length; i++) mix(s.id.charCodeAt(i));
+      mix(s.alive ? 1 : 0);
+      num(s.pos.x);
+      num(s.pos.y);
+      num(s.pos.z);
+      num(s.vel.x);
+      num(s.vel.y);
+      num(s.vel.z);
+      num(s.heading.x);
+      num(s.heading.y);
+      num(s.heading.z);
+      num(s.hull);
+      num(s.barriers);
+    }
+    return h.toString(16).padStart(8, '0');
+  }
+
   /** Run to completion (headless). Returns the result. */
   run(maxSteps = 200_000): BattleResult {
     let n = 0;
@@ -1178,8 +1218,8 @@ export class BattleSimulation implements AiContext {
         let axis = cross(cur, target);
         if (lengthSq(axis) < 1e-8) axis = v3(0, 1, 0);
         axis = normalize(axis);
-        const c = Math.cos(maxTurn);
-        const s = Math.sin(maxTurn);
+        const c = dcos(maxTurn);
+        const s = dsin(maxTurn);
         // Rodrigues rotation.
         const term1 = scale(cur, c);
         const term2 = scale(cross(axis, cur), s);
@@ -1378,8 +1418,8 @@ export class BattleSimulation implements AiContext {
       m.id = ship.id;
       m.tick = this.tick;
       m.yaw = Math.atan2(ship.heading.x, ship.heading.z);
-      m.sin = Math.sin(m.yaw);
-      m.cos = Math.cos(m.yaw);
+      m.sin = dsin(m.yaw);
+      m.cos = dcos(m.yaw);
     }
     return m;
   }
@@ -1417,7 +1457,7 @@ export class BattleSimulation implements AiContext {
   private arcParams(ship: ShipState, w: WeaponState): { sin: number; cos: number; cosLimit: number } {
     const yaw = this.yawOf(ship).yaw + w.facing;
     const halfArc = ((w.def.arc / 2) * Math.PI) / 180;
-    return { sin: Math.sin(yaw), cos: Math.cos(yaw), cosLimit: Math.cos(halfArc + 0.05) };
+    return { sin: dsin(yaw), cos: dcos(yaw), cosLimit: dcos(halfArc + 0.05) };
   }
 
   private inArc(ship: ShipState, w: WeaponState, target: Vec3): boolean {
@@ -1851,7 +1891,7 @@ export class BattleSimulation implements AiContext {
             const ang = this.rng.next() * Math.PI * 2;
             const mag = solved ? missOffset(target.radiusKm, q, this.rng.next()) : target.radiusKm * (1.6 + this.rng.next() * 3) + 0.05;
             missDistance = mag;
-            aimPoint = add(aim, add(scale(perp, Math.cos(ang) * mag), scale(up, Math.sin(ang) * mag)));
+            aimPoint = add(aim, add(scale(perp, dcos(ang) * mag), scale(up, dsin(ang) * mag)));
           }
           const dir = normalize(sub(aimPoint, origin));
           this.projectiles.push({
@@ -1898,7 +1938,7 @@ export class BattleSimulation implements AiContext {
           const mag = target.radiusKm * 2.5 + 0.3;
           const ang = this.rng.next() * Math.PI * 2;
           const up = cross(perp, dir);
-          w.beamEnd = add(addScaled(target.pos, dir, 6), add(scale(perp, Math.cos(ang) * mag), scale(up, Math.sin(ang) * mag)));
+          w.beamEnd = add(addScaled(target.pos, dir, 6), add(scale(perp, dcos(ang) * mag), scale(up, dsin(ang) * mag)));
         }
         break;
       }
