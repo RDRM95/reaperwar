@@ -5,6 +5,7 @@ import { PLATFORM_WEIGHT, ROGUE_PREFERENCE, scoreTarget } from '@/simulation/ai'
 import { BattleSimulation, IDLE_RETRY_S, SIM_DT } from '@/simulation/battle';
 import { slotToWorld } from '@/simulation/formations';
 import { REAPER_AI } from '@/simulation/reaperAi';
+import { reaperAdvanceGoal } from '@/simulation/movement';
 import type { BattleConfig, BattleEvent, FleetSpec, ShipState, VolleyState } from '@/simulation/types';
 import { getPreset } from '@/timelines/presets';
 
@@ -113,9 +114,11 @@ describe('cover a damaged capital (all presets)', () => {
     const covering = destroyers.filter((d) => d.interpose?.protectId === cap.id);
     expect(covering.map((d) => d.id).sort()).toEqual([...nearest].sort());
     expect(covering.every((d) => d.interpose!.againstId === dn.id)).toBe(true);
-    // Within 10 s each covering destroyer sits on the capital–attacker segment, just outside the capital.
+    // Within 15 s each covering destroyer sits on the capital–attacker segment, just outside the capital. (10 s until
+    // brief §22: the destroyers now start from their stations behind the capital, which leads them, and the cover
+    // point keeps the capital–destroyer clearance; measured, they are on the line 12.5 s after the cover is set.)
     const t0 = sim.time;
-    while (sim.time < t0 + 10) sim.step();
+    while (sim.time < t0 + 15) sim.step();
     for (const d of covering) {
       const ax = dn.pos.x - cap.pos.x;
       const ay = dn.pos.y - cap.pos.y;
@@ -230,20 +233,49 @@ describe('the threatened group (Apex doctrine only)', () => {
 });
 
 describe('never idle, platforms first, rogue hulls', () => {
-  it('a Reaper with nothing in range closes on the nearest enemy group', () => {
+  it('a Reaper with nothing in range closes on the nearest enemy hull once its fleet is engaged; Hold keeps it back (brief §22)', () => {
+    // Until brief §22 this ran under Hold and the lone capital closed regardless of its order (AP §10, "never idle").
+    // Brief §22: Reapers never idle once engaged, and only Hold and Defend keep ships back — so the rule is checked
+    // on an engaged fleet under Attack, and the Hold order is checked to keep the capital at its station.
     const canon = getPreset('canon_me3');
-    const r = fleet('r', 'reaper', canon, { counts: { reaper_capital: 1 }, name: 'R', side: 'B', position: v3(0, 0, 70), mult: 1, initialOrder: { order: 'hold_formation', fightersDeployed: false } });
-    const a = fleet('a', 'alliance', canon, { counts: { alliance_frigate: 1 }, name: 'A', position: v3(0, 0, -70), mult: 1, initialOrder: { order: 'hold_formation' } });
-    const sim = new BattleSimulation(config([a, r]));
-    muteAll(sim.ships);
+    const build = (order: 'attack' | 'hold_formation'): BattleSimulation => {
+      const r = fleet('r', 'reaper', canon, { counts: { reaper_capital: 1 }, name: 'R', side: 'B', position: v3(0, 0, 70), mult: 1, initialOrder: { order, fightersDeployed: false } });
+      const a = fleet('a', 'alliance', canon, { counts: { alliance_frigate: 1 }, name: 'A', position: v3(0, 0, -70), mult: 1, initialOrder: { order: 'hold_formation' } });
+      const sim = new BattleSimulation(config([a, r]));
+      muteAll(sim.ships);
+      return sim;
+    };
+    const sim = build('attack');
+    sim.step();
     const cap = sim.ships.find((s) => s.role === 'reaper_capital')!;
     const f = sim.ships.find((s) => s.role === 'frigate')!;
     const range = Math.max(...cap.weapons.filter((w) => !w.def.antiSmall).map((w) => w.def.range));
     const d0 = dist(cap, f.pos);
     expect(d0).toBeGreaterThan(range * 1.5);
-    for (let i = 0; i < 600; i++) sim.step();
-    expect(dist(cap, f.pos)).toBeLessThan(d0 - 3);
-    expect(Math.hypot(cap.vel.x, cap.vel.y, cap.vel.z)).toBeGreaterThan(0.3 * cap.maxSpeed);
+    // Engaged (its fleet in contact elsewhere) with nothing in reach: the capital closes on the nearest enemy hull, to
+    // 0.8 × its range, at full speed while far out.
+    const rf = sim.fleets.get('r')!;
+    rf.headingLocked = true;
+    const goal = reaperAdvanceGoal(sim, cap, rf, undefined)!;
+    expect(goal).toBeDefined();
+    expect(dist(f, goal.position)).toBeCloseTo(0.8 * range, 6);
+    expect(goal.speedFraction).toBe(1);
+    // Under Hold the same capital keeps its place.
+    expect(sim.issueOrders('r', { order: 'hold_formation' })).toBe('issued');
+    expect(reaperAdvanceGoal(sim, cap, rf, undefined)).toBeUndefined();
+    // In the battle: under Attack it closes on the frigate; under Hold it stays at its station.
+    const attack = build('attack');
+    const ac = attack.ships.find((s) => s.role === 'reaper_capital')!;
+    const af = attack.ships.find((s) => s.role === 'frigate')!;
+    for (let i = 0; i < 600; i++) attack.step();
+    expect(dist(ac, af.pos)).toBeLessThan(d0 - 3);
+    expect(Math.hypot(ac.vel.x, ac.vel.y, ac.vel.z)).toBeGreaterThan(0.3 * ac.maxSpeed);
+    const hold = build('hold_formation');
+    const hc = hold.ships.find((s) => s.role === 'reaper_capital')!;
+    hold.step();
+    const start = { ...hc.pos };
+    for (let i = 0; i < 600; i++) hold.step();
+    expect(dist(hc, start)).toBeLessThan(1);
   });
 
   it('a Reaper in range of a platform and a cruiser takes the platform first — except while its fleet holds a pending volley', () => {
@@ -307,9 +339,12 @@ describe('never idle, platforms first, rogue hulls', () => {
     sim.onEvent = (e) => {
       if (e.type === 'weapon_fired') fired.push(e);
     };
-    while (sim.time < 60 && !sim.finished) sim.step();
     const factionOf = (id: string): string | undefined => sim.getShip(id)?.faction;
     const impacts = (from: string, to: string): boolean => sim.events.some((e) => e.type === 'projectile_impact' && factionOf(e.shipId) === from && factionOf(e.targetId) === to);
+    const firedAt = (from: string, to: string): boolean => fired.some((e) => e.type === 'weapon_fired' && factionOf(e.shipId) === from && factionOf(e.targetId) === to);
+    // Up to 60 s, until both sides have shown their hand. (A fixed 60 s until brief §22: the battlegroup layout puts the
+    // rogue pair between the lines, where both sides' fire kills it by 33 s, before the second half could start.)
+    while (sim.time < 60 && !sim.finished && !(firedAt('reaper', 'cerberus') && firedAt('cerberus', 'alliance') && impacts('cerberus', 'alliance'))) sim.step();
     // Left to themselves: the Reapers engage the rogue group and it goes for the Alliance (its preference).
     expect(fired.some((e) => e.type === 'weapon_fired' && factionOf(e.shipId) === 'reaper' && factionOf(e.targetId) === 'cerberus')).toBe(true);
     expect(fired.some((e) => e.type === 'weapon_fired' && factionOf(e.shipId) === 'cerberus' && factionOf(e.targetId) === 'alliance')).toBe(true);

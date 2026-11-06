@@ -155,13 +155,23 @@ describe('hold and release', () => {
     expect(inWindow.every((e) => e.volley === true)).toBe(true);
   });
 
-  it('mounts held under holdFire keep tracking their marked target: solution rising throughout, ≥ 0.6 after 10 s, not a shot fired', () => {
-    // A gap of 24 km nominal (9.6 compressed): the marked capitals sit at 0.5–0.6 of each hull's main range. The build
-    // rate falls with the range fraction (solutions.ts), so at 0.7 of range ten seconds give q ≈ 0.60 and beyond less.
+  it('mounts held under holdFire keep tracking their marked target: solution rising throughout, ≥ 0.6 after 10 s within 0.7 of range, not a shot fired', () => {
+    // A gap of 24 km nominal (9.6 compressed). The build rate falls with the range fraction (solutions.ts), so at 0.7 of
+    // range ten seconds give q ≈ 0.60 and beyond less. Before brief §22 every marked capital sat at 0.5–0.6 of its
+    // hull's main range; the battlegroups spread both lines across and in depth, so the marked capitals now sit at
+    // 0.45–0.95 of range (measured, seed 1; the same q at the same fraction as before, e.g. 0.58 of range → 0.67–0.68).
+    // The ≥ 0.6 level is asserted where the build rate gives it: for the hulls whose mark sits within 0.7 of range.
     const mark: Beat = { id: 'mark', at: 1, event: { kind: 'force_target', fleets: { fleetIds: ['a'] }, target: { query: 'nearest', to: { fleetId: 'a' }, side: 'B', roles: ['reaper_capital'] } } };
     const sim = lines({ beats: script([mark]), gap: 24 });
     sim.skipTo(1.05);
     const line = sim.ships.filter((s) => s.fleetId === 'a');
+    const fraction = (s: ShipState): number => {
+      const t = sim.getShip(s.forcedTargetId!)!;
+      const range = Math.max(...s.weapons.filter((w) => !w.def.antiSmall).map((w) => w.def.range));
+      return Math.hypot(t.pos.x - s.pos.x, t.pos.y - s.pos.y, t.pos.z - s.pos.z) / range;
+    };
+    const near = new Set(line.filter((s) => fraction(s) <= 0.7).map((s) => s.id));
+    expect(near.size).toBeGreaterThanOrEqual(3);
     const last = new Map(line.map((s) => [s.id, solutionFor(s, s.forcedTargetId!)]));
     while (sim.time < 11.05 - 1e-9) {
       sim.step();
@@ -175,7 +185,8 @@ describe('hold and release', () => {
       expect(s.forcedTargetId).toBeDefined();
       const t = sim.getShip(s.forcedTargetId!)!;
       expect(t.role).toBe('reaper_capital');
-      expect(solutionFor(s, t.id)).toBeGreaterThanOrEqual(0.6);
+      // Every held mount has built well past q₀ (0.1); those within 0.7 of range reach 0.6.
+      expect(solutionFor(s, t.id), s.id).toBeGreaterThanOrEqual(near.has(s.id) ? 0.6 : 0.45);
     }
     expect(fired(sim).some((e) => e.shipId.startsWith('a-') && line.some((s) => s.id === e.shipId && isSpinal(s.weapons[e.weaponIndex].def)))).toBe(false);
   });

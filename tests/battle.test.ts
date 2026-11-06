@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { BattleSimulation } from '@/simulation/battle';
-import { buildScenario, buildCustomBattle, getScenario, FLEET_SCALING_KEY } from '@/scenarios';
+import { buildScenario, buildCustomBattle, getScenario, FLEET_SCALING_KEY, SCENARIO_SPACING } from '@/scenarios';
 import { assessReapers } from '@/simulation/reaperIntel';
 import { compareBattles } from '@/scenarios/comparison';
 import { CANON_ME3, PRIME_APEX, getPreset } from '@/timelines/presets';
@@ -96,7 +96,9 @@ describe('battle simulation', () => {
   // barriers recover, nobody escapes" (brief §8.6: nobody runs; Disengage holds at 1.5 × standoff, CORE T10).
   it('player orders change behaviour: disengage pulls the fleet behind its line, barriers recover, nobody escapes', () => {
     const sim = new BattleSimulation(buildScenario('alliance_fleet_engagement', 'canon_me3', 5, fixed));
-    for (let i = 0; i < 600; i++) sim.step();
+    // The order comes once the lines are in contact: 30 s into the battle at the old distances, 48 s since the
+    // scenarios open SCENARIO_SPACING (1.6) × further apart (brief §22).
+    for (let i = 0; i < Math.round(600 * SCENARIO_SPACING); i++) sim.step();
     const f = sim.fleets.get('alliance-tf')!;
     const bearing = { ...f.approachBearing };
     const lineBefore = f.anchor.x * bearing.x + f.anchor.z * bearing.z;
