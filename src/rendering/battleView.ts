@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import type { BattleSimulation } from '@/simulation/battle';
-import { SIM_DT } from '@/simulation/battle';
+import { SIM_DT, mountWorldPosition } from '@/simulation/battle';
 import type { BattleEvent, ShipState } from '@/simulation/types';
 import { getFaction } from '@/data/factions';
 import { CameraRig, type CameraSubject } from './cameras';
@@ -476,14 +476,17 @@ export class BattleView {
         case 'weapon_fired': {
           if (e.kind !== 'mass_accelerator') break;
           const ship = this.sim.getShip(e.shipId);
-          const v = ship ? this.visuals.get(ship.id) : undefined;
-          if (!ship || !v) break;
+          if (!ship) break;
+          const v = this.visuals.get(ship.id);
           const w = ship.weapons[e.weaponIndex];
           if (!w) break;
           const big = w.def.damage >= 600;
           if (!big && Math.random() > 0.35) break; // thin out small-gun flashes
-          const local = big && v.built.muzzle ? v.built.muzzle.clone() : new THREE.Vector3(w.offset.x * KM, w.offset.y * KM, w.offset.z * KM);
-          const world = v.built.group.localToWorld(local);
+          const local = v && big && v.built.muzzle ? v.built.muzzle.clone() : undefined;
+          const mount = local ? undefined : mountWorldPosition(ship, e.weaponIndex);
+          const world = v && local ? v.built.group.localToWorld(local)
+            : mount ? new THREE.Vector3(mount.x * KM, mount.y * KM, mount.z * KM)
+            : new THREE.Vector3(ship.pos.x * KM, ship.pos.y * KM, ship.pos.z * KM);
           const dir = new THREE.Vector3(ship.heading.x, ship.heading.y, ship.heading.z);
           this.effects.muzzleFlash(world, dir, big ? 6 : 1.4, ship.faction === 'reaper');
           if (big && this.rig.mode === 'cinematic' && this.cine.age > 4 && Math.random() < 0.2) this.cine.hold = 0;
@@ -503,8 +506,14 @@ export class BattleView {
         }
         case 'ship_destroyed': {
           const v = this.visuals.get(e.shipId);
-          if (v && (e.role === 'dreadnought' || e.role === 'reaper_capital' || e.role === 'carrier')) {
-            // Cinematic director jumps to capital ship deaths.
+          const ship = this.sim.getShip(e.shipId);
+          // Instanced hulls have no individual death object to animate. Still
+          // emit the normal explosion, at the ship's real simulated position.
+          if (!v && ship) {
+            const pos = new THREE.Vector3(ship.pos.x * KM, ship.pos.y * KM, ship.pos.z * KM);
+            this.effects.explosion(pos, getShipTemplate(ship.classId).lengthUnits, ship.faction === 'reaper');
+          }
+          if ((v || ship) && (e.role === 'dreadnought' || e.role === 'reaper_capital' || e.role === 'carrier')) {
             this.cine = { fromId: e.shipId, toId: undefined, age: 0, hold: 7 };
           }
           break;
@@ -676,7 +685,7 @@ export class BattleView {
       if (!ship.alive || ship.escaped) continue;
       const v = this.visuals.get(ship.id);
       if (v?.removed) continue;
-      const origin = v ? v.built.group.position : this.tmpB.set(
+      const origin = this.tmpB.set(
         (ship.prevPos.x + (ship.pos.x - ship.prevPos.x) * this.alpha) * KM,
         (ship.prevPos.y + (ship.pos.y - ship.prevPos.y) * this.alpha) * KM,
         (ship.prevPos.z + (ship.pos.z - ship.prevPos.z) * this.alpha) * KM,
