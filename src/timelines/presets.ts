@@ -334,7 +334,6 @@ export const PRESETS: RuleSet[] = [
   HUMANITY_ASCENDANT,
   CERBERUS_REFORMED,
   REAPER_ESCALATION,
-  REAPER_HARDCORE,
   PRIME_APEX,
   APEX_LEGACY,
   CERBERUS_ASCENDANT,
@@ -342,6 +341,7 @@ export const PRESETS: RuleSet[] = [
 ];
 
 export const getPreset = (id: string): RuleSet => {
+  if (id === REAPER_HARDCORE.id) return cloneRules(REAPER_HARDCORE);
   const p = PRESETS.find((x) => x.id === id);
   if (!p) {
     if (id === 'custom') return makeCustom();
