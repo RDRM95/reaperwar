@@ -668,6 +668,8 @@ export interface CustomFleetInput {
 
 export interface CustomBattleInput {
   seed: number;
+  /** Spatial staging selected by the user. Existing old presets stay unchanged. */
+  theatreLayout?: 'three_dimensional' | 'legacy_plane';
   rulesId: string;
   environment: Environment;
   startingDistanceKm: number;
@@ -726,6 +728,7 @@ export function buildCustomBattle(input: CustomBattleInput, rules?: RuleSet): Ba
     maxDuration: input.maxDuration ?? CUSTOM_DEFAULT_DURATION,
     perspectiveSide: 'A',
     objective: 'Destroy the enemy force.',
+    worldState: { theatre_layout: input.theatreLayout ?? 'legacy_plane' },
     fleets: fleets.filter((f) => f.ships.length > 0),
   });
 }
