@@ -319,3 +319,30 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 @media (prefers-reduced-motion: reduce) {
   .screen, .screen .btn, .panel { animation: none !important; transition: none !important; }
 }
+
+
+/* Original command-interface finishing: restrained military holography, no
+   copyrighted game assets and no battle-scene postprocessing cost. */
+.menu-right {
+  background: radial-gradient(ellipse at 72% 36%, rgba(31, 97, 142, .16), transparent 54%),
+              linear-gradient(125deg, rgba(4, 19, 35, .2), rgba(2, 8, 16, .6));
+}
+.menu-right .grid-bg { animation: rw-grid-drift 34s linear infinite; }
+@keyframes rw-grid-drift { to { background-position: 96px 48px; } }
+.menu-title { text-shadow: 0 0 24px rgba(85, 172, 239, .18); }
+.menu-title span { text-shadow: 0 0 14px rgba(70, 168, 240, .24); }
+.menu .btn { border-left: 2px solid rgba(106, 185, 241, .46); }
+.menu .btn.primary { border-left: 3px solid var(--orange); }
+.screen-header { position: relative; }
+.screen-header::after {
+  content: ''; position: absolute; bottom: 0; left: 0; height: 1px;
+  width: min(520px, 60%); pointer-events: none;
+  background: linear-gradient(90deg, var(--cyan), rgba(79,163,255,.15), transparent);
+}
+.screen:not(.transparent) .panel-title { text-shadow: 0 0 12px rgba(88, 167, 233, .18); }
+.screen:not(.transparent) .panel::before { opacity: .7; }
+.menu-left > .btn { animation: rw-menu-arrive .28s ease-out backwards; }
+@keyframes rw-menu-arrive { from { opacity: .6; translate: -8px 0; } to { opacity: 1; translate: 0 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .menu-right .grid-bg, .menu-left > .btn { animation: none !important; }
+}
