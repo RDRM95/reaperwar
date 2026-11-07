@@ -301,7 +301,7 @@ export class EffectsSystem {
   // --------------------------------------------------------- per-frame sync
 
   /** Update tracers from simulation projectiles (positions in km). */
-  setTracers(items: { pos: { x: number; y: number; z: number }; vel: { x: number; y: number; z: number }; big: boolean }[], alpha: number, dt: number): void {
+  setTracers(items: readonly { pos: { x: number; y: number; z: number }; vel: { x: number; y: number; z: number }; big?: boolean; weapon?: { damage: number } }[], alpha: number, dt: number): void {
     let n = 0;
     const dir = new THREE.Vector3();
     for (const it of items) {
@@ -314,8 +314,9 @@ export class EffectsSystem {
       dir.normalize();
       this.tracerDummy.position.set(px, py, pz);
       this.tracerDummy.lookAt(px + dir.x, py + dir.y, pz + dir.z);
-      const len = Math.max(1.5, speed * 0.06) * (it.big ? 1.3 : 0.7);
-      const w = it.big ? 1.1 : 0.45;
+      const big = it.big ?? ((it.weapon?.damage ?? 0) >= 600);
+      const len = Math.max(1.5, speed * 0.06) * (big ? 1.3 : 0.7);
+      const w = big ? 1.1 : 0.45;
       this.tracerDummy.scale.set(w, w, len);
       this.tracerDummy.updateMatrix();
       this.tracerMesh.setMatrixAt(n++, this.tracerDummy.matrix);
@@ -324,9 +325,10 @@ export class EffectsSystem {
     this.tracerMesh.instanceMatrix.needsUpdate = true;
   }
 
-  setMissiles(items: { pos: { x: number; y: number; z: number }; vel: { x: number; y: number; z: number } }[], alpha: number, dt: number): void {
+  setMissiles(items: readonly { pos: { x: number; y: number; z: number }; vel: { x: number; y: number; z: number }; alive?: boolean }[], alpha: number, dt: number): void {
     let n = 0;
     for (const it of items) {
+      if (it.alive === false) continue;
       if (n >= this.budgets.missiles) break;
       this.tracerDummy.position.set((it.pos.x + it.vel.x * alpha * dt) * KM, (it.pos.y + it.vel.y * alpha * dt) * KM, (it.pos.z + it.vel.z * alpha * dt) * KM);
       this.tracerDummy.rotation.set(0, 0, 0);
