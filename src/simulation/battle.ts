@@ -25,6 +25,7 @@ import { WEAPONS, getWeapon } from '@/data/weapons';
 import { applyRulesToShip, applyRulesToWeapon, cloneRules, type EffectiveWeapon, type RuleSet } from '@/timelines/rules';
 import { beginWithdrawal, centroid, fleetDecision, fleetEngagementRange, movementGoal, shipDecision, type AiContext } from './ai';
 import { threatenedGroup, topGunPlatform } from './reaperAi';
+import { hardcoreReaperBeamDamage } from './reaperHardcore';
 import { applyDamage, barrierFraction, hitProbability } from './damage';
 import { layoutFormation, type FormationLayout } from './formations';
 import { WITHDRAWAL, WITHDRAWN_QUIET_SECONDS, approachProgress, enforceClearance, fleetMotion, noteLoss, spreadSlot, steerShip } from './movement';
@@ -1495,7 +1496,8 @@ export class BattleSimulation implements AiContext {
           // A flight's burst carries one beam per member that hit (`beamMembers`).
           const dmg = w.def.damage * dt * (w.beamMembers ?? 1);
           // Beams are judged by their whole burst for the M2 load threshold, not by the per-tick chunk.
-          const out = applyDamage(target, dmg, w.def, this.rng, this.time, { hitSize: w.def.damage * (w.def.beamDuration ?? 1.5) });
+          const impact = hardcoreReaperBeamDamage(this.rules, ship, target, w.def, dmg);
+          const out = applyDamage(target, impact, w.def, this.rng, this.time, { hitSize: w.def.damage * (w.def.beamDuration ?? 1.5) });
           this.noteFlightLosses(target);
           ship.stats.damageDealt += out.hullDamage + out.barrierDamage;
           ship.stats.recentDamage += out.hullDamage + out.barrierDamage;

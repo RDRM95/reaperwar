@@ -1,3 +1,4 @@
+import { hardcoreReaperTargetFactor } from './reaperHardcore';
 import type { Rng } from '@/core/rng';
 import { scale, v3, type Vec3 } from '@/core/vec3';
 import { FACTIONS, type FactionDoctrine } from '@/data/factions';
@@ -34,7 +35,7 @@ import { driveRunGoal } from './driveAttack';
 import { scriptedGoal } from './scriptedMoves';
 import { solutionFor } from './solutions';
 import { detectable, hunterGoal, hunterTarget } from './stealth';
-import type { FleetState, ShipState, TargetPriority } from './types';
+import type { BattleConfig, FleetState, ShipState, TargetPriority } from './types';
 
 /**
  * Tactical AI. Fleet-level decisions move the formation anchor and pick a
@@ -46,6 +47,8 @@ export interface AiContext {
   time: number;
   rng: Rng;
   rules: RuleSet;
+  /** The selected map's spatial layout; absent in lightweight AI test contexts. */
+  config?: Pick<BattleConfig,'worldState'>;
   ships: ShipState[];
   fleets: Map<string, FleetState>;
   enemiesOf(side: 'A' | 'B'): ShipState[];
@@ -197,6 +200,7 @@ export function scoreTarget(ctx: AiContext, shooter: ShipState, fleet: FleetStat
   if (shooter.rogue && !target.rogue && target.side !== shooter.side) score *= ROGUE_PREFERENCE;
   // A flight is scored as the craft it stands for (AP §21.3).
   if (target.flight) score *= Math.max(1, target.flight.craft);
+  score *= hardcoreReaperTargetFactor(ctx.rules, shooter, target, dist, mainRange);
   return score;
 }
 

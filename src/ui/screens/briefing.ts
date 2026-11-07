@@ -1,6 +1,7 @@
 import type { App } from '../app';
 import { el } from '../dom';
 import { SCENARIOS, defaultWorldState, getScenario } from '@/scenarios';
+import { stageThreeDimensionalTheatre } from '@/scenarios/theatre';
 import { getShipClass } from '@/data/ships';
 import { auPrefix, lockWorldState } from '@/timelines/alternates';
 import type { RuleSet } from '@/timelines/rules';
@@ -17,6 +18,7 @@ export function renderBriefing(app: App, params?: { scenarioId?: string }): HTML
   let timelineId = app.prefs.lastTimelineId;
   let seed = Math.floor(Math.random() * 100000);
   let worldState = defaultWorldState(scenario);
+  let theatreLayout: 'three_dimensional' | 'legacy_plane' = 'three_dimensional';
 
   /** Campaign-linked scenarios receive the saved war's fleets through world state. */
   const campaignWorldState = (): Record<string, string> => {
@@ -105,6 +107,12 @@ export function renderBriefing(app: App, params?: { scenarioId?: string }): HTML
             el('label', { class: 'field' }, ['Timeline', timelineSelect]),
             el('div', { class: 'threat-select-note' }, threatBadge(rules, 'full')),
             el('p', { class: 'dim', style: { fontSize: '12px' } }, rules.tagline),
+            el('label', { class: 'field' }, ['Battlespace layout', el('select', { 'data-action': 'briefing-theatre', onchange: (e: Event) => {
+              theatreLayout = (e.target as HTMLSelectElement).value as 'three_dimensional' | 'legacy_plane';
+            } }, [
+              el('option', { value: 'three_dimensional', selected: theatreLayout === 'three_dimensional' }, 'OPEN 3D — FLEET APPROACHES'),
+              el('option', { value: 'legacy_plane', selected: theatreLayout === 'legacy_plane' }, 'ORIGINAL — SAVED REPLAY LAYOUT'),
+            ])]),
             ...worldStateControls,
             hiddenNote,
             el('label', { class: 'field' }, ['Random seed', el('input', { type: 'number', value: seed, onchange: (e: Event) => {
@@ -126,7 +134,7 @@ export function renderBriefing(app: App, params?: { scenarioId?: string }): HTML
       app.playUi('ui_confirm');
       app.selectTimeline(timelineId);
       const rules = app.getTimeline(timelineId);
-      app.startBattle(scenario.build(rules, seed, { ...lockedWorldState(rules).ws, ...campaignWorldState() }));
+      app.startBattle(stageThreeDimensionalTheatre(scenario.build(rules, seed, { ...lockedWorldState(rules).ws, ...campaignWorldState(), theatre_layout: theatreLayout })));
     } }, 'Launch battle →'),
   ]);
 

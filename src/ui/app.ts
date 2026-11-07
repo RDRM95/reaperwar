@@ -7,7 +7,7 @@ import { startupGraphics, webglAvailable } from '@/rendering/localHardware';
 import type { CameraMode } from '@/rendering/cameras';
 import { BattleSimulation, SIM_DT } from '@/simulation/battle';
 import type { BattleConfig, BattleEvent, BattleResult, FleetOrders } from '@/simulation/types';
-import { PRESETS, getPreset } from '@/timelines/presets';
+import { PRESETS, REAPER_HARDCORE, getPreset } from '@/timelines/presets';
 import { cloneRules, type RuleSet } from '@/timelines/rules';
 import { normaliseRules } from '@/timelines/schema';
 import type { ComparisonReport } from '@/scenarios/comparison';
@@ -541,7 +541,7 @@ export class App {
   // ------------------------------------------------------------- timelines
 
   allTimelines(): RuleSet[] {
-    return [...PRESETS, ...this.customTimelines];
+    return [...PRESETS, REAPER_HARDCORE, ...this.customTimelines];
   }
   getTimeline(id: string): RuleSet {
     const c = this.customTimelines.find((t) => t.id === id);

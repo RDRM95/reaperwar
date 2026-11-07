@@ -38,6 +38,7 @@ const DEFAULT_INPUT: CustomBattleInput = {
   seed: 42,
   rulesId: 'canon_me3',
   environment: 'deep_space',
+  theatreLayout: 'three_dimensional',
   startingDistanceKm: CUSTOM_DEFAULT_DISTANCE,
   sideA: { faction: 'alliance', name: 'Alliance Task Force', formation: 'line_abreast', counts: { alliance_dreadnought: 8, alliance_carrier: 1, alliance_cruiser: 16, alliance_frigate: 30, alliance_frigate_thanix: 1 } },
   sideB: { faction: 'reaper', name: 'Reaper harvest group', formation: 'strike_wedge', counts: { reaper_capital: 4, reaper_destroyer: 8, harbinger: 0 } },
@@ -200,7 +201,13 @@ export function renderCustom(app: App): HTMLElement {
             } }, app.allTimelines().map((t) => el('option', { value: t.id, selected: input.rulesId === t.id }, timelineOptionLabel(t))))]),
             auNote,
             el('label', { class: 'field' }, ['Battlefield', el('select', { onchange: (e: Event) => (input.environment = (e.target as HTMLSelectElement).value as Environment) }, ENVIRONMENTS.map((x) => el('option', { value: x.id, selected: input.environment === x.id }, x.label)))]),
-            el('label', { class: 'field' }, [`Starting distance: ${input.startingDistanceKm} km`, el('input', { type: 'range', min: 30, max: 260, step: 2, value: input.startingDistanceKm, oninput: (e: Event) => {
+            el('label', { class: 'field' }, ['Battlespace layout', el('select', { 'data-action': 'theatre-layout', onchange: (e: Event) => {
+              input.theatreLayout = (e.target as HTMLSelectElement).value as 'three_dimensional' | 'legacy_plane';
+            } }, [
+              el('option', { value: 'three_dimensional', selected: input.theatreLayout === 'three_dimensional' }, 'OPEN 3D — MULTI-LEVEL FLEETS'),
+              el('option', { value: 'legacy_plane', selected: input.theatreLayout !== 'three_dimensional' }, 'ORIGINAL — REPLAY COMPATIBLE'),
+            ])]),
+            el('label', { class: 'field' }, [`Starting distance: ${input.startingDistanceKm} km`, el('input', { type: 'range', min: 30, max: 600, step: 2, value: input.startingDistanceKm, oninput: (e: Event) => {
               input.startingDistanceKm = Number((e.target as HTMLInputElement).value);
               (e.target as HTMLElement).parentElement!.firstChild!.textContent = `Starting distance: ${input.startingDistanceKm} km`;
             } })]),

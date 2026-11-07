@@ -481,6 +481,15 @@ export function steerFleet(ctx: AiContext, fleet: FleetState, view: FleetView, d
     case 'attack_target':
     case 'advance': {
       if (!aim) break;
+      // Hardcore Reapers keep their established gun line rather than
+      // hauling every capital after a single retreating contact.
+      if (ctx.rules.special.reaperHardcore && isReaper &&
+          (m.engagedOnce || fleet.headingLocked) &&
+          Math.hypot(aim.x - ax, aim.y - ay, aim.z - az) > view.range * 1.8) {
+        const remaining = ctx.enemiesOf(fleet.spec.side).filter(e => e.alive && !e.escaped && e.role !== 'fighter');
+        if (remaining.length > 0 && remaining.every(e =>
+          e.withdrawing || ctx.fleets.get(e.fleetId)?.orders.order === 'retreat')) break;
+      }
       const { want, backoff } = standoffOf(fleet, view);
       if (!fleet.headingLocked) {
         // Closing: along the approach bearing, decelerating over the last 20 % of the run-in.
@@ -551,6 +560,19 @@ export function steerFleet(ctx: AiContext, fleet: FleetState, view: FleetView, d
   }
   // Converging arcs (brief §22): the approach progress falls from 1 far out to 0 at the lock range; the stations of
   // the groups are spread wider and higher by it (`spreadSlot`), so the groups close in on gently converging curves.
+  // The original attack controller manoeuvred only in X/Z. On an explicitly
+  // selected 3D theatre, close the altitude component too so vertically
+  // separated battlegroups can bring forward-mounted guns into arc.
+  // Keep a tactical height offset instead of collapsing onto a 2D plane.
+  if (ctx.config?.worldState?.theatre_layout === 'three_dimensional' &&
+      aim && ['attack', 'attack_target', 'advance', 'intercept'].includes(o.order)) {
+    const deltaY = aim.y - fleet.anchor.y;
+    const heightBand = Math.max(0.25, view.range * 0.12);
+    if (Math.abs(deltaY) > heightBand) {
+      const travel = Math.min(Math.abs(deltaY) - heightBand, speed * 0.35 * dt);
+      fleet.anchor.y += Math.sign(deltaY) * travel;
+    }
+  }
   if (fleet.headingLocked) m.approach = Math.max(0, m.approach - APPROACH_ARC.rate * dt);
   else if (aim) {
     const want = approachProgress(Math.hypot(aim.x - fleet.anchor.x, aim.z - fleet.anchor.z), view.range);

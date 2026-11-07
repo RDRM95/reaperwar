@@ -1,5 +1,6 @@
 import { au, canon, estimate, inferred, type Sourced } from '@/core/provenance';
 import { v3, type Vec3 } from '@/core/vec3';
+import { stageThreeDimensionalTheatre } from './theatre';
 import { getPreset } from '@/timelines/presets';
 import { isApexRules, type RuleSet } from '@/timelines/rules';
 import { UNIQUE_CLASS_IDS, type FactionId } from '@/data/types';
@@ -649,7 +650,7 @@ export const defaultWorldState = (s: ScenarioDef): Record<string, string> => {
 export function buildScenario(scenarioId: string, rulesId: string, seed: number, worldState?: Record<string, string>): BattleConfig {
   const s = getScenario(scenarioId);
   const rules = getPreset(rulesId);
-  return s.build(rules, seed, { ...defaultWorldState(s), ...(worldState ?? {}) });
+  return stageThreeDimensionalTheatre(s.build(rules, seed, { ...defaultWorldState(s), ...(worldState ?? {}) }));
 }
 
 // ------------------------------------------------------------ custom battles
@@ -667,6 +668,8 @@ export interface CustomFleetInput {
 
 export interface CustomBattleInput {
   seed: number;
+  /** Spatial staging selected by the user. Existing old presets stay unchanged. */
+  theatreLayout?: 'three_dimensional' | 'legacy_plane';
   rulesId: string;
   environment: Environment;
   startingDistanceKm: number;
@@ -715,7 +718,7 @@ export function buildCustomBattle(input: CustomBattleInput, rules?: RuleSet): Ba
     fleets.push(mk({ faction: reinforcementFaction, name, formation: input.sideB.formation, counts: reinforcements }, 'B', 'custom-b-reinforcements', 0, half + 30 * SCENARIO_SPACING, -1, input.reinforcementTime));
   }
   const sideName = (main: CustomFleetInput, extra: CustomFleetInput[] | undefined): string => (extra && extra.length > 0 ? `${main.name} + ${extra.length} allied fleet${extra.length > 1 ? 's' : ''}` : main.name);
-  return {
+  return stageThreeDimensionalTheatre({
     id: `custom-${r.id}-${input.seed}`,
     name: `Custom: ${sideName(input.sideA, input.extraA)} vs ${sideName(input.sideB, input.extraB)}`,
     scenarioId: 'custom',
@@ -725,6 +728,7 @@ export function buildCustomBattle(input: CustomBattleInput, rules?: RuleSet): Ba
     maxDuration: input.maxDuration ?? CUSTOM_DEFAULT_DURATION,
     perspectiveSide: 'A',
     objective: 'Destroy the enemy force.',
+    worldState: { theatre_layout: input.theatreLayout ?? 'legacy_plane' },
     fleets: fleets.filter((f) => f.ships.length > 0),
-  };
+  });
 }
