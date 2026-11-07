@@ -2,6 +2,18 @@
 
 > **Change the variables. Change the war.**
 
+> **Development branches:** The current full game with AU campaign, 43 battle chapters,
+> main-gun POV and numerical battle resolver is maintained at
+> [Reaper War Codex Build](https://github.com/RDRM95/reaperwarCodexBuild)
+> ([play online](https://rdrm95.github.io/reaperwarCodexBuild/)).
+> For GPU-intensive fleet spectating and Scene Script mode, use
+> [Reaper War Spectator Sandbox](https://github.com/RDRM95/reaper-war-sandbox).
+> This original repository remains playable, and its one-click launcher
+> **still installs this original edition**. It has not been redirected and
+> existing local saves are not migrated automatically.
+
+
+
 A browser-based, real-time 3D naval warfare simulator set during the Reaper War of 2186. Canon Mass Effect 3 is the default; alternate-universe rule sets are optional and never presented as canon.
 
 **Unofficial, non-commercial fan project.** Mass Effect is a trademark of Electronic Arts / BioWare. No game assets, fonts, models, textures, music or dialogue recordings are used. All ship models are original procedural geometry, all audio is synthesised at runtime, and all text is original.
