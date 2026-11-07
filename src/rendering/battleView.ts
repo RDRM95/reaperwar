@@ -487,6 +487,19 @@ export class BattleView {
       this.driver?.onEvent(e);
       switch (e.type) {
         case 'weapon_fired': {
+          // Natural cinematic opportunity: the sim has actually fired a
+          // high-energy main beam. The camera observes an existing action;
+          // it never invents a shot, kill, target or combat order.
+          if (this.sim.rules.special.reaperHardcore && e.kind === 'reaper_beam' &&
+              this.rig.mode === 'cinematic' && this.cine.age > 5 && !this.driver) {
+            const shooter = this.sim.getShip(e.shipId);
+            const weapon = shooter?.weapons[e.weaponIndex];
+            const target = e.targetId ? this.sim.getShip(e.targetId) : undefined;
+            if (shooter?.role === 'reaper_capital' && weapon?.def.id === 'reaper_capital_beam' &&
+                weapon.beamHit && target?.alive) {
+              this.cine = { fromId: shooter.id, toId: target.id, age: 0, hold: 6 };
+            }
+          }
           if (e.kind !== 'mass_accelerator') break;
           const ship = this.sim.getShip(e.shipId);
           if (!ship) break;
