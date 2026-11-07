@@ -255,3 +255,17 @@ Architecture, lore sourcing, AU rules, known issues and the changelog are docume
 ## Deployment
 
 `.github/workflows/deploy.yml` builds with `VITE_BASE=/<repo>/` and publishes `dist/` to GitHub Pages on every push to `main` (or manually via *workflow_dispatch*). One-time setup in the repository: **Settings → Pages → Build and deployment → Source: GitHub Actions**. `.github/workflows/ci.yml` runs typecheck, unit tests, the production build and the Playwright suite on every branch.
+
+## Large-fleet local GPU performance update
+
+This original edition retains its established **`PLAY-REAPERWAR.cmd`**
+installer, portable release and local GPU launcher. The update does **not**
+redirect your installation to the Codex or Spectator projects and does not
+alter local save paths or ports.
+
+The existing GPU-instanced ship renderer and dynamically sized far-point
+cloud now select the nearest hero hulls without sorting every live ship on
+the rendering thread. Squared-distance LOD and cached faction colours retain
+the original quality thresholds, camera shots, ship behaviours and weapon
+effects. Run `npm test`, `npm run build` and `npm run perf` to validate
+the changes. Actual frame-rate gains depend on the target PC and battle.

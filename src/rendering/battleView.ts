@@ -12,7 +12,8 @@ import { buildEnvironment, type EnvironmentBuild } from './environment';
 import { KM } from './geometry';
 import { getShipTemplate, instantiateShip, type BuiltShip } from './ships';
 import { ShipBatches } from './shipBatches';
-import { DETAIL_MESH_NAMES, detailedHullBudget, farPointCapacity, lodLevel, type LodLevel } from './lod';
+import { DETAIL_MESH_NAMES, detailedHullBudget, farPointCapacity, lodLevelSquared, type LodLevel } from './lod';
+import { nearestDetailedShipIds } from './nearestDetailed';
 import { FpsMeter, pixelRatioFor, presetFor, type QualityPreset } from './quality';
 
 /**
@@ -96,6 +97,7 @@ export class BattleView {
   private farPositions = new Float32Array(INITIAL_FAR_POINTS * 3);
   private farColours = new Float32Array(INITIAL_FAR_POINTS * 3);
   private readonly tmpColour = new THREE.Color();
+  private readonly farColourCache = new Map<string, readonly [number, number, number]>();
   /** The closest detailed hulls in a large battle; others stay in the GPU point cloud. */
   private detailedShips?: Set<string>;
   private detailBudgetFrame = 0;
@@ -293,14 +295,7 @@ export class BattleView {
     const meshBudget = useBatches ? 24 : detailedHullBudget(sim.ships.length);
     if (!Number.isFinite(meshBudget)) this.detailedShips = undefined;
     else if (!this.detailedShips || ++this.detailBudgetFrame % 8 === 0) {
-      const near = sim.ships.filter((s) => s.alive && !s.escaped && (!useBatches || s.role !== 'fighter')).map((s) => {
-        const dx = s.pos.x * KM - cam.x;
-        const dy = s.pos.y * KM - cam.y;
-        const dz = s.pos.z * KM - cam.z;
-        return { id: s.id, distanceSq: dx * dx + dy * dy + dz * dz };
-      });
-      near.sort((a, b) => a.distanceSq - b.distanceSq);
-      this.detailedShips = new Set(near.slice(0, meshBudget).map((s) => s.id));
+      this.detailedShips = nearestDetailedShipIds(sim.ships, cam, KM, meshBudget, useBatches);
     }
     let far = 0;
     this.lodCounts = { full: 0, reduced: 0, point: 0 };
@@ -321,13 +316,14 @@ export class BattleView {
         (ship.prevPos.y + (ship.pos.y - ship.prevPos.y) * alpha) * KM,
         (ship.prevPos.z + (ship.pos.z - ship.prevPos.z) * alpha) * KM,
       );
-      const dist = cam.distanceTo(point);
+      const dx = point.x - cam.x, dy = point.y - cam.y, dz = point.z - cam.z;
+      const distanceSquared = dx * dx + dy * dy + dz * dz;
       const selected = this.selectedIds.size <= 12 && this.selectedIds.has(ship.id);
-      const hero = selected || this.followId === ship.id || (useBatches && dist < 700 && this.detailedShips?.has(ship.id));
+      const hero = selected || this.followId === ship.id || (useBatches && distanceSquared < 700 * 700 && this.detailedShips?.has(ship.id));
       const lengthUnits = v?.built.lengthUnits ?? getShipTemplate(ship.classId).lengthUnits;
       const level = hero ? 'full' : useBatches
-        ? lodLevel(dist, lengthUnits, ship.role, lodOn, lodScale)
-        : (!this.detailedShips || this.detailedShips.has(ship.id)) ? lodLevel(dist, lengthUnits, ship.role, lodOn, lodScale) : 'point';
+        ? lodLevelSquared(distanceSquared, lengthUnits, ship.role, lodOn, lodScale)
+        : (!this.detailedShips || this.detailedShips.has(ship.id)) ? lodLevelSquared(distanceSquared, lengthUnits, ship.role, lodOn, lodScale) : 'point';
       if (useBatches && !hero) {
         if (v) { this.applyLod(v, 'point'); v.built.group.visible = false; }
         if (level !== 'point') {
@@ -349,10 +345,15 @@ export class BattleView {
         this.farPositions[far * 3] = point.x;
         this.farPositions[far * 3 + 1] = point.y;
         this.farPositions[far * 3 + 2] = point.z;
-        this.tmpColour.setHex(getFaction(ship.faction).engineColourHex);
-        this.farColours[far * 3] = this.tmpColour.r;
-        this.farColours[far * 3 + 1] = this.tmpColour.g;
-        this.farColours[far * 3 + 2] = this.tmpColour.b;
+        let colour = this.farColourCache.get(ship.faction);
+        if (!colour) {
+          this.tmpColour.setHex(getFaction(ship.faction).engineColourHex);
+          colour = [this.tmpColour.r, this.tmpColour.g, this.tmpColour.b];
+          this.farColourCache.set(ship.faction, colour);
+        }
+        this.farColours[far * 3] = colour[0];
+        this.farColours[far * 3 + 1] = colour[1];
+        this.farColours[far * 3 + 2] = colour[2];
         far++;
         continue;
       }
