@@ -514,6 +514,12 @@ export class App {
     };
     window.addEventListener('pointerdown', unlock, { passive: true });
     window.addEventListener('keydown', unlock, { passive: true });
+    this.ui.addEventListener('change', (event: Event) => {
+      const target = event.target;
+      if (target instanceof HTMLSelectElement || (target instanceof HTMLInputElement && (target.type === 'range' || target.type === 'checkbox'))) {
+        this.playUi('ui_click');
+      }
+    });
   }
 
   async init(): Promise<void> {
@@ -584,6 +590,7 @@ export class App {
   // ---------------------------------------------------------------- screens
 
   show(screen: ScreenName, params?: unknown): void {
+    if (screen !== this.screen && screen !== 'battle') this.playUi('ui_open');
     if (screen !== 'battle' && this.battle) {
       this.battle.dispose();
       this.battle = undefined;
