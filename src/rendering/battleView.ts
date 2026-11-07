@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import type { BattleSimulation } from '@/simulation/battle';
 import { SIM_DT, mountWorldPosition } from '@/simulation/battle';
-import type { BattleEvent, ShipState } from '@/simulation/types';
+import type { BattleEvent, ShipState, WeaponState } from '@/simulation/types';
 import { getFaction } from '@/data/factions';
 import { CameraRig, type CameraSubject } from './cameras';
 import type { CameraDriver, SubjectPose, SubjectRef } from './cameraDriver';
@@ -86,6 +86,9 @@ export class BattleView {
   private readonly fwd = new THREE.Vector3(0, 0, 1);
   settings: GraphicsSettings;
   private eventQueue: BattleEvent[] = [];
+  /** Beam mounts are indexed once per fixed simulation tick, not at every render frame. */
+  private activeBeamTick = -1;
+  private readonly activeBeamMounts: { ship: ShipState; weapon: WeaponState }[] = [];
   /** Shared point cloud for ships beyond mesh range (one draw call). */
   private readonly farPoints: THREE.Points;
   /** GPU instancing: many identical ships rendered with one draw per mesh part. */
@@ -161,6 +164,8 @@ export class BattleView {
   /** Attach to a (new) simulation, rebuilding the scene content. */
   bind(sim: BattleSimulation): void {
     this.sim = sim;
+    this.activeBeamTick = -1;
+    this.activeBeamMounts.length = 0;
     for (const v of this.visuals.values()) this.scene.remove(v.built.group);
     this.visuals.clear();
     this.shipBatches.clear();
@@ -378,11 +383,20 @@ export class BattleView {
     const tracers = sim.projectiles.map((p) => ({ pos: p.pos, vel: p.vel, big: p.weapon.damage >= 600 }));
     this.effects.setTracers(tracers, alpha, SIM_DT);
     this.effects.setMissiles(sim.missiles.filter((m) => m.alive).map((m) => ({ pos: m.pos, vel: m.vel })), alpha, SIM_DT);
+    if (this.activeBeamTick !== sim.tick) {
+      this.activeBeamTick = sim.tick;
+      this.activeBeamMounts.length = 0;
+      for (const ship of sim.ships) {
+        if (!ship.alive) continue;
+        for (const weapon of ship.weapons) {
+          if (weapon.beamRemaining > 0 && weapon.beamStart && weapon.beamEnd)
+            this.activeBeamMounts.push({ ship, weapon });
+        }
+      }
+    }
     const beams: { start: THREE.Vector3; end: THREE.Vector3; kind: 'thanix' | 'reaper_beam'; intensity: number }[] = [];
-    for (const ship of sim.ships) {
-      if (!ship.alive) continue;
-      for (const w of ship.weapons) {
-        if (w.beamRemaining > 0 && w.beamStart && w.beamEnd) {
+    for (const { ship, weapon: w } of this.activeBeamMounts) {
+      if (ship.alive && w.beamRemaining > 0 && w.beamStart && w.beamEnd) {
           const kind = w.def.kind === 'thanix' ? 'thanix' : 'reaper_beam';
           const v = this.visuals.get(ship.id);
           // Start the beam at the model muzzle for Reapers (the eye), else at the hardpoint.
@@ -393,7 +407,6 @@ export class BattleView {
           const end = w.beamHit && t ? new THREE.Vector3(t.pos.x * KM, t.pos.y * KM, t.pos.z * KM) : new THREE.Vector3(w.beamEnd.x * KM, w.beamEnd.y * KM, w.beamEnd.z * KM);
           const intensity = kind === 'reaper_beam' ? (ship.role === 'reaper_capital' ? 1.3 : 0.7) : 0.9;
           beams.push({ start, end, kind, intensity });
-        }
       }
     }
     this.effects.setBeams(beams);
