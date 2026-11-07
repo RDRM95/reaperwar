@@ -12,6 +12,7 @@ import { cloneRules, type RuleSet } from '@/timelines/rules';
 import { normaliseRules } from '@/timelines/schema';
 import type { ComparisonReport } from '@/scenarios/comparison';
 import { clear, el } from './dom';
+import { applyUiScale, normaliseUiScale } from './tvDisplay';
 import { TacticalOverlay } from './overlay';
 import { createHud, type Hud } from './screens/hud';
 import { renderMenu } from './screens/menu';
@@ -516,7 +517,10 @@ export class App {
   }
 
   async init(): Promise<void> {
-    this.prefs = { ...DEFAULT_PREFERENCES, ...(await storage.get('preferences', DEFAULT_PREFERENCES)) };
+    const savedPreferences = await storage.get<Partial<Preferences>>('preferences', DEFAULT_PREFERENCES);
+    this.prefs = { ...DEFAULT_PREFERENCES, ...savedPreferences };
+    this.prefs.uiScale = normaliseUiScale(savedPreferences?.uiScale, window.innerWidth);
+    applyUiScale(this.ui, this.prefs.uiScale);
     this.prefs.graphics = startupGraphics({ ...DEFAULT_PREFERENCES.graphics, ...this.prefs.graphics });
     this.prefs.audio = { ...DEFAULT_PREFERENCES.audio, ...this.prefs.audio };
     this.prefs.showcase = { ...DEFAULT_PREFERENCES.showcase, ...this.prefs.showcase };
@@ -567,6 +571,7 @@ export class App {
   }
 
   async savePrefs(): Promise<void> {
+    applyUiScale(this.ui, this.prefs.uiScale);
     await storage.set('preferences', this.prefs);
     audio.settings = { ...this.prefs.audio };
     audio.applySettings();
