@@ -481,6 +481,15 @@ export function steerFleet(ctx: AiContext, fleet: FleetState, view: FleetView, d
     case 'attack_target':
     case 'advance': {
       if (!aim) break;
+      // Hardcore Reapers keep their established gun line rather than
+      // hauling every capital after a single retreating contact.
+      if (ctx.rules.special.reaperHardcore && isReaper &&
+          (m.engagedOnce || fleet.headingLocked) &&
+          Math.hypot(aim.x - ax, aim.y - ay, aim.z - az) > view.range * 1.8) {
+        const remaining = ctx.enemiesOf(fleet.spec.side).filter(e => e.alive && !e.escaped && e.role !== 'fighter');
+        if (remaining.length > 0 && remaining.every(e =>
+          e.withdrawing || ctx.fleets.get(e.fleetId)?.orders.order === 'retreat')) break;
+      }
       const { want, backoff } = standoffOf(fleet, view);
       if (!fleet.headingLocked) {
         // Closing: along the approach bearing, decelerating over the last 20 % of the run-in.
