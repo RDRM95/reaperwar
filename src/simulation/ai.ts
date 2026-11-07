@@ -1,3 +1,4 @@
+import { hardcoreReaperTargetFactor } from './reaperHardcore';
 import type { Rng } from '@/core/rng';
 import { scale, v3, type Vec3 } from '@/core/vec3';
 import { FACTIONS, type FactionDoctrine } from '@/data/factions';
@@ -197,6 +198,7 @@ export function scoreTarget(ctx: AiContext, shooter: ShipState, fleet: FleetStat
   if (shooter.rogue && !target.rogue && target.side !== shooter.side) score *= ROGUE_PREFERENCE;
   // A flight is scored as the craft it stands for (AP §21.3).
   if (target.flight) score *= Math.max(1, target.flight.craft);
+  score *= hardcoreReaperTargetFactor(ctx.rules, shooter, target, dist, mainRange);
   return score;
 }
 
