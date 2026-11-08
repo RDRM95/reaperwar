@@ -327,8 +327,16 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   background: radial-gradient(ellipse at 72% 36%, rgba(31, 97, 142, .16), transparent 54%),
               linear-gradient(125deg, rgba(4, 19, 35, .2), rgba(2, 8, 16, .6));
 }
-.menu-right .grid-bg { animation: rw-grid-drift 34s linear infinite; }
-@keyframes rw-grid-drift { to { background-position: 96px 48px; } }
+/* The menu grid drifts on its own layer, one tile larger than the view, moved by a transform that script
+   steps a few times a second (src/ui/motion.ts). A continuous CSS animation of the drift would keep an
+   uncapped browser (the Play launchers, the Local Edition) producing frames back to back on the menu. */
+.menu-right .grid-bg { background-image: none; overflow: hidden; }
+.menu-right .grid-bg::before {
+  content: ''; position: absolute; top: -48px; left: -96px; right: 0; bottom: 0;
+  background-image: linear-gradient(rgba(79, 163, 255, 0.06) 1px, transparent 1px), linear-gradient(90deg, rgba(79, 163, 255, 0.06) 1px, transparent 1px);
+  background-size: 48px 48px;
+  transform: translate3d(var(--drift-x, 0px), var(--drift-y, 0px), 0); will-change: transform;
+}
 .menu-title { text-shadow: 0 0 24px rgba(85, 172, 239, .18); }
 .menu-title span { text-shadow: 0 0 14px rgba(70, 168, 240, .24); }
 .menu .btn { border-left: 2px solid rgba(106, 185, 241, .46); }
@@ -344,5 +352,5 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .menu-left > .btn { animation: rw-menu-arrive .28s ease-out backwards; }
 @keyframes rw-menu-arrive { from { opacity: .6; translate: -8px 0; } to { opacity: 1; translate: 0 0; } }
 @media (prefers-reduced-motion: reduce) {
-  .menu-right .grid-bg, .menu-left > .btn { animation: none !important; }
+  .menu-left > .btn { animation: none !important; }
 }

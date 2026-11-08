@@ -25,7 +25,11 @@ try {
   // draw frames back to back and keep the CPU and GPU busy (a hidden loading-screen pulse once did).
   await page.waitForTimeout(1500);
   const endless = await page.evaluate(() => document.getAnimations().filter((a) => a.playState === 'running' && a.effect?.getComputedTiming().iterations === Infinity).map((a) => `${a.animationName ?? 'animation'} on ${a.effect?.target?.className ?? '?'}`));
-  if (endless.length) throw new Error(`endless animations run on the menu: ${endless.join(', ')}`);
+  if (endless.length) {
+    throw new Error(
+      `endless CSS animations run on the menu: ${endless.join(', ')}. With the launchers' browser frame cap lifted, any infinite CSS animation makes the browser draw frames back to back for as long as the screen is open (about four cores of software rendering for a full-screen drift). Make it finite, or step it from script with steppedDrift() in src/ui/motion.ts.`,
+    );
+  }
   await page.click('[data-menu="quick-battle"]');
   await page.click('[data-action="launch"]');
   await page.waitForSelector('[data-action="pause"]', { timeout: 90_000 });
