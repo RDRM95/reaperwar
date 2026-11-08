@@ -3,15 +3,18 @@ import { DEFAULT_PREFERENCES, storage, type Preferences } from '@/core/storage';
 import { DEFAULT_PERF_BUDGET, type PerfBudget } from '@/core/perfGovernor';
 import { schedulePresentation } from '@/core/frameLimiter';
 import { BattleView } from '@/rendering/battleView';
+import { BATCH_EVENT_THRESHOLD } from '@/rendering/eventBatching';
 import { startupGraphics, webglAvailable } from '@/rendering/localHardware';
 import type { CameraMode } from '@/rendering/cameras';
-import { BattleSimulation, SIM_DT } from '@/simulation/battle';
+import { BattleSimulation } from '@/simulation/battle';
 import type { BattleConfig, BattleEvent, BattleResult, FleetOrders } from '@/simulation/types';
+import { FrameStats, NORMAL_SPEED_INDEX, PLAYBACK_SPEEDS, PlaybackClock, runToResult, type RunToResultOutcome } from './playback';
+import { LocalSimDriver } from './simDriver';
 import { PRESETS, getPreset } from '@/timelines/presets';
 import { cloneRules, type RuleSet } from '@/timelines/rules';
 import { normaliseRules } from '@/timelines/schema';
 import type { ComparisonReport } from '@/scenarios/comparison';
-import { clear, el } from './dom';
+import { clear, el, fmtTime } from './dom';
 import { applyUiScale, normaliseUiScale } from './tvDisplay';
 import { TacticalOverlay } from './overlay';
 import { createHud, type Hud } from './screens/hud';
@@ -48,22 +51,55 @@ export interface LastBattle {
   campaign?: CampaignBattleLink;
 }
 
-/** Speed steps available to the player. */
-export const SPEEDS = [0.25, 0.5, 1, 2, 4, 8];
+/** Speed steps available to the player (src/ui/playback.ts). */
+export const SPEEDS: readonly number[] = PLAYBACK_SPEEDS;
+/** The tactical overlay's draw rate at 4× and above (Hz); below that it draws every frame. */
+export const FAST_OVERLAY_HZ = 30;
+/** HUD refresh cadence (s); at 4× and above the HUD's event feed is batched to it as well. */
+const HUD_REFRESH_S = 0.25;
+/** Progress overlay updates during Fast-forward (ms between DOM writes). */
+const FF_PROGRESS_MS = 100;
+/** Shot and impact audio hooks per batched frame: the audio engine plays at most 11 one-shots per 100 ms anyway. */
+const FAST_AUDIO_HOOKS = 24;
+
+/** A running Fast-forward to result (brief §19.1). */
+export interface FastForwardState {
+  /** Set to stop before the next slice; the run ends at the time reached and playback resumes at `resumeIndex`. */
+  cancel: boolean;
+  /** Speed step to resume at when cancelled (1× for the Cancel button; a speed button sets its own). */
+  resumeIndex: number;
+  startedAt: number;
+  startTime: number;
+  /** Ticks run by the fast-forward so far. */
+  ticks: number;
+}
+
+const ema = (prev: number, x: number, a: number): number => (prev === 0 ? x : prev + a * (x - prev));
 
 /**
  * Drives a live battle: fixed-step simulation at the chosen speed, the 3D
  * view, the tactical overlay, the HUD and all input.
+ *
+ * Playback (brief §19.1, docs/apex/PLAYBACK_PERF.md): the controller reaches the simulation only through its
+ * SimDriver, and the PlaybackClock decides how many fixed ticks each presented frame runs within an adaptive budget;
+ * the controller never mutates the simulation or draws from its generator, so the battle computed is the same at
+ * every speed and frame rate. The owner's presentation limiter (src/core/frameLimiter.ts) decides which animation
+ * frames present; the clock composes with it.
  */
 export class BattleController {
   sim: BattleSimulation;
+  /** The worker seam (src/ui/simDriver.ts): stepping, the end flag, the result and the event feed. */
+  readonly driver: LocalSimDriver;
+  /** Ticks per frame, the simulation budget, the bounded backlog and the achieved speed. */
+  readonly clock: PlaybackClock;
+  /** Per-frame cost averages for the performance HUD (F3). */
+  readonly stats = new FrameStats();
   readonly view: BattleView;
   readonly overlay: TacticalOverlay;
   hud: Hud;
-  speedIndex = 2;
-  paused = false;
   hudHidden = false;
-  private accumulator = 0;
+  /** A Fast-forward to result in progress. */
+  fastForward?: FastForwardState;
   private lastFrame = performance.now();
   private nextPresentAt = 0;
   /** Recent main-thread costs; excludes GPU execution time. */
@@ -74,8 +110,11 @@ export class BattleController {
   private keys = new Set<string>();
   private dragging: { button: number; x: number; y: number; moved: boolean } | null = null;
   private hudTimer = 0;
+  private overlayTimer = 0;
+  /** Real seconds accumulated for the HUD's event feed since it was last fed (batched at fast speed). */
+  private feedDt = 0;
   private ended = false;
-  /** Events consumed by the HUD since last frame. */
+  /** Events consumed by the HUD since it was last fed. */
   private pendingEvents: BattleEvent[] = [];
   readonly isReplay: boolean;
   /** Set when this battle resolves a campaign engagement. */
@@ -94,15 +133,12 @@ export class BattleController {
   ) {
     this.isReplay = isReplay;
     this.sim = new BattleSimulation(config);
+    // The driver attaches after the constructor's battle_start and opening comms: as before, those are not fed back.
+    this.driver = new LocalSimDriver(this.sim);
+    this.clock = new PlaybackClock();
     this.view = new BattleView(canvas, this.sim, app.prefs.graphics);
     this.overlay = new TacticalOverlay(overlayCanvas);
     this.overlay.visible = app.prefs.showOverlay;
-    const prevOnEvent = this.sim.onEvent;
-    this.sim.onEvent = (e) => {
-      prevOnEvent?.(e);
-      this.pendingEvents.push(e);
-      this.onSimEvent(e);
-    };
     this.hud = createHud(app, this);
     this.resize();
     this.bindInput();
@@ -112,7 +148,17 @@ export class BattleController {
   }
 
   get speed(): number {
-    return SPEEDS[this.speedIndex];
+    return this.clock.speed;
+  }
+  /** Current speed step (index into SPEEDS). */
+  get speedIndex(): number {
+    return this.clock.speedIndex;
+  }
+  get paused(): boolean {
+    return this.clock.paused;
+  }
+  set paused(v: boolean) {
+    this.clock.paused = v;
   }
 
   get playerFleetIds(): string[] {
@@ -120,11 +166,18 @@ export class BattleController {
   }
 
   setSpeed(i: number): void {
-    this.speedIndex = Math.max(0, Math.min(SPEEDS.length - 1, i));
+    const index = Math.max(0, Math.min(SPEEDS.length - 1, Math.round(i)));
+    if (this.fastForward) {
+      // A speed chosen during a fast-forward ends it and resumes there.
+      this.fastForward.resumeIndex = index;
+      this.cancelFastForward();
+      return;
+    }
+    this.clock.setSpeed(index);
     this.hud.refresh();
   }
   togglePause(): void {
-    this.paused = !this.paused;
+    this.clock.paused = !this.clock.paused;
     this.hud.refresh();
   }
   setCamera(mode: CameraMode): void {
@@ -235,54 +288,144 @@ export class BattleController {
     if (this.disposed) return;
     // Cap actual rendering, not the simulation's fixed timestep. A 144 Hz
     // monitor presents at most 144 frames; spare main-thread time goes to the
-    // game's simulation rather than unnecessary offscreen frames.
+    // game's simulation rather than unnecessary offscreen frames. A skipped
+    // callback advances nothing: the next presented frame's interval includes it.
     const gate = schedulePresentation(now, this.nextPresentAt, this.app.prefs.graphics.frameCap ?? 0);
     this.nextPresentAt = gate.nextAtMs;
     if (!gate.present) {
       this.raf = requestAnimationFrame(this.loop);
       return;
     }
-    const dtReal = Math.min(0.1, (now - this.lastFrame) / 1000);
+    const dtReal = Math.max(0, (now - this.lastFrame) / 1000);
     this.lastFrame = now;
-    this.handleKeys(dtReal);
-    const simulationStarted = performance.now();
-    if (!this.paused && !this.sim.finished) {
-      this.accumulator += dtReal * this.speed;
-      // Step until caught up, but never spend more than ~40 ms of wall time
-      // per frame so slow machines degrade to slower simulation, not a hang.
-      const budgetEnd = performance.now() + 40;
-      while (this.accumulator >= SIM_DT) {
-        this.sim.step();
-        this.accumulator -= SIM_DT;
-        if (performance.now() > budgetEnd) {
-          this.accumulator = Math.min(this.accumulator, SIM_DT);
-          break;
-        }
+    // Camera input and effects follow real time, capped so a stalled frame never jumps the view.
+    const dtView = Math.min(0.1, dtReal);
+    this.handleKeys(dtView);
+    const fastForward = this.clock.mode === 'result';
+    const t0 = performance.now();
+    // 1. Simulation: the clock runs the ticks this frame owes, within its budget (none during a fast-forward, which
+    //    steps in runToResult's own slices between frames).
+    const report = this.clock.frame(dtReal, this.driver);
+    const t1 = performance.now();
+    // 2. The events of the ticks run: view queue, HUD feed and audio, outside any step. A fast-forward shows nothing of
+    //    its stretch (its events are dropped from the effects, never from the simulation's log).
+    const events = this.driver.drain();
+    if (fastForward) {
+      for (const e of events) if (e.type === 'battle_end') this.ended = true;
+    } else this.dispatchEvents(events);
+    const t2 = performance.now();
+    const fast = this.clock.fast;
+    let t3 = t2;
+    let t4 = t2;
+    let t5 = t2;
+    if (!fastForward) {
+      // 3. The 3D view, once per presented frame; at 4× and above the frame's effects are batched (render only).
+      const alpha = this.paused ? 1 : this.clock.alpha;
+      this.view.update(dtView, alpha, fast || events.length > BATCH_EVENT_THRESHOLD);
+      t3 = performance.now();
+      this.view.render();
+      t4 = performance.now();
+      // 4. The tactical overlay: every frame, or FAST_OVERLAY_HZ at 4× and above (the previous drawing stays up).
+      this.overlayTimer += dtReal;
+      if (!fast || this.overlayTimer >= 1 / FAST_OVERLAY_HZ) {
+        this.overlayTimer = fast ? this.overlayTimer % (1 / FAST_OVERLAY_HZ) : 0;
+        const w = this.canvas.clientWidth;
+        const h = this.canvas.clientHeight;
+        this.overlay.draw(this.view, w, h, this.view.rig.mode);
       }
+      t5 = performance.now();
     }
-    const simulatedMs = performance.now() - simulationStarted;
-    this.simStepMs = this.simStepMs === 0 ? simulatedMs : this.simStepMs * 0.85 + simulatedMs * 0.15;
-    const drawingStarted = performance.now();
-    const alpha = this.paused ? 1 : Math.min(1, this.accumulator / SIM_DT);
-    this.view.update(dtReal, alpha);
-    this.view.render();
-    const w = this.canvas.clientWidth;
-    const h = this.canvas.clientHeight;
-    this.overlay.draw(this.view, w, h, this.view.rig.mode);
-    const drawnMs = performance.now() - drawingStarted;
-    this.renderCpuMs = this.renderCpuMs === 0 ? drawnMs : this.renderCpuMs * 0.85 + drawnMs * 0.15;
+    // 5. HUD: the event feed every frame, or batched with the refresh at 4× and above; the refresh four times a second.
     this.hudTimer -= dtReal;
-    this.hud.tick(dtReal, this.pendingEvents);
-    this.pendingEvents = [];
-    if (this.hudTimer <= 0) {
-      this.hudTimer = 0.25;
-      this.hud.refresh();
+    this.feedDt += dtReal;
+    if (!fast || fastForward || this.hudTimer <= 0) {
+      this.hud.tick(this.feedDt, this.pendingEvents);
+      this.pendingEvents = [];
+      this.feedDt = 0;
     }
-    if (this.ended && this.sim.result) {
+    if (this.hudTimer <= 0) {
+      this.hudTimer = HUD_REFRESH_S;
+      this.hud.refresh();
+      if (this.hud.perf.visible) this.hud.perf.refresh();
+    }
+    const t6 = performance.now();
+    // The frame's non-simulation cost sets the next budget (fast-forward frames draw nothing and say nothing about it).
+    if (!fastForward) this.clock.endFrame(t6 - t1);
+    this.stats.record({ frame: dtReal * 1000, sim: t1 - t0, events: t2 - t1, view: t3 - t2, render: t4 - t3, overlay: t5 - t4, hud: t6 - t5, ticks: report.ran }, t6);
+    this.simStepMs = ema(this.simStepMs, t1 - t0, 0.15);
+    this.renderCpuMs = ema(this.renderCpuMs, t5 - t2, 0.15);
+    if (this.ended && this.sim.result && !fastForward) {
       this.ended = false;
       this.hud.showEnd(this.sim.result);
     }
     this.raf = requestAnimationFrame(this.loop);
+  }
+
+  /** Hand a frame's events to the view, the HUD feed and the audio: the controller's event hooks, run once per frame outside any step. */
+  dispatchEvents(events: readonly BattleEvent[]): void {
+    if (events.length === 0) return;
+    this.view.pushEvents(events);
+    for (const e of events) this.pendingEvents.push(e);
+    // At fast speed only the first shots and impacts of a frame reach the audio hooks (camera-distance attenuation
+    // costs a few microseconds each, and the engine plays at most 11 one-shots per 100 ms); losses and alerts always do.
+    const budgeted = this.clock.fast || events.length > BATCH_EVENT_THRESHOLD;
+    let oneShots = 0;
+    for (const e of events) {
+      if (budgeted && (e.type === 'weapon_fired' || e.type === 'projectile_impact') && ++oneShots > FAST_AUDIO_HOOKS) continue;
+      this.onSimEvent(e);
+    }
+  }
+
+  /**
+   * Fast-forward to result (brief §19.1): step the battle to its end in time slices between frames, drawing nothing
+   * meanwhile, with a progress overlay and Cancel; then open the normal results flow. Every tick is the same `step()`
+   * normal playback runs, so the result, the losses, the hits and the event log are the ones normal playback computes.
+   */
+  fastForwardToResult(): void {
+    if (this.fastForward || this.sim.finished || this.disposed) return;
+    this.clock.setMode('result');
+    const state: FastForwardState = { cancel: false, resumeIndex: NORMAL_SPEED_INDEX, startedAt: performance.now(), startTime: this.sim.time, ticks: 0 };
+    this.fastForward = state;
+    this.hud.fastForward.show();
+    this.hud.refresh();
+    let shownAt = 0;
+    void runToResult(this.driver, {
+      shouldCancel: () => state.cancel || this.disposed,
+      isPaused: () => this.paused,
+      onProgress: (p) => {
+        state.ticks = p.ticks;
+        const t = performance.now();
+        if (t - shownAt >= FF_PROGRESS_MS) {
+          shownAt = t;
+          this.hud.fastForward.update();
+        }
+      },
+    }).then((outcome) => this.endFastForward(outcome));
+  }
+
+  /** Stop a running fast-forward before its next slice; playback resumes at 1× from the time reached. */
+  cancelFastForward(): void {
+    if (this.fastForward) this.fastForward.cancel = true;
+  }
+
+  private endFastForward(outcome: RunToResultOutcome): void {
+    const state = this.fastForward;
+    this.fastForward = undefined;
+    if (!state || this.disposed) return;
+    // The skipped stretch is not drawn: drop its events from the effects and the hulls it lost from the scene (render
+    // state only; the simulation's log holds every event).
+    this.driver.drain();
+    this.hud.fastForward.hide();
+    this.view.catchUp();
+    if (outcome.finished && this.sim.result) {
+      this.ended = false;
+      this.hud.viewResults();
+      return;
+    }
+    this.clock.setMode('normal', state.resumeIndex);
+    this.lastFrame = performance.now();
+    this.hud.refresh();
+    this.hud.toast(`FAST-FORWARD CANCELLED · ${this.speed}× FROM ${fmtTime(this.sim.time)}`);
   }
 
   private handleKeys(dt: number): void {
@@ -457,6 +600,15 @@ export class BattleController {
       case 'escape':
         this.hud.toggleMenu();
         break;
+      case 'end':
+        e.preventDefault();
+        if (this.fastForward) this.cancelFastForward();
+        else this.fastForwardToResult();
+        break;
+      case 'f3':
+        e.preventDefault();
+        this.hud.perf.toggle();
+        break;
       default:
         break;
     }
@@ -477,6 +629,8 @@ export class BattleController {
 
   dispose(): void {
     this.disposed = true;
+    // A fast-forward in progress stops before its next slice (its continuation sees `disposed` and does nothing).
+    this.cancelFastForward();
     cancelAnimationFrame(this.raf);
     window.removeEventListener('keydown', this.onKeyDown);
     window.removeEventListener('keyup', this.onKeyUp);

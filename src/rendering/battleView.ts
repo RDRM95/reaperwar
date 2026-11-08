@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
+import { Rng } from '@/core/rng';
 import type { BattleSimulation } from '@/simulation/battle';
 import { SIM_DT, mountWorldPosition } from '@/simulation/battle';
 import type { BattleEvent, ShipState, WeaponState } from '@/simulation/types';
@@ -8,6 +9,7 @@ import { CameraRig, type CameraSubject } from './cameras';
 import type { CameraDriver, SubjectPose, SubjectRef } from './cameraDriver';
 import type { ShipRef } from '@/simulation/types';
 import { EffectsSystem } from './effects';
+import { BATCH_EVENT_THRESHOLD, batchEvents, type MissileInterceptedEvent, type ProjectileImpactEvent, type WeaponFiredEvent } from './eventBatching';
 import { buildEnvironment, type EnvironmentBuild } from './environment';
 import { KM } from './geometry';
 import { getShipTemplate, instantiateShip, type BuiltShip } from './ships';
@@ -86,7 +88,12 @@ export class BattleView {
   private readonly tmpQ = new THREE.Quaternion();
   private readonly fwd = new THREE.Vector3(0, 0, 1);
   settings: GraphicsSettings;
+  /** Events handed over since the last frame (`pushEvents`), turned into effects by `processEvents`. */
   private eventQueue: BattleEvent[] = [];
+  /** Render-side randomness (flash thinning, dying-ship secondaries, cinematic picks): its own seeded generator, never the simulation's. */
+  private readonly rng = new Rng('view');
+  /** Effects batching at high speed (brief §19.1): frames batched, events seen and events merged into one effect, for the performance HUD. */
+  readonly batching = { frames: 0, events: 0, merged: 0 };
   /** Beam mounts are indexed once per fixed simulation tick, not at every render frame. */
   private activeBeamTick = -1;
   private readonly activeBeamMounts: { ship: ShipState; weapon: WeaponState }[] = [];
@@ -186,7 +193,9 @@ export class BattleView {
     // Large engagements use GPU instances and lazy hero models. Do not create
     // thousands of cloned Three.js objects just to hide most of them as points.
     if (sim.ships.length < 500) for (const s of sim.ships) this.ensureVisual(s);
-    sim.onEvent = (e) => this.eventQueue.push(e);
+    // The controller hands the ticks' events over once per frame (`pushEvents`, through its SimDriver); the view does
+    // not hook `sim.onEvent`, so it never runs inside a simulation step.
+    this.eventQueue = [];
     this.selectedIds.clear();
     this.followId = undefined;
     this.cine = { age: 0, hold: 0 };
@@ -271,10 +280,35 @@ export class BattleView {
     this.driver = driver;
   }
 
-  update(dt: number, alpha: number): void {
+  /** Queue the events of the ticks run since the last frame; the next `update` turns them into effects. */
+  pushEvents(events: readonly BattleEvent[]): void {
+    for (const e of events) this.eventQueue.push(e);
+  }
+
+  /**
+   * The battle skipped ahead without rendering (Fast-forward to result, cancelled or complete): drop the effects of the
+   * skipped stretch, hide the hulls lost during it without a death sequence, and forget the beams indexed for an old
+   * tick. Render state only; the simulation and its log are untouched.
+   */
+  catchUp(): void {
+    this.eventQueue = [];
+    this.activeBeamTick = -1;
+    this.activeBeamMounts.length = 0;
+    this.effects.clear();
+    for (const v of this.visuals.values()) {
+      if (v.ship.alive || v.removed) continue;
+      this.scene.remove(v.built.group);
+      v.removed = true;
+      if (this.followId === v.ship.id) this.followId = undefined;
+      this.selectedIds.delete(v.ship.id);
+    }
+  }
+
+  /** `fast`: batch the frame's events into effects (4× and above; always when the frame brings more than BATCH_EVENT_THRESHOLD). */
+  update(dt: number, alpha: number, fast = false): void {
     this.alpha = alpha;
     this.renderTime = this.sim.time - SIM_DT + alpha * SIM_DT;
-    this.processEvents();
+    this.processEvents(fast);
     const sim = this.sim;
     const cam = this.rig.camera.position;
     const lodOn = this.settings.lod !== false;
@@ -448,8 +482,9 @@ export class BattleView {
     v.built.group.position.add(this.tmpA.set(ship.vel.x, ship.vel.y, ship.vel.z).multiplyScalar(KM * dt * 0.6));
     v.built.group.rotateX(dt * 0.05);
     if (d.timer >= d.nextSecondary) {
-      d.nextSecondary = d.timer + 0.12 + Math.random() * 0.25;
-      const p = v.built.group.position.clone().add(new THREE.Vector3((Math.random() - 0.5) * v.built.lengthUnits, (Math.random() - 0.5) * v.built.lengthUnits * 0.3, (Math.random() - 0.5) * v.built.lengthUnits));
+      const rng = this.rng;
+      d.nextSecondary = d.timer + 0.12 + rng.next() * 0.25;
+      const p = v.built.group.position.clone().add(new THREE.Vector3((rng.next() - 0.5) * v.built.lengthUnits, (rng.next() - 0.5) * v.built.lengthUnits * 0.3, (rng.next() - 0.5) * v.built.lengthUnits));
       this.effects.secondary(p, v.built.lengthUnits * 0.5);
     }
     if (d.timer >= d.duration) this.finishDeath(v);
@@ -480,61 +515,95 @@ export class BattleView {
     this.selectedIds.delete(ship.id);
   }
 
-  private processEvents(): void {
+  /**
+   * Turn the frame's events into effects. At normal speed every event spawns its own effect. With `fast` (4× and
+   * above), or when a frame brings more than BATCH_EVENT_THRESHOLD events (an external advance, a long stall), the
+   * frame is batched (src/rendering/eventBatching.ts): one muzzle flash per firing ship for its newest shot, one
+   * impact per target with the frame's damage merged, a bounded number of intercepts, every destruction, the rest
+   * counted. The camera driver still sees every event in order. Render only: the simulation's log is never touched.
+   */
+  private processEvents(fast: boolean): void {
     const q = this.eventQueue;
     this.eventQueue = [];
-    for (const e of q) {
-      this.driver?.onEvent(e);
-      switch (e.type) {
-        case 'weapon_fired': {
-          if (e.kind !== 'mass_accelerator') break;
-          const ship = this.sim.getShip(e.shipId);
-          if (!ship) break;
-          const v = this.visuals.get(ship.id);
-          const w = ship.weapons[e.weaponIndex];
-          if (!w) break;
-          const big = w.def.damage >= 600;
-          if (!big && Math.random() > 0.35) break; // thin out small-gun flashes
-          const local = v && big && v.built.muzzle ? v.built.muzzle.clone() : undefined;
-          const mount = local ? undefined : mountWorldPosition(ship, e.weaponIndex);
-          const world = v && local ? v.built.group.localToWorld(local)
-            : mount ? new THREE.Vector3(mount.x * KM, mount.y * KM, mount.z * KM)
-            : new THREE.Vector3(ship.pos.x * KM, ship.pos.y * KM, ship.pos.z * KM);
-          const dir = new THREE.Vector3(ship.heading.x, ship.heading.y, ship.heading.z);
-          this.effects.muzzleFlash(world, dir, big ? 6 : 1.4, ship.faction === 'reaper');
-          if (big && this.rig.mode === 'cinematic' && this.cine.age > 4 && Math.random() < 0.2) this.cine.hold = 0;
-          if (big && this.rig.mode === 'projectile') this.projectileTrack = { id: this.sim.projectiles[this.sim.projectiles.length - 1]?.id ?? 0 };
-          break;
-        }
-        case 'projectile_impact': {
-          const t = this.sim.getShip(e.targetId);
-          const v = t ? this.visuals.get(t.id) : undefined;
-          const pos = new THREE.Vector3(e.pos.x * KM, e.pos.y * KM, e.pos.z * KM);
-          this.effects.impact(pos, e.barrierDamage, e.hullDamage, v ? v.built.lengthUnits * 0.55 : 2, () => (v && !v.removed ? v.built.group.position : undefined), e.damageType);
-          break;
-        }
-        case 'missile_intercepted': {
-          this.effects.impact(new THREE.Vector3(e.pos.x * KM, e.pos.y * KM, e.pos.z * KM), 0, 30, 1, () => undefined, 'warhead');
-          break;
-        }
-        case 'ship_destroyed': {
-          const v = this.visuals.get(e.shipId);
-          const ship = this.sim.getShip(e.shipId);
-          // Instanced hulls have no individual death object to animate. Still
-          // emit the normal explosion, at the ship's real simulated position.
-          if (!v && ship) {
-            const pos = new THREE.Vector3(ship.pos.x * KM, ship.pos.y * KM, ship.pos.z * KM);
-            this.effects.explosion(pos, getShipTemplate(ship.classId).lengthUnits, ship.faction === 'reaper');
-          }
-          if ((v || ship) && (e.role === 'dreadnought' || e.role === 'reaper_capital' || e.role === 'carrier')) {
-            this.cine = { fromId: e.shipId, toId: undefined, age: 0, hold: 7 };
-          }
-          break;
-        }
-        default:
-          break;
+    if (q.length === 0) return;
+    if (!fast && q.length <= BATCH_EVENT_THRESHOLD) {
+      for (const e of q) {
+        this.driver?.onEvent(e);
+        this.applyEvent(e);
       }
+      return;
     }
+    for (const e of q) this.driver?.onEvent(e);
+    const batch = batchEvents(q);
+    this.batching.frames++;
+    this.batching.events += batch.total;
+    this.batching.merged += batch.merged;
+    for (const e of batch.fires) this.applyFire(e);
+    for (const m of batch.impacts) this.applyImpact(m.last, m.barrierDamage, m.hullDamage);
+    for (const e of batch.intercepts) this.applyIntercept(e);
+    for (const e of batch.rest) this.applyEvent(e);
+  }
+
+  private applyEvent(e: BattleEvent): void {
+    switch (e.type) {
+      case 'weapon_fired':
+        this.applyFire(e);
+        break;
+      case 'projectile_impact':
+        this.applyImpact(e, e.barrierDamage, e.hullDamage);
+        break;
+      case 'missile_intercepted':
+        this.applyIntercept(e);
+        break;
+      case 'ship_destroyed': {
+        const v = this.visuals.get(e.shipId);
+        const ship = this.sim.getShip(e.shipId);
+        // Instanced hulls have no individual death object to animate. Still
+        // emit the normal explosion, at the ship's real simulated position.
+        if (!v && ship) {
+          const pos = new THREE.Vector3(ship.pos.x * KM, ship.pos.y * KM, ship.pos.z * KM);
+          this.effects.explosion(pos, getShipTemplate(ship.classId).lengthUnits, ship.faction === 'reaper');
+        }
+        if ((v || ship) && (e.role === 'dreadnought' || e.role === 'reaper_capital' || e.role === 'carrier')) {
+          this.cine = { fromId: e.shipId, toId: undefined, age: 0, hold: 7 };
+        }
+        break;
+      }
+      default:
+        break;
+    }
+  }
+
+  private applyFire(e: WeaponFiredEvent): void {
+    if (e.kind !== 'mass_accelerator') return;
+    const ship = this.sim.getShip(e.shipId);
+    if (!ship) return;
+    const v = this.visuals.get(ship.id);
+    const w = ship.weapons[e.weaponIndex];
+    if (!w) return;
+    const big = w.def.damage >= 600;
+    if (!big && this.rng.next() > 0.35) return; // thin out small-gun flashes
+    const local = v && big && v.built.muzzle ? v.built.muzzle.clone() : undefined;
+    const mount = local ? undefined : mountWorldPosition(ship, e.weaponIndex);
+    const world = v && local ? v.built.group.localToWorld(local)
+      : mount ? new THREE.Vector3(mount.x * KM, mount.y * KM, mount.z * KM)
+      : new THREE.Vector3(ship.pos.x * KM, ship.pos.y * KM, ship.pos.z * KM);
+    const dir = new THREE.Vector3(ship.heading.x, ship.heading.y, ship.heading.z);
+    this.effects.muzzleFlash(world, dir, big ? 6 : 1.4, ship.faction === 'reaper');
+    if (big && this.rig.mode === 'cinematic' && this.cine.age > 4 && this.rng.next() < 0.2) this.cine.hold = 0;
+    if (big && this.rig.mode === 'projectile') this.projectileTrack = { id: this.sim.projectiles[this.sim.projectiles.length - 1]?.id ?? 0 };
+  }
+
+  /** `barrierDamage` and `hullDamage` are the event's own, or a batched frame's sums for the target. */
+  private applyImpact(e: ProjectileImpactEvent, barrierDamage: number, hullDamage: number): void {
+    const t = this.sim.getShip(e.targetId);
+    const v = t ? this.visuals.get(t.id) : undefined;
+    const pos = new THREE.Vector3(e.pos.x * KM, e.pos.y * KM, e.pos.z * KM);
+    this.effects.impact(pos, barrierDamage, hullDamage, v ? v.built.lengthUnits * 0.55 : 2, () => (v && !v.removed ? v.built.group.position : undefined), e.damageType);
+  }
+
+  private applyIntercept(e: MissileInterceptedEvent): void {
+    this.effects.impact(new THREE.Vector3(e.pos.x * KM, e.pos.y * KM, e.pos.z * KM), 0, 30, 1, () => undefined, 'warhead');
   }
 
   // ------------------------------------------------------------- cameras
@@ -681,10 +750,10 @@ export class BattleView {
     if (alive.length === 0) return;
     // Prefer ships that are currently firing beams, then big ships with a target.
     const beaming = alive.filter((s) => s.weapons.some((w) => w.beamRemaining > 0));
-    const pool = beaming.length > 0 && Math.random() < 0.6 ? beaming : alive.filter((s) => s.targetId && (s.role === 'dreadnought' || s.role === 'reaper_capital' || s.role === 'reaper_destroyer' || s.role === 'cruiser'));
-    const from = (pool.length > 0 ? pool : alive)[Math.floor(Math.random() * (pool.length > 0 ? pool : alive).length)];
+    const pool = beaming.length > 0 && this.rng.next() < 0.6 ? beaming : alive.filter((s) => s.targetId && (s.role === 'dreadnought' || s.role === 'reaper_capital' || s.role === 'reaper_destroyer' || s.role === 'cruiser'));
+    const from = this.rng.pick(pool.length > 0 ? pool : alive);
     const to = from.targetId ? sim.getShip(from.targetId) : undefined;
-    this.cine = { fromId: from.id, toId: to && to.alive ? to.id : undefined, age: 0, hold: 11 + Math.random() * 7 };
+    this.cine = { fromId: from.id, toId: to && to.alive ? to.id : undefined, age: 0, hold: 11 + this.rng.next() * 7 };
   }
 
   // ------------------------------------------------------------ picking

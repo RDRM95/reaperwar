@@ -354,3 +354,25 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 @media (prefers-reduced-motion: reduce) {
   .menu-left > .btn { animation: none !important; }
 }
+
+/* ---------- playback: fast-forward progress and the performance HUD (brief §19.1) ---------- */
+/* The progress layer covers the view but takes no pointer events itself, so the HUD's menu button and the pause
+   menu stay usable around its panel; it stays visible in the minimal and recording HUD levels (H). No animation:
+   the bar is stepped from script with the progress. */
+.hud > .ff-progress { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; background: rgba(6, 9, 15, 0.45); }
+.hud.hidden > .ff-progress, .hud.none > .ff-progress { display: flex !important; }
+.ff-progress .ff-panel { pointer-events: auto; width: 460px; max-width: calc(100vw - 32px); }
+.ff-time { font-size: 34px; letter-spacing: 0.12em; color: var(--cyan); line-height: 1.1; }
+.ff-limit { font-size: 10px; letter-spacing: 0.2em; margin-top: 2px; }
+.ff-bar { height: 6px; background: rgba(255, 255, 255, 0.08); margin: 12px 0 10px; position: relative; }
+.ff-bar i { position: absolute; left: 0; top: 0; bottom: 0; width: 0; background: var(--orange); }
+.ff-hulls { font-size: 12px; letter-spacing: 0.15em; }
+.ff-pace { font-size: 10px; letter-spacing: 0.15em; margin-top: 4px; min-height: 14px; }
+.perf-hud { position: absolute; right: 12px; bottom: 12px; width: 372px; font-family: var(--mono); font-size: 10px; line-height: 1.5; padding: 10px 12px; }
+.perf-hud .panel-title { margin-bottom: 4px; }
+.perf-row { display: grid; grid-template-columns: 58px 1fr; gap: 8px; }
+.perf-row .k { color: var(--text-dim); letter-spacing: 0.15em; }
+.perf-row .v { color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@media (max-height: 760px) {
+  .perf-hud { bottom: auto; top: 118px; }
+}

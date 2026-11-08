@@ -2,6 +2,7 @@ import type { App, BattleController } from '../app';
 import { SPEEDS } from '../app';
 import { useFleetSummary } from '../scalePolicy';
 import { el, fmtNum, fmtTime, setChildren } from '../dom';
+import { createFastForwardOverlay, createPerfHud, type FastForwardOverlay, type PerfHud } from '../playbackUi';
 import { FACTIONS } from '@/data/factions';
 import { getShipClass } from '@/data/ships';
 import type { BattleEvent, BattleResult, FormationType, OrderType, ShipState, TargetPriority } from '@/simulation/types';
@@ -18,6 +19,11 @@ export interface Hud {
   showEnd(result: BattleResult): void;
   toggleMenu(): void;
   setComparison(report?: ComparisonReport, side?: 'a' | 'b'): void;
+  /** The normal results flow (app.finishBattle with this battle's comparison link), as the end banner's button runs it. */
+  viewResults(): void;
+  /** Fast-forward to result progress overlay and the F3 performance HUD (brief §19.1; src/ui/playbackUi.ts). */
+  fastForward: FastForwardOverlay;
+  perf: PerfHud;
 }
 
 const ORDERS: { id: OrderType; label: string }[] = [
@@ -122,7 +128,10 @@ export function createHud(app: App, ctrl: BattleController): Hud {
     el('div', { class: 'panel', style: { flex: '1', maxWidth: '640px' } }, [el('div', { class: 'panel-title' }, 'FLEET COMMUNICATIONS'), commsBox]),
   ]);
 
-  const root = el('div', { class: 'hud' }, [header, left, right, bottom, subtitle, toastHost]);
+  // Playback pieces (brief §19.1): the fast-forward progress overlay sits below the pause menu in the stacking order.
+  const fastForward = createFastForwardOverlay(ctrl);
+  const perf = createPerfHud(ctrl);
+  const root = el('div', { class: 'hud' }, [header, left, right, bottom, subtitle, toastHost, fastForward.root, perf.root]);
 
   // --------------------------------------------------------- menu overlay
   const menuOverlay = el('div', { class: 'screen transparent', style: { display: 'none', background: 'rgba(6,9,15,0.75)', alignItems: 'center', justifyContent: 'center' } });
@@ -336,14 +345,22 @@ export function createHud(app: App, ctrl: BattleController): Hud {
     if (ctrl.paused) ctrl.togglePause();
     ctrl.setSpeed(i);
   } }, `${sp}×`));
-  speedRow.append(pauseBtn, ...speedBtns);
+  const ffBtn = el('button', { class: 'btn small', 'data-action': 'fast-forward', title: 'Fast-forward to result (End): the same battle computed without drawing its frames', onclick: () => ctrl.fastForwardToResult() }, '»|');
+  speedRow.append(pauseBtn, ...speedBtns, ffBtn);
   const cameraBtns = (Object.keys(CAMERA_MODE_LABELS) as CameraMode[]).map((m, i) => el('button', { class: 'btn small', 'data-camera': m, title: `Key ${i + 1}`, onclick: () => ctrl.setCamera(m) }, CAMERA_MODE_LABELS[m]));
   cameraRow.append(...cameraBtns);
 
   const renderControls = () => {
     pauseBtn.classList.toggle('active', ctrl.paused);
     pauseBtn.textContent = ctrl.paused ? '▶' : '❚❚';
-    speedBtns.forEach((b, i) => b.classList.toggle('active', i === ctrl.speedIndex && !ctrl.paused));
+    const achieved = ctrl.clock.achieved;
+    speedBtns.forEach((b, i) => {
+      const current = i === ctrl.speedIndex && !ctrl.paused && !ctrl.fastForward;
+      b.classList.toggle('active', current);
+      b.title = current && ctrl.clock.fallingShort && Number.isFinite(achieved) ? `Requested ${ctrl.speed}×, achieved ${achieved.toFixed(1)}×: this machine cannot sustain ${ctrl.speed}× for this battle` : '';
+    });
+    ffBtn.disabled = sim().finished;
+    ffBtn.classList.toggle('active', !!ctrl.fastForward);
     cameraBtns.forEach((b) => b.classList.toggle('active', ctrl.view.rig.mode === b.dataset.camera));
     const f = playerFleet();
     if (f) {
@@ -374,7 +391,14 @@ export function createHud(app: App, ctrl: BattleController): Hud {
     // Ultra shows the measured frame rate beside the draw calls, right-aligned on the clock row so the panel keeps its height
     // (an uncapped Local Edition window can run far above 60).
     const fps = ctrl.view.settings.quality === 'ultra' ? el('span', { class: 'hud-fps', title: 'Frames per second', style: { float: 'right', fontSize: '11px', letterSpacing: '0.2em', color: 'var(--text-dim)', marginTop: '9px' } }, `${Math.round(ctrl.view.fps)} FPS`) : null;
-    clock.replaceChildren(...(fps ? [fps] : []), fmtTime(s.time), el('small', {}, `${ctrl.paused ? 'PAUSED' : `${ctrl.speed}× SPEED`} · ${ctrl.isReplay ? 'REPLAY · ' : ''}SEED ${s.config.seed} · ${ctrl.view.drawCalls} DRAWS`));
+    // The speed readout is honest (brief §19.1): when the machine falls short of the requested speed it shows the
+    // achieved speed ("8× · ACHIEVED 3.4×") instead of claiming 8×.
+    const achieved = ctrl.clock.achieved;
+    const speedLabel = ctrl.paused ? 'PAUSED'
+      : ctrl.fastForward ? 'FAST-FORWARD'
+      : ctrl.clock.fallingShort && Number.isFinite(achieved) ? `${ctrl.speed}× · ACHIEVED ${achieved.toFixed(1)}×`
+      : `${ctrl.speed}× SPEED`;
+    clock.replaceChildren(...(fps ? [fps] : []), fmtTime(s.time), el('small', { 'data-speed-readout': '' }, `${speedLabel} · ${ctrl.isReplay ? 'REPLAY · ' : ''}SEED ${s.config.seed} · ${ctrl.view.drawCalls} DRAWS`));
     const a = s.ships.filter((x) => x.side === 'A' && x.alive && !x.escaped && x.role !== 'fighter').length;
     const b = s.ships.filter((x) => x.side === 'B' && x.alive && !x.escaped && x.role !== 'fighter').length;
     statusLine.textContent = `ALLIED ${a} · HOSTILE ${b} · ${CAMERA_MODE_LABELS[ctrl.view.rig.mode].toUpperCase()} CAM · CPU SIM ${ctrl.simStepMs.toFixed(0)}ms · CPU VIEW ${ctrl.renderCpuMs.toFixed(0)}ms`;
@@ -445,5 +469,8 @@ export function createHud(app: App, ctrl: BattleController): Hud {
       comparison = r;
       comparisonSide = side;
     },
+    viewResults: () => app.finishBattle(comparison, comparisonSide),
+    fastForward,
+    perf,
   };
 }

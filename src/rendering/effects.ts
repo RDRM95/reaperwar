@@ -62,6 +62,8 @@ export const BASE_EFFECT_BUDGETS = {
   pdLines: 512,
   /** Generic debris fragments per explosion (on top of the ship's own pieces). */
   debrisFragments: 40,
+  /** Live debris pieces in all (fragments and hull pieces; each is a draw call). When a new explosion would exceed it, the oldest pieces go first. */
+  debris: 600,
   /** Hot sparks per hull impact. */
   impactSparks: 10,
 } as const;
@@ -253,8 +255,10 @@ export class EffectsSystem {
       const v = new THREE.Vector3(this.rng.gaussian(0, 1), this.rng.gaussian(0, 1), this.rng.gaussian(0, 1)).multiplyScalar(size * 0.5).add(velocity);
       this.spark(pos, v, 4 + this.rng.next() * 4, size * 0.4, size * 2.2, this.smokeTex, 0x9a9a9a);
     }
-    // Debris: fling the ship's own mesh pieces plus generic fragments.
+    // Debris: fling the ship's own mesh pieces plus generic fragments, within the overall debris cap (the oldest pieces
+    // make room; at 8× the losses of eight seconds land in every real second, and each piece is a draw call).
     const fragments = Math.min(this.budgets.debrisFragments, Math.floor(size * 3));
+    this.trimDebris(fragments + pieces.length);
     for (let i = 0; i < fragments; i++) {
       const g = this.debrisGeo[i % this.debrisGeo.length];
       const m = new THREE.Mesh(g, this.debrisMat);
@@ -287,6 +291,16 @@ export class EffectsSystem {
       this.flashLightLife = 1.2;
     }
     return big ? 2.6 : 1.2;
+  }
+
+  /** Remove the oldest debris until `incoming` more pieces fit the overall cap. */
+  private trimDebris(incoming: number): void {
+    const cap = Math.max(0, this.budgets.debris);
+    let excess = this.debris.length + incoming - cap;
+    if (excess <= 0) return;
+    excess = Math.min(excess, this.debris.length);
+    for (let i = 0; i < excess; i++) this.group.remove(this.debris[i].mesh);
+    this.debris.splice(0, excess);
   }
 
   /** Secondary explosion along a dying capital ship (pre-destruction sequence). */

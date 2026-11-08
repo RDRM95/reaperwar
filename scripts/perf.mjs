@@ -12,12 +12,15 @@
 // (the per-frame cost of drawing a battle that is not advancing), then the controller's own
 // requestAnimationFrame loop runs for --seconds at 1× and at 8×. Timers that this script wraps
 // around the controller's methods (the source is not changed) record the per-frame split: sim.step
-// (the controller's event hooks run inside it and are timed on their own too), view.update (with
+// (the controller's event hooks are timed on their own too: inside it on the 0.12.1 controller's
+// sim.onEvent, once per frame in dispatchEvents on the playback controller), view.update (with
 // processEvents and the effects update inside it), view.render, overlay.draw and the HUD (tick,
 // refresh, end banner); the rest of the frame interval is "outside the loop" (browser, compositor,
 // GPU-process back-pressure, idle). The no-draw ablation repeats 8× with view.render, overlay.draw
 // and hud.refresh stubbed out. The headless run times `while (!sim.finished) sim.step()` in the
-// page on a fresh simulation of the same config.
+// page on a fresh simulation of the same config. The script runs unchanged against the 0.12.1
+// controller (fixed 40 ms budget, accumulator) and the stage P playback controller (PlaybackClock:
+// adaptive budget, bounded backlog, shed time counted), so Before and After are measured alike.
 //
 // Two browser profiles, because this sandbox has no GPU:
 //   swiftshader  WebGL, the 2D overlay and the compositor are all rasterised by SwiftShader in the GPU
@@ -188,6 +191,8 @@ const prepareWindow = async ({ startTick }) => {
   const advanceMs = performance.now() - t0;
   // The advance queued its events for the view and the HUD and left its losses to die on screen at the next frame;
   // drop both so the window shows only the effects it produces itself (render state only, the simulation is not touched).
+  // On the playback controller (stage P) the queue is the SimDriver's cursor: drain it as well.
+  if (b.driver && typeof b.driver.drain === 'function') b.driver.drain();
   b.view.eventQueue = [];
   b.pendingEvents = [];
   let hidden = 0;
@@ -289,19 +294,38 @@ const measureWindow = ({ seconds, speed, ablate }) => {
   undo.push(() => {
     proto.step = step;
   });
-  // The controller's event hook (view queue, HUD queue, audio) runs inside sim.step for every event.
-  const onEvent = sim.onEvent;
-  sim.onEvent = (e) => {
-    const t = now();
-    onEvent(e);
-    if (cur) {
-      cur.hooks += now() - t;
-      cur.events++;
-    }
-  };
-  undo.push(() => {
-    sim.onEvent = onEvent;
-  });
+  // The controller's event hooks (view queue, HUD queue, audio): on the 0.12.1 controller they run inside sim.step for
+  // every event (sim.onEvent); on the playback controller (stage P) they run once per frame, in dispatchEvents on the
+  // events drained from the SimDriver. Either way the bucket is "hooks" and the events are counted.
+  if (typeof sim.onEvent === 'function') {
+    const onEvent = sim.onEvent;
+    sim.onEvent = (e) => {
+      const t = now();
+      onEvent(e);
+      if (cur) {
+        cur.hooks += now() - t;
+        cur.events++;
+      }
+    };
+    undo.push(() => {
+      sim.onEvent = onEvent;
+    });
+  } else if (typeof b.dispatchEvents === 'function') {
+    const dispatch = b.dispatchEvents;
+    b.dispatchEvents = function (events) {
+      const t = now();
+      const r = dispatch.call(this, events);
+      if (cur) {
+        cur.hooks += now() - t;
+        cur.events += events.length;
+      }
+      return r;
+    };
+    undo.push(() => {
+      delete b.dispatchEvents;
+    });
+  }
+  const clockState = () => (b.clock ? { requested: b.clock.requested, simulated: b.clock.simulated, shed: b.clock.shedTotal } : null);
   timed(view, 'update', 'update');
   timed(view, 'processEvents', 'fxEvents');
   timed(fx, 'update', 'fxUpdate');
@@ -322,10 +346,13 @@ const measureWindow = ({ seconds, speed, ablate }) => {
   let tStart = 0;
   let simStart = 0;
   let accStart = 0;
+  let clockStart = null;
   let heap0 = 0;
   let resolveDone;
   const done = new Promise((r) => (resolveDone = r));
   const live = (side) => sim.ships.filter((s) => s.side === side && s.alive && !s.escaped && s.role !== 'fighter').length;
+  // The simulated time owed and not yet run: the 0.12.1 accumulator, or the playback clock's backlog (both in seconds).
+  const owed = () => (b.clock ? b.clock.backlog : b.accumulator);
   const start = () => {
     b.setSpeed(SPEEDS.indexOf(speed));
     if (ablate) ablation.render = ablation.overlay = ablation.refresh = true;
@@ -334,20 +361,24 @@ const measureWindow = ({ seconds, speed, ablate }) => {
     phase = 'run';
     tStart = now();
     simStart = sim.time;
-    accStart = b.accumulator;
+    accStart = owed();
+    clockStart = clockState();
     b.togglePause();
   };
   const finish = () => {
     const tEnd = now();
     const simEnd = sim.time;
-    const accEnd = b.accumulator;
+    const accEnd = owed();
+    const clockEnd = clockState();
     const heapEnd = heap();
     ablation.render = ablation.overlay = ablation.refresh = false;
     if (!b.paused) b.togglePause();
     for (const u of undo.reverse()) u();
     gc();
     const heapAfterGc = heap();
-    const result = { speed, ablate, tStart, tEnd, simStart, simEnd, accStart, accEnd, heap0, heapEnd, heapAfterGc, liveA: live('A'), liveB: live('B'), finished: sim.finished, paused, frames };
+    // On the playback controller the clock accounts for every requested second itself: requested, simulated and shed.
+    const clock = clockStart && clockEnd ? { requested: clockEnd.requested - clockStart.requested, simulated: clockEnd.simulated - clockStart.simulated, shed: clockEnd.shed - clockStart.shed } : null;
+    const result = { speed, ablate, tStart, tEnd, simStart, simEnd, accStart, accEnd, clock, heap0, heapEnd, heapAfterGc, liveA: live('A'), liveB: live('B'), finished: sim.finished, paused, frames };
     // The last frame lasts until the next frame begins.
     requestAnimationFrame((tsAfter) => resolveDone({ ...result, tsAfter }));
   };
@@ -357,6 +388,10 @@ const measureWindow = ({ seconds, speed, ablate }) => {
     const t0 = now();
     loop(ts);
     cur.loop = now() - t0;
+    // Frames the simulation budget cut short, and the budget in force: the playback clock reports both; the 0.12.1
+    // controller's budget was a fixed 40 ms of stepping.
+    cur.cut = b.clock ? b.clock.last.cut : cur.sim >= 40;
+    cur.budget = b.clock ? b.clock.last.budgetMs : 40;
     cur.heap = heap();
     cur.draws = view.drawCalls;
     cur.sparks = fx.sparks.length;
@@ -472,10 +507,13 @@ function summarise(run) {
   const seconds = (run.tsAfter - f[0].ts) / 1000;
   const col = (k) => mean(f.map((x) => x[k]));
   const simAdvance = run.simEnd - run.simStart;
-  // What the controller was asked to simulate: each frame adds min(0.1 s, frame delta) × speed to its accumulator.
+  // What the controller was asked to simulate: the 0.12.1 controller adds min(0.1 s, frame delta) × speed to its
+  // accumulator every frame; the playback clock (stage P) caps a frame at 1 s and accounts for every requested second
+  // itself (`run.clock`: requested, simulated, shed), so with it the dropped time is what the clock shed.
   const requestedCapped = f.reduce((s, x) => s + Math.min(0.1, x.dt / 1000) * run.speed, 0);
   const requested = f.reduce((s, x) => s + (x.dt / 1000) * run.speed, 0);
   const accDelta = run.accEnd - run.accStart;
+  const clock = run.clock;
   let gcs = 0;
   for (let i = 1; i < f.length; i++) if (f[i - 1].heap - f[i].heap > 1 * MB) gcs++;
   const steps = f.reduce((s, x) => s + x.steps, 0);
@@ -502,9 +540,11 @@ function summarise(run) {
     simStart: run.simStart,
     simAdvance,
     achieved: simAdvance / seconds,
-    droppedBudget: Math.max(0, requestedCapped - simAdvance - accDelta),
-    droppedDtCap: requested - requestedCapped,
-    framesAtBudget: f.filter((x) => x.sim >= 40).length,
+    droppedBudget: clock ? clock.shed : Math.max(0, requestedCapped - simAdvance - accDelta),
+    droppedDtCap: clock ? Math.max(0, requested - clock.requested) : requested - requestedCapped,
+    framesAtBudget: f.filter((x) => (x.cut !== undefined ? x.cut : x.sim >= 40)).length,
+    budgetMean: mean(f.map((x) => (x.budget !== undefined ? x.budget : 40))),
+    adaptiveBudget: !!clock,
     drawsMean: col('draws'),
     drawsMax: Math.max(...f.map((x) => x.draws)),
     pausedDraws: mean(run.paused.map((x) => x.draws)),
@@ -678,7 +718,7 @@ async function playbackBenchmark() {
         const sp = s.split;
         const pp = s.pausedSplit;
         console.log(
-          `  ${runLabel(s).padEnd(10)} T+${fmt(s.simStart, 0)} s (${prep.liveShips} live ships, ${prep.projectiles} rounds in flight): ${fmt(s.fps)} fps · frame ${fmt(s.frameMean)} ms mean / ${fmt(s.frameP95)} p95 / ${fmt(s.frameMax)} max (${s.frames} frames; paused ${fmt(s.pausedFrameMean)} ms) · achieved ${fmt(s.achieved, 2)}× (${fmt(s.simAdvance)} s simulated in ${fmt(s.seconds, 2)} s; dropped ${fmt(s.droppedBudget)} s by the 40 ms budget and ${fmt(s.droppedDtCap)} s by the 0.1 s frame cap) · ${fmt(s.stepsPerFrame)} steps/frame (max ${s.stepsMax}) at ${fmt(s.simMsPerStep, 2)} ms/step · other load ${fmt(s.otherCores, 2)} cores, steal ${fmt(s.stealCores, 2)}`,
+          `  ${runLabel(s).padEnd(10)} T+${fmt(s.simStart, 0)} s (${prep.liveShips} live ships, ${prep.projectiles} rounds in flight): ${fmt(s.fps)} fps · frame ${fmt(s.frameMean)} ms mean / ${fmt(s.frameP95)} p95 / ${fmt(s.frameMax)} max (${s.frames} frames; paused ${fmt(s.pausedFrameMean)} ms) · achieved ${fmt(s.achieved, 2)}× (${fmt(s.simAdvance)} s simulated in ${fmt(s.seconds, 2)} s; dropped ${fmt(s.droppedBudget)} s by the ${s.adaptiveBudget ? `adaptive budget (mean ${fmt(s.budgetMean, 0)} ms)` : '40 ms budget'} and ${fmt(s.droppedDtCap)} s by the frame-delta cap; ${s.framesAtBudget} of ${s.frames} frames cut by the budget) · ${fmt(s.stepsPerFrame)} steps/frame (max ${s.stepsMax}) at ${fmt(s.simMsPerStep, 2)} ms/step · other load ${fmt(s.otherCores, 2)} cores, steal ${fmt(s.stealCores, 2)}`,
         );
         console.log(
           `             per frame ms: sim ${fmt(sp.sim)} (hooks ${fmt(sp.hooks)}: ${fmt(s.eventsPerFrame, 0)} events at ${fmt(s.hookUsPerEvent)} µs) · view.update ${fmt(sp.update)} (processEvents ${fmt(sp.fxEvents)}, effects ${fmt(sp.fxUpdate)}) · view.render ${fmt(sp.render)} · overlay ${fmt(sp.overlay)} · HUD ${fmt(sp.hud)} · other ${fmt(sp.other)} · outside the loop ${fmt(sp.outside)} · loop p95 ${fmt(s.loopP95)}`,

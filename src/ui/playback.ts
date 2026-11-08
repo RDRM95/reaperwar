@@ -413,3 +413,77 @@ export function macrotaskYield(): { yield: () => Promise<void>; close: () => voi
     },
   };
 }
+
+// ------------------------------------------------------------------------------------------- frame statistics
+
+/** One frame's main-thread costs (ms) and tick count, as the controller measures them. */
+export interface FrameSample {
+  /** Interval since the previous presented frame. */
+  frame: number;
+  /** Inside the simulation's ticks. */
+  sim: number;
+  /** Draining and dispatching the ticks' events (view queue, HUD feed, audio). */
+  events: number;
+  /** `view.update` (ship placement, effects, camera). */
+  view: number;
+  /** `view.render` (the Three.js JavaScript; the GPU's work is not on this thread). */
+  render: number;
+  /** The 2D tactical overlay. */
+  overlay: number;
+  /** HUD tick and refresh. */
+  hud: number;
+  /** Ticks run. */
+  ticks: number;
+}
+
+export type FrameBucket = keyof FrameSample;
+export const FRAME_BUCKETS: readonly FrameBucket[] = ['frame', 'sim', 'events', 'view', 'render', 'overlay', 'hud', 'ticks'];
+
+/**
+ * Exponential averages of the per-frame costs for the performance HUD (F3), with the worst frame of each 2 s window.
+ * Pure: the controller feeds it one sample per presented frame.
+ */
+export class FrameStats {
+  /** Averages per bucket (ms; `ticks` in ticks per frame). */
+  readonly mean: Record<FrameBucket, number> = { frame: 0, sim: 0, events: 0, view: 0, render: 0, overlay: 0, hud: 0, ticks: 0 };
+  /** The longest frame interval and the most ticks of the last completed window. */
+  worstFrameMs = 0;
+  maxTicks = 0;
+  frames = 0;
+  private readonly alpha: number;
+  private readonly windowMs: number;
+  private windowStart = 0;
+  private windowWorst = 0;
+  private windowTicks = 0;
+
+  /** `alpha` weights the newest frame (default 0.1); `windowMs` is the worst-frame window (default 2000). */
+  constructor(alpha = 0.1, windowMs = 2000) {
+    this.alpha = alpha;
+    this.windowMs = windowMs;
+  }
+
+  /** Record a frame; `nowMs` closes the worst-frame window. */
+  record(s: FrameSample, nowMs: number): void {
+    const first = this.frames === 0;
+    for (const k of FRAME_BUCKETS) {
+      const v = Number.isFinite(s[k]) ? s[k] : 0;
+      this.mean[k] = first ? v : this.mean[k] + this.alpha * (v - this.mean[k]);
+    }
+    this.frames++;
+    this.windowWorst = Math.max(this.windowWorst, s.frame);
+    this.windowTicks = Math.max(this.windowTicks, s.ticks);
+    if (first) this.windowStart = nowMs;
+    if (nowMs - this.windowStart >= this.windowMs) {
+      this.worstFrameMs = this.windowWorst;
+      this.maxTicks = this.windowTicks;
+      this.windowWorst = 0;
+      this.windowTicks = 0;
+      this.windowStart = nowMs;
+    }
+  }
+
+  /** Frames per second implied by the mean frame interval. */
+  get fps(): number {
+    return this.mean.frame > 0 ? 1000 / this.mean.frame : 0;
+  }
+}

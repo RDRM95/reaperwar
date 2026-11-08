@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { Rng } from '@/core/rng';
 import type { CameraPose } from './cameraDriver';
 
 /**
@@ -44,6 +45,8 @@ export class CameraRig {
   private currentLook = new THREE.Vector3();
   private transition = 0;
   private shake = 0;
+  /** Render-side randomness (the shake jitter): its own seeded generator, never the simulation's. */
+  private readonly rng = new Rng('camera');
   private readonly tmp = new THREE.Vector3();
   /** A pose handed in by a camera driver for the coming frame (shot / cinematic modes). */
   private pendingPose?: { instant: boolean };
@@ -259,7 +262,7 @@ export class CameraRig {
     this.currentLook.lerp(this.desiredLook, k);
     if (this.shake > 0) {
       const s = this.shake * 3;
-      cam.position.add(new THREE.Vector3((Math.random() - 0.5) * s, (Math.random() - 0.5) * s, (Math.random() - 0.5) * s));
+      cam.position.add(this.tmp.set((this.rng.next() - 0.5) * s, (this.rng.next() - 0.5) * s, (this.rng.next() - 0.5) * s));
       this.shake = Math.max(0, this.shake - dt * 2.5);
     }
     cam.lookAt(this.currentLook);
