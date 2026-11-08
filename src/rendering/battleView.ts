@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import type { BattleSimulation } from '@/simulation/battle';
 import { SIM_DT, mountWorldPosition } from '@/simulation/battle';
-import type { BattleEvent, ShipState } from '@/simulation/types';
+import type { BattleEvent, ShipState, WeaponState } from '@/simulation/types';
 import { getFaction } from '@/data/factions';
 import { CameraRig, type CameraSubject } from './cameras';
 import type { CameraDriver, SubjectPose, SubjectRef } from './cameraDriver';
@@ -12,7 +12,8 @@ import { buildEnvironment, type EnvironmentBuild } from './environment';
 import { KM } from './geometry';
 import { getShipTemplate, instantiateShip, type BuiltShip } from './ships';
 import { ShipBatches } from './shipBatches';
-import { DETAIL_MESH_NAMES, detailedHullBudget, farPointCapacity, lodLevel, type LodLevel } from './lod';
+import { DETAIL_MESH_NAMES, detailedHullBudget, farPointCapacity, lodLevelSquared, type LodLevel } from './lod';
+import { nearestDetailedShipIds } from './nearestDetailed';
 import { FpsMeter, pixelRatioFor, presetFor, type QualityPreset } from './quality';
 
 /**
@@ -86,6 +87,9 @@ export class BattleView {
   private readonly fwd = new THREE.Vector3(0, 0, 1);
   settings: GraphicsSettings;
   private eventQueue: BattleEvent[] = [];
+  /** Beam mounts are indexed once per fixed simulation tick, not at every render frame. */
+  private activeBeamTick = -1;
+  private readonly activeBeamMounts: { ship: ShipState; weapon: WeaponState }[] = [];
   /** Shared point cloud for ships beyond mesh range (one draw call). */
   private readonly farPoints: THREE.Points;
   /** GPU instancing: many identical ships rendered with one draw per mesh part. */
@@ -93,6 +97,7 @@ export class BattleView {
   private farPositions = new Float32Array(INITIAL_FAR_POINTS * 3);
   private farColours = new Float32Array(INITIAL_FAR_POINTS * 3);
   private readonly tmpColour = new THREE.Color();
+  private readonly farColourCache = new Map<string, readonly [number, number, number]>();
   /** The closest detailed hulls in a large battle; others stay in the GPU point cloud. */
   private detailedShips?: Set<string>;
   private detailBudgetFrame = 0;
@@ -161,6 +166,8 @@ export class BattleView {
   /** Attach to a (new) simulation, rebuilding the scene content. */
   bind(sim: BattleSimulation): void {
     this.sim = sim;
+    this.activeBeamTick = -1;
+    this.activeBeamMounts.length = 0;
     for (const v of this.visuals.values()) this.scene.remove(v.built.group);
     this.visuals.clear();
     this.shipBatches.clear();
@@ -288,14 +295,7 @@ export class BattleView {
     const meshBudget = useBatches ? 24 : detailedHullBudget(sim.ships.length);
     if (!Number.isFinite(meshBudget)) this.detailedShips = undefined;
     else if (!this.detailedShips || ++this.detailBudgetFrame % 8 === 0) {
-      const near = sim.ships.filter((s) => s.alive && !s.escaped && (!useBatches || s.role !== 'fighter')).map((s) => {
-        const dx = s.pos.x * KM - cam.x;
-        const dy = s.pos.y * KM - cam.y;
-        const dz = s.pos.z * KM - cam.z;
-        return { id: s.id, distanceSq: dx * dx + dy * dy + dz * dz };
-      });
-      near.sort((a, b) => a.distanceSq - b.distanceSq);
-      this.detailedShips = new Set(near.slice(0, meshBudget).map((s) => s.id));
+      this.detailedShips = nearestDetailedShipIds(sim.ships, cam, KM, meshBudget, useBatches);
     }
     let far = 0;
     this.lodCounts = { full: 0, reduced: 0, point: 0 };
@@ -316,13 +316,14 @@ export class BattleView {
         (ship.prevPos.y + (ship.pos.y - ship.prevPos.y) * alpha) * KM,
         (ship.prevPos.z + (ship.pos.z - ship.prevPos.z) * alpha) * KM,
       );
-      const dist = cam.distanceTo(point);
+      const dx = point.x - cam.x, dy = point.y - cam.y, dz = point.z - cam.z;
+      const distanceSquared = dx * dx + dy * dy + dz * dz;
       const selected = this.selectedIds.size <= 12 && this.selectedIds.has(ship.id);
-      const hero = selected || this.followId === ship.id || (useBatches && dist < 700 && this.detailedShips?.has(ship.id));
+      const hero = selected || this.followId === ship.id || (useBatches && distanceSquared < 700 * 700 && this.detailedShips?.has(ship.id));
       const lengthUnits = v?.built.lengthUnits ?? getShipTemplate(ship.classId).lengthUnits;
       const level = hero ? 'full' : useBatches
-        ? lodLevel(dist, lengthUnits, ship.role, lodOn, lodScale)
-        : (!this.detailedShips || this.detailedShips.has(ship.id)) ? lodLevel(dist, lengthUnits, ship.role, lodOn, lodScale) : 'point';
+        ? lodLevelSquared(distanceSquared, lengthUnits, ship.role, lodOn, lodScale)
+        : (!this.detailedShips || this.detailedShips.has(ship.id)) ? lodLevelSquared(distanceSquared, lengthUnits, ship.role, lodOn, lodScale) : 'point';
       if (useBatches && !hero) {
         if (v) { this.applyLod(v, 'point'); v.built.group.visible = false; }
         if (level !== 'point') {
@@ -344,10 +345,15 @@ export class BattleView {
         this.farPositions[far * 3] = point.x;
         this.farPositions[far * 3 + 1] = point.y;
         this.farPositions[far * 3 + 2] = point.z;
-        this.tmpColour.setHex(getFaction(ship.faction).engineColourHex);
-        this.farColours[far * 3] = this.tmpColour.r;
-        this.farColours[far * 3 + 1] = this.tmpColour.g;
-        this.farColours[far * 3 + 2] = this.tmpColour.b;
+        let colour = this.farColourCache.get(ship.faction);
+        if (!colour) {
+          this.tmpColour.setHex(getFaction(ship.faction).engineColourHex);
+          colour = [this.tmpColour.r, this.tmpColour.g, this.tmpColour.b];
+          this.farColourCache.set(ship.faction, colour);
+        }
+        this.farColours[far * 3] = colour[0];
+        this.farColours[far * 3 + 1] = colour[1];
+        this.farColours[far * 3 + 2] = colour[2];
         far++;
         continue;
       }
@@ -375,14 +381,22 @@ export class BattleView {
     (farGeom.attributes.color as THREE.BufferAttribute).needsUpdate = true;
     this.farPoints.visible = far > 0;
     // Effects from sim state.
-    const tracers = sim.projectiles.map((p) => ({ pos: p.pos, vel: p.vel, big: p.weapon.damage >= 600 }));
-    this.effects.setTracers(tracers, alpha, SIM_DT);
-    this.effects.setMissiles(sim.missiles.filter((m) => m.alive).map((m) => ({ pos: m.pos, vel: m.vel })), alpha, SIM_DT);
+    this.effects.setTracers(sim.projectiles, alpha, SIM_DT);
+    this.effects.setMissiles(sim.missiles, alpha, SIM_DT);
+    if (this.activeBeamTick !== sim.tick) {
+      this.activeBeamTick = sim.tick;
+      this.activeBeamMounts.length = 0;
+      for (const ship of sim.ships) {
+        if (!ship.alive) continue;
+        for (const weapon of ship.weapons) {
+          if (weapon.beamRemaining > 0 && weapon.beamStart && weapon.beamEnd)
+            this.activeBeamMounts.push({ ship, weapon });
+        }
+      }
+    }
     const beams: { start: THREE.Vector3; end: THREE.Vector3; kind: 'thanix' | 'reaper_beam'; intensity: number }[] = [];
-    for (const ship of sim.ships) {
-      if (!ship.alive) continue;
-      for (const w of ship.weapons) {
-        if (w.beamRemaining > 0 && w.beamStart && w.beamEnd) {
+    for (const { ship, weapon: w } of this.activeBeamMounts) {
+      if (ship.alive && w.beamRemaining > 0 && w.beamStart && w.beamEnd) {
           const kind = w.def.kind === 'thanix' ? 'thanix' : 'reaper_beam';
           const v = this.visuals.get(ship.id);
           // Start the beam at the model muzzle for Reapers (the eye), else at the hardpoint.
@@ -393,7 +407,6 @@ export class BattleView {
           const end = w.beamHit && t ? new THREE.Vector3(t.pos.x * KM, t.pos.y * KM, t.pos.z * KM) : new THREE.Vector3(w.beamEnd.x * KM, w.beamEnd.y * KM, w.beamEnd.z * KM);
           const intensity = kind === 'reaper_beam' ? (ship.role === 'reaper_capital' ? 1.3 : 0.7) : 0.9;
           beams.push({ start, end, kind, intensity });
-        }
       }
     }
     this.effects.setBeams(beams);

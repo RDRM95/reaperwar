@@ -2,6 +2,18 @@
 
 > **Change the variables. Change the war.**
 
+> **Development branches:** The current full game with AU campaign, 43 battle chapters,
+> main-gun POV and numerical battle resolver is maintained at
+> [Reaper War Codex Build](https://github.com/RDRM95/reaperwarCodexBuild)
+> ([play online](https://rdrm95.github.io/reaperwarCodexBuild/)).
+> For GPU-intensive fleet spectating and Scene Script mode, use
+> [Reaper War Spectator Sandbox](https://github.com/RDRM95/reaper-war-sandbox).
+> This original repository remains playable, and its one-click launcher
+> **still installs this original edition**. It has not been redirected and
+> existing local saves are not migrated automatically.
+
+
+
 A browser-based, real-time 3D naval warfare simulator set during the Reaper War of 2186. Canon Mass Effect 3 is the default; alternate-universe rule sets are optional and never presented as canon.
 
 **Unofficial, non-commercial fan project.** Mass Effect is a trademark of Electronic Arts / BioWare. No game assets, fonts, models, textures, music or dialogue recordings are used. All ship models are original procedural geometry, all audio is synthesised at runtime, and all text is original.
@@ -243,3 +255,17 @@ Architecture, lore sourcing, AU rules, known issues and the changelog are docume
 ## Deployment
 
 `.github/workflows/deploy.yml` builds with `VITE_BASE=/<repo>/` and publishes `dist/` to GitHub Pages on every push to `main` (or manually via *workflow_dispatch*). One-time setup in the repository: **Settings → Pages → Build and deployment → Source: GitHub Actions**. `.github/workflows/ci.yml` runs typecheck, unit tests, the production build and the Playwright suite on every branch.
+
+## Large-fleet local GPU performance update
+
+This original edition retains its established **`PLAY-REAPERWAR.cmd`**
+installer, portable release and local GPU launcher. The update does **not**
+redirect your installation to the Codex or Spectator projects and does not
+alter local save paths or ports.
+
+The existing GPU-instanced ship renderer and dynamically sized far-point
+cloud now select the nearest hero hulls without sorting every live ship on
+the rendering thread. Squared-distance LOD and cached faction colours retain
+the original quality thresholds, camera shots, ship behaviours and weapon
+effects. Run `npm test`, `npm run build` and `npm run perf` to validate
+the changes. Actual frame-rate gains depend on the target PC and battle.
