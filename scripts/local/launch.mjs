@@ -223,11 +223,11 @@ export function findBrowser({ platform, env, exists, explicit }) {
 /**
  * Browser command-line arguments for the game window, or with `gpuInfo` for
  * an ordinary window on chrome://gpu (same profile and flags).
- * @param {{ url: string, profileDir: string, vsync?: boolean, fullscreen?: boolean, gpuInfo?: boolean }} args
+ * @param {{ url: string, profileDir: string, vsync?: boolean, fullscreen?: boolean, gpuInfo?: boolean, maximize?: boolean }} args
  * @returns {string[]}
  */
-export function buildBrowserArgs({ url, profileDir, vsync = false, fullscreen = false, gpuInfo = false }) {
-  const flags = [`--user-data-dir=${profileDir}`, ...PROFILE_FLAGS, ...GPU_FLAGS, ...(vsync ? [] : UNCAPPED_FLAGS), ...(fullscreen ? ['--start-fullscreen'] : [])];
+export function buildBrowserArgs({ url, profileDir, vsync = false, fullscreen = false, gpuInfo = false, maximize = false }) {
+  const flags = [`--user-data-dir=${profileDir}`, ...PROFILE_FLAGS, ...GPU_FLAGS, ...(vsync ? [] : UNCAPPED_FLAGS), ...(fullscreen ? ['--start-fullscreen'] : maximize && !gpuInfo ? ['--start-maximized'] : [])];
   return gpuInfo ? [...flags, GPU_INFO_PAGE] : [`--app=${url}`, ...flags];
 }
 
@@ -245,7 +245,9 @@ export function buildBrowserArgs({ url, profileDir, vsync = false, fullscreen = 
 export function planLaunch(options, { platform, env, exists, repoRoot }) {
   const url = appUrl(options.port);
   const profileDir = pathApi(platform).join(repoRoot, PROFILE_DIR_NAME);
-  const args = buildBrowserArgs({ url, profileDir, vsync: options.vsync, fullscreen: options.fullscreen, gpuInfo: options.gpuInfo });
+  // Windows remembers old app-window sizes across launches and can place the menu
+  // beyond the screen after DPI/resolution changes. Maximise to usable work area.
+  const args = buildBrowserArgs({ url, profileDir, vsync: options.vsync, fullscreen: options.fullscreen, gpuInfo: options.gpuInfo, maximize: platform === 'win32' });
   const browser = findBrowser({ platform, env, exists, explicit: options.browser });
   if (options.noBrowser) return { action: 'serve-only', url, profileDir, args, browser };
   if (!browser) return { action: options.browser ? 'browser-missing' : 'no-browser-found', url, profileDir, args };

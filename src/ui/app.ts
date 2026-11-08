@@ -1,8 +1,9 @@
 import { audio, type SoundId } from '@/audio/engine';
 import { DEFAULT_PREFERENCES, storage, type Preferences } from '@/core/storage';
 import { DEFAULT_PERF_BUDGET, type PerfBudget } from '@/core/perfGovernor';
+import { schedulePresentation } from '@/core/frameLimiter';
 import { BattleView } from '@/rendering/battleView';
-import { startupGraphics } from '@/rendering/localHardware';
+import { startupGraphics, webglAvailable } from '@/rendering/localHardware';
 import type { CameraMode } from '@/rendering/cameras';
 import { BattleSimulation, SIM_DT } from '@/simulation/battle';
 import type { BattleConfig, BattleEvent, BattleResult, FleetOrders } from '@/simulation/types';
@@ -11,6 +12,7 @@ import { cloneRules, type RuleSet } from '@/timelines/rules';
 import { normaliseRules } from '@/timelines/schema';
 import type { ComparisonReport } from '@/scenarios/comparison';
 import { clear, el } from './dom';
+import { applyUiScale, normaliseUiScale } from './tvDisplay';
 import { TacticalOverlay } from './overlay';
 import { createHud, type Hud } from './screens/hud';
 import { renderMenu } from './screens/menu';
@@ -63,6 +65,10 @@ export class BattleController {
   hudHidden = false;
   private accumulator = 0;
   private lastFrame = performance.now();
+  private nextPresentAt = 0;
+  /** Recent main-thread costs; excludes GPU execution time. */
+  simStepMs = 0;
+  renderCpuMs = 0;
   private raf = 0;
   private disposed = false;
   private keys = new Set<string>();
@@ -227,9 +233,19 @@ export class BattleController {
 
   private loop(now: number): void {
     if (this.disposed) return;
+    // Cap actual rendering, not the simulation's fixed timestep. A 144 Hz
+    // monitor presents at most 144 frames; spare main-thread time goes to the
+    // game's simulation rather than unnecessary offscreen frames.
+    const gate = schedulePresentation(now, this.nextPresentAt, this.app.prefs.graphics.frameCap ?? 0);
+    this.nextPresentAt = gate.nextAtMs;
+    if (!gate.present) {
+      this.raf = requestAnimationFrame(this.loop);
+      return;
+    }
     const dtReal = Math.min(0.1, (now - this.lastFrame) / 1000);
     this.lastFrame = now;
     this.handleKeys(dtReal);
+    const simulationStarted = performance.now();
     if (!this.paused && !this.sim.finished) {
       this.accumulator += dtReal * this.speed;
       // Step until caught up, but never spend more than ~40 ms of wall time
@@ -244,12 +260,17 @@ export class BattleController {
         }
       }
     }
+    const simulatedMs = performance.now() - simulationStarted;
+    this.simStepMs = this.simStepMs === 0 ? simulatedMs : this.simStepMs * 0.85 + simulatedMs * 0.15;
+    const drawingStarted = performance.now();
     const alpha = this.paused ? 1 : Math.min(1, this.accumulator / SIM_DT);
     this.view.update(dtReal, alpha);
     this.view.render();
     const w = this.canvas.clientWidth;
     const h = this.canvas.clientHeight;
     this.overlay.draw(this.view, w, h, this.view.rig.mode);
+    const drawnMs = performance.now() - drawingStarted;
+    this.renderCpuMs = this.renderCpuMs === 0 ? drawnMs : this.renderCpuMs * 0.85 + drawnMs * 0.15;
     this.hudTimer -= dtReal;
     this.hud.tick(dtReal, this.pendingEvents);
     this.pendingEvents = [];
@@ -493,10 +514,19 @@ export class App {
     };
     window.addEventListener('pointerdown', unlock, { passive: true });
     window.addEventListener('keydown', unlock, { passive: true });
+    this.ui.addEventListener('change', (event: Event) => {
+      const target = event.target;
+      if (target instanceof HTMLSelectElement || (target instanceof HTMLInputElement && (target.type === 'range' || target.type === 'checkbox'))) {
+        this.playUi('ui_click');
+      }
+    });
   }
 
   async init(): Promise<void> {
-    this.prefs = { ...DEFAULT_PREFERENCES, ...(await storage.get('preferences', DEFAULT_PREFERENCES)) };
+    const savedPreferences = await storage.get<Partial<Preferences>>('preferences', DEFAULT_PREFERENCES);
+    this.prefs = { ...DEFAULT_PREFERENCES, ...savedPreferences };
+    this.prefs.uiScale = normaliseUiScale(savedPreferences?.uiScale, window.innerWidth);
+    applyUiScale(this.ui, this.prefs.uiScale);
     this.prefs.graphics = startupGraphics({ ...DEFAULT_PREFERENCES.graphics, ...this.prefs.graphics });
     this.prefs.audio = { ...DEFAULT_PREFERENCES.audio, ...this.prefs.audio };
     this.prefs.showcase = { ...DEFAULT_PREFERENCES.showcase, ...this.prefs.showcase };
@@ -547,6 +577,7 @@ export class App {
   }
 
   async savePrefs(): Promise<void> {
+    applyUiScale(this.ui, this.prefs.uiScale);
     await storage.set('preferences', this.prefs);
     audio.settings = { ...this.prefs.audio };
     audio.applySettings();
@@ -559,6 +590,7 @@ export class App {
   // ---------------------------------------------------------------- screens
 
   show(screen: ScreenName, params?: unknown): void {
+    if (screen !== this.screen && screen !== 'battle') this.playUi('ui_open');
     if (screen !== 'battle' && this.battle) {
       this.battle.dispose();
       this.battle = undefined;
@@ -656,11 +688,31 @@ export class App {
   }
 
   startBattle(config: BattleConfig, opts: { replay?: boolean; comparison?: ComparisonReport; comparisonSide?: 'a' | 'b'; campaign?: CampaignBattleLink } = {}): void {
-    if (this.battle) this.battle.dispose();
+    if (this.battle) {
+      this.battle.dispose();
+      this.battle = undefined;
+    }
     clear(this.ui);
     this.screen = 'battle';
     this.canvas.style.visibility = 'visible';
-    const controller = new BattleController(this, config, this.canvas, this.overlayCanvas, !!opts.replay);
+    let controller: BattleController;
+    try {
+      controller = new BattleController(this, config, this.canvas, this.overlayCanvas, !!opts.replay);
+    } catch (err) {
+      // Without WebGL (graphics acceleration off, a crashed GPU process, a remote desktop) the 3D view
+      // cannot be created: go back to the menu and say why, instead of leaving a blank screen.
+      console.error(err);
+      this.canvas.style.visibility = 'hidden';
+      // A campaign engagement stays pending: back on the campaign map it can still be auto-resolved.
+      this.show(opts.campaign ? 'campaign' : 'menu');
+      this.toast(
+        webglAvailable()
+          ? 'THE BATTLE COULD NOT START: SEE THE BROWSER CONSOLE (F12)'
+          : 'NO WEBGL 2: BATTLES CANNOT BE DRAWN. TURN ON GRAPHICS ACCELERATION IN THE BROWSER OR UPDATE THE GRAPHICS DRIVER',
+        10_000,
+      );
+      return;
+    }
     this.battle = controller;
     this.ui.appendChild(controller.hud.root);
     controller.hud.setComparison(opts.comparison, opts.comparisonSide);
@@ -690,10 +742,10 @@ export class App {
     this.show('results');
   }
 
-  toast(text: string): void {
+  toast(text: string, ms = 2200): void {
     const t = el('div', { class: 'toast' }, text);
     this.ui.appendChild(t);
     window.clearTimeout(this.toastTimer);
-    this.toastTimer = window.setTimeout(() => t.remove(), 2200);
+    this.toastTimer = window.setTimeout(() => t.remove(), ms);
   }
 }

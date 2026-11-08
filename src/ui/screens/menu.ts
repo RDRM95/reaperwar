@@ -1,5 +1,6 @@
 import type { App } from '../app';
 import { el } from '../dom';
+import { steppedDrift } from '../motion';
 import { SCENARIOS } from '@/scenarios';
 import { isLocalEdition } from '@/rendering/localHardware';
 import { timelineTitle } from '@/timelines/alternates';
@@ -55,6 +56,9 @@ export function renderMenu(app: App): HTMLElement {
     ]),
   ]);
 
-  const right = el('div', { class: 'menu-right' }, [el('div', { class: 'grid-bg' }), info]);
+  // The holographic grid drifts 96 px right and 48 px down every 34 s, stepped from script (see motion.ts).
+  const grid = el('div', { class: 'grid-bg' });
+  steppedDrift(grid, { dx: 96, dy: 48, periodMs: 34_000 });
+  const right = el('div', { class: 'menu-right' }, [grid, info]);
   return el('div', { class: 'screen' }, [el('div', { class: 'menu' }, [left, right])]);
 }

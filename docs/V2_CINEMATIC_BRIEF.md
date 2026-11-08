@@ -362,3 +362,15 @@ Owner's words: "give option to disable boring gameplay things like sensors and i
 
 ### 21.5 Owners
 CORE in its final chunk, alongside the pacing pass and before calibration pass 2: the rules flags, the withdrawal triggers, the Harbinger special event, the critical retreat, no-idle and the Attack spacing, and the tests. Stage C: the Pure battle switch and the Reaper rule option in the briefing and custom setup. Stage B: the banner and transmission, and the order tooltips. Stage D: codex and README.
+
+## 22. Formations and pathfinding for watching (owner's requirement, 5 Nov; top priority, "asap")
+
+Owner's words: "I need the formations and ship pathfinding to be realistic and good for watching as a cinematic battle simulation, not lined up in rows, more space in the map between fleets, free camera rotation and zoom in and out … and ships spacing and moving rationally, no ship idles at the back, they reinforce and back them up … need the formation fix asap."
+
+- **No rows.** Fleets deploy as battlegroups — each capital with its own escorts in a loose 3D cluster around it — staggered in depth and height (echelons), with deterministic, seeded variation in spacing and angle so nothing sits in a perfect row or column; the shape still reads as a disciplined military deployment (screens ahead, capitals in the main body, carriers behind and above), never a crowd or a grid.
+- **Rational spacing.** Minimum separation scales with hull size; capitals several of their own lengths apart, escorts spread around their group; groups separated so a camera can tell them apart.
+- **Rational movement.** Smooth curved approaches and repositioning (no conveyor-belt straight lines, no spinning plates), friendly avoidance, groups keeping station relative to each other while the fleet manoeuvres.
+- **No ship idles at the back.** A hull with nothing in reach while its fleet is engaged moves up: it fills gaps left by losses, backs up damaged or outnumbered allies, and leans in to its own weapon range (capitals keep their standoff band); only Hold and Defend orders keep ships back.
+- **More space between fleets.** Fleets start well apart and visibly manoeuvre and close; the full codex-scale change follows in the pacing pass (docs/apex/PACING_PLAN.md).
+- **Camera.** Free rotation and zoom in every view: done in 0.12.3 (`0ab870b`) — a drag or wheel turn in a director-driven view continues as a free orbit from where the camera is.
+- Runs now, ahead of the remaining CORE tasks, as its own workflow (`docs/apex/workflows/formations-fix.js`); CORE's paused T16 work is restored on top later and reconciled.

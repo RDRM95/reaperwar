@@ -1,0 +1,821 @@
+{
+  "version": "1.0",
+  "generated": "2026-11-06",
+  "units": "metres",
+  "geometry_status_enums": [
+    "on_screen",
+    "concept_only",
+    "text_only",
+    "apex_original"
+  ],
+  "notes": "Never treat a fan-extracted length or fan class name as canon. The gallery links to remote images; no third-party images are distributed.",
+  "ships": [
+    {
+      "id": "ALL-001",
+      "faction": "Systems Alliance",
+      "name": "SSV Normandy SR-1",
+      "role": "stealth reconnaissance frigate",
+      "silhouette": "Sleek narrow wedge fuselage; two external wing/engine pods; compact fine pointed bow.",
+      "source_visibility": "ME1 cinematic, model ship, key art",
+      "primary_source_ids": [
+        "model_ships",
+        "art1"
+      ],
+      "geometry_status": "on_screen",
+      "length_m": null,
+      "length_note": "Avoid fan-made exact lengths unless validated",
+      "build_priority": "P0",
+      "apex_original": false,
+      "modelling_notes": "Match ME1 proportions first. Engine pods and wing root joints must not be generic winglets.",
+      "confidence": "high"
+    },
+    {
+      "id": "ALL-002",
+      "faction": "Systems Alliance",
+      "name": "SSV Normandy SR-2 (Alliance)",
+      "role": "stealth reconnaissance frigate",
+      "silhouette": "Long arrowhead body; wider curved wings/engine nacelles; lengthened needle nose; blue-white ME3 markings.",
+      "source_visibility": "ME2/ME3 cinematic + officially licensed replica",
+      "primary_source_ids": [
+        "model_ships",
+        "art2",
+        "normandy_replica"
+      ],
+      "geometry_status": "on_screen",
+      "length_m": 196,
+      "length_note": "196 m is a fan-extracted model length, NOT firm canon; an older interview gives 170 m.",
+      "build_priority": "P0",
+      "apex_original": false,
+      "modelling_notes": "Reuse same geometry as Cerberus Normandy SR-2. Only livery and relevant upgrades change.",
+      "confidence": "high"
+    },
+    {
+      "id": "ALL-003",
+      "faction": "Systems Alliance",
+      "name": "Alliance cruiser — ME3 hull",
+      "role": "cruiser",
+      "silhouette": "Long forward-projecting body; twin lateral aft prongs, sculpted spinal hull, blue-white layered plating.",
+      "source_visibility": "ME3 fleet scenes, ship collectible",
+      "primary_source_ids": [
+        "model_ships",
+        "starships"
+      ],
+      "geometry_status": "on_screen",
+      "length_m": 707,
+      "length_note": "Fan model-extraction measurement, not codex canon.",
+      "build_priority": "P0",
+      "apex_original": false,
+      "modelling_notes": "Pursue matching bow, shoulder sweep, engine block and dorsal ridges before microdetail.",
+      "confidence": "high"
+    },
+    {
+      "id": "ALL-004",
+      "faction": "Systems Alliance",
+      "name": "Alliance dreadnought — ME3 hull",
+      "role": "dreadnought",
+      "silhouette": "Elongated weapon-spine; forked forebody; massive axial mount; stacked stern structure and engine banks.",
+      "source_visibility": "ME3 fleet/cutscenes, ship collectible",
+      "primary_source_ids": [
+        "model_ships",
+        "orth_dread",
+        "codex_dread"
+      ],
+      "geometry_status": "on_screen",
+      "length_m": null,
+      "length_note": "Codex general class 800–1,000 m; individual mesh may differ.",
+      "build_priority": "P0",
+      "apex_original": false,
+      "modelling_notes": "Use Troodon80 multi-angle sheet only as a geometric reconstruction checked against in-game stills.",
+      "confidence": "high"
+    },
+    {
+      "id": "ALL-005",
+      "faction": "Systems Alliance",
+      "name": "F-61 Trident fighter",
+      "role": "fighter/interceptor",
+      "silhouette": "Compact small craft; angular wings; high engine-to-hull mass ratio; forward weapon hardpoints.",
+      "source_visibility": "ME3 fighter scenes, ship collectible",
+      "primary_source_ids": [
+        "model_ships",
+        "alliance_navy"
+      ],
+      "geometry_status": "on_screen",
+      "length_m": null,
+      "length_note": "Do not take fan ortho measurements as exact.",
+      "build_priority": "P1",
+      "apex_original": false,
+      "modelling_notes": "Compact small craft; angular wings; high engine-to-hull mass ratio; forward weapon hardpoints.",
+      "confidence": "high"
+    },
+    {
+      "id": "ALL-006",
+      "faction": "Systems Alliance",
+      "name": "UT-47 Kodiak",
+      "role": "transport/shuttle",
+      "silhouette": "Stout asymmetric-looking blocky shuttle with broad angled flanks and rear thrusters.",
+      "source_visibility": "ME2/ME3 missions, ship collectible",
+      "primary_source_ids": [
+        "model_ships",
+        "alliance_navy"
+      ],
+      "geometry_status": "on_screen",
+      "length_m": null,
+      "length_note": "Capture separate UT-47 and UT-47A appearances.",
+      "build_priority": "P1",
+      "apex_original": false,
+      "modelling_notes": "Stout asymmetric-looking blocky shuttle with broad angled flanks and rear thrusters.",
+      "confidence": "high"
+    },
+    {
+      "id": "ALL-007",
+      "faction": "Systems Alliance",
+      "name": "Alliance carrier (generic)",
+      "role": "carrier",
+      "silhouette": "Canon role only: dreadnought-scale carrier with protected flight deck; no single verified on-screen exterior.",
+      "source_visibility": "Codex and named ships only",
+      "primary_source_ids": [
+        "codex_carriers",
+        "alliance_navy"
+      ],
+      "geometry_status": "text_only",
+      "length_m": null,
+      "length_note": "Canon role, design must be commissioned.",
+      "build_priority": "P2",
+      "apex_original": false,
+      "modelling_notes": "Canon role only: dreadnought-scale carrier with protected flight deck; no single verified on-screen exterior.",
+      "confidence": "medium"
+    },
+    {
+      "id": "ALL-008",
+      "faction": "Systems Alliance",
+      "name": "Everest-class dreadnought",
+      "role": "dreadnought",
+      "silhouette": "Class is canon; silhouette is not conclusively tied to a dedicated official model.",
+      "source_visibility": "ME1 codex lists class/names",
+      "primary_source_ids": [
+        "codex_dread",
+        "ships_list",
+        "reconstruct"
+      ],
+      "geometry_status": "text_only",
+      "length_m": null,
+      "length_note": "Class name canon; Euderion reconstructions are fan work.",
+      "build_priority": "P2",
+      "apex_original": false,
+      "modelling_notes": "Class is canon; silhouette is not conclusively tied to a dedicated official model.",
+      "confidence": "medium"
+    },
+    {
+      "id": "ALL-009",
+      "faction": "Systems Alliance",
+      "name": "Early Alliance cruiser — ME1 variant",
+      "role": "cruiser",
+      "silhouette": "Use ME1 cinematic/model reference, not the ME3 cruiser mesh recoloured.",
+      "source_visibility": "ME1 appearances and later fan reconstruction",
+      "primary_source_ids": [
+        "art1",
+        "reconstruct"
+      ],
+      "geometry_status": "on_screen",
+      "length_m": null,
+      "length_note": "Fan labels Berlin/York/Aldrin should not be promoted to unverified canon.",
+      "build_priority": "P2",
+      "apex_original": false,
+      "modelling_notes": "Use ME1 cinematic/model reference, not the ME3 cruiser mesh recoloured.",
+      "confidence": "medium"
+    },
+    {
+      "id": "ALL-A01",
+      "faction": "Systems Alliance",
+      "name": "SSV Omaha — Apex heavy dreadnought",
+      "role": "super-dreadnought",
+      "silhouette": "Recognisable enlarged Alliance gunship anatomy: axial HADES spinal cannon, layered armour, Omega batteries, point-defence arrays.",
+      "source_visibility": "User-created Mass Effect: Apex lore",
+      "primary_source_ids": [
+        "codex",
+        "art1"
+      ],
+      "geometry_status": "apex_original",
+      "length_m": null,
+      "length_note": "Apex ship: scale set by scenario balance; not Mass Effect canon.",
+      "build_priority": "APEX",
+      "apex_original": true,
+      "modelling_notes": "No Star Wars broadside terraces or battleship towers. Core Alliance engineering remains legible at any size.",
+      "confidence": "high"
+    },
+    {
+      "id": "CER-001",
+      "faction": "Cerberus",
+      "name": "Cerberus cruiser — ME3",
+      "role": "heavy cruiser",
+      "silhouette": "Alliance-derived twin-prong hull in pearl-grey, black and controlled amber/orange accent panels.",
+      "source_visibility": "ME3 cutscenes, fan faithful model re-creation",
+      "primary_source_ids": [
+        "cerberus_page",
+        "cerberus_navy"
+      ],
+      "geometry_status": "on_screen",
+      "length_m": 700,
+      "length_note": "Fan model-extraction estimate.",
+      "build_priority": "P0",
+      "apex_original": false,
+      "modelling_notes": "Geometry must follow the in-game hull, not simply paint an Alliance cruiser orange.",
+      "confidence": "high"
+    },
+    {
+      "id": "CER-002",
+      "faction": "Cerberus",
+      "name": "Normandy SR-2 — Cerberus",
+      "role": "stealth frigate",
+      "silhouette": "Identical core form to SR-2 Alliance; black/white/orange livery and Cerberus identifiers.",
+      "source_visibility": "ME2 cinematic, official replica",
+      "primary_source_ids": [
+        "art2",
+        "normandy_replica"
+      ],
+      "geometry_status": "on_screen",
+      "length_m": 196,
+      "length_note": "Model extraction; conflicts with reported 170 m interview.",
+      "build_priority": "P1",
+      "apex_original": false,
+      "modelling_notes": "Identical core form to SR-2 Alliance; black/white/orange livery and Cerberus identifiers.",
+      "confidence": "high"
+    },
+    {
+      "id": "CER-003",
+      "faction": "Cerberus",
+      "name": "Cerberus dreadnought",
+      "role": "dreadnought",
+      "silhouette": "A dreadnought is lore-supported; a single unique verified hull cannot be fixed here.",
+      "source_visibility": "ME3 Cerberus references",
+      "primary_source_ids": [
+        "cerberus_navy"
+      ],
+      "geometry_status": "text_only",
+      "length_m": null,
+      "length_note": "Custom external hull must be marked reconstruction.",
+      "build_priority": "P2",
+      "apex_original": false,
+      "modelling_notes": "A dreadnought is lore-supported; a single unique verified hull cannot be fixed here.",
+      "confidence": "medium"
+    },
+    {
+      "id": "CER-A01",
+      "faction": "Cerberus — Apex",
+      "name": "Black Fleet stealth dreadnought",
+      "role": "dreadnought",
+      "silhouette": "Alliance/Cerberus structural derivation; low-profile mission bays, armoured gun spine, paired shaded engine clusters.",
+      "source_visibility": "Apex AU original",
+      "primary_source_ids": [
+        "art1",
+        "cerberus_page"
+      ],
+      "geometry_status": "apex_original",
+      "length_m": null,
+      "length_note": "Apex-only.",
+      "build_priority": "APEX",
+      "apex_original": true,
+      "modelling_notes": "Alliance/Cerberus structural derivation; low-profile mission bays, armoured gun spine, paired shaded engine clusters.",
+      "confidence": "high"
+    },
+    {
+      "id": "CER-A02",
+      "faction": "Cerberus — Apex",
+      "name": "Black Fleet autonomous strike carrier",
+      "role": "carrier",
+      "silhouette": "Long enclosed flight-deck core with mission modular aft sections, rather than an oversized aircraft carrier deck.",
+      "source_visibility": "Apex AU original",
+      "primary_source_ids": [
+        "codex_carriers",
+        "cerberus_page"
+      ],
+      "geometry_status": "apex_original",
+      "length_m": null,
+      "length_note": "Apex-only.",
+      "build_priority": "APEX",
+      "apex_original": true,
+      "modelling_notes": "Long enclosed flight-deck core with mission modular aft sections, rather than an oversized aircraft carrier deck.",
+      "confidence": "high"
+    },
+    {
+      "id": "TUR-001",
+      "faction": "Turian Hierarchy",
+      "name": "Turian cruiser",
+      "role": "cruiser",
+      "silhouette": "Beaked angular central mass with feathered overlapped armour, distinctive swept red wing/fin structures.",
+      "source_visibility": "ME1/ME3 appearances, model collectible",
+      "primary_source_ids": [
+        "model_ships",
+        "art1"
+      ],
+      "geometry_status": "on_screen",
+      "length_m": 500,
+      "length_note": "Fan extracted-measurement.",
+      "build_priority": "P0",
+      "apex_original": false,
+      "modelling_notes": "Beaked angular central mass with feathered overlapped armour, distinctive swept red wing/fin structures.",
+      "confidence": "high"
+    },
+    {
+      "id": "TUR-002",
+      "faction": "Turian Hierarchy",
+      "name": "Turian dreadnought",
+      "role": "dreadnought",
+      "silhouette": "Use turian beak/wing/feather layered vocabulary; class canon, fixed design must be evidence-checked.",
+      "source_visibility": "Referenced in trilogy; named dreadnoughts",
+      "primary_source_ids": [
+        "ships_list",
+        "starships"
+      ],
+      "geometry_status": "text_only",
+      "length_m": null,
+      "length_note": "Do not apply fan Diatryma/Pelagonis specs as canon.",
+      "build_priority": "P2",
+      "apex_original": false,
+      "modelling_notes": "Use turian beak/wing/feather layered vocabulary; class canon, fixed design must be evidence-checked.",
+      "confidence": "medium"
+    },
+    {
+      "id": "TUR-003",
+      "faction": "Turian Hierarchy",
+      "name": "Turian fighter / fleet escort",
+      "role": "fighter/escort",
+      "silhouette": "Turian angular form language; no fully validated dedicated fleet-fighter geometry in this pack.",
+      "source_visibility": "Fleet-role lore",
+      "primary_source_ids": [
+        "art1",
+        "codex"
+      ],
+      "geometry_status": "concept_only",
+      "length_m": null,
+      "length_note": "Explicitly design as reconstruction if built.",
+      "build_priority": "P2",
+      "apex_original": false,
+      "modelling_notes": "Turian angular form language; no fully validated dedicated fleet-fighter geometry in this pack.",
+      "confidence": "low"
+    },
+    {
+      "id": "ASA-001",
+      "faction": "Asari Republics",
+      "name": "Destiny Ascension",
+      "role": "flagship dreadnought",
+      "silhouette": "Enormous rounded disc/fan upper structure, tapering flowing lower extensions, clean swept curvatures.",
+      "source_visibility": "ME1 and ME3 cinematic, ship collectible",
+      "primary_source_ids": [
+        "model_ships",
+        "art1"
+      ],
+      "geometry_status": "on_screen",
+      "length_m": null,
+      "length_note": "Various fan size charts conflict. Do not hardcode without selected scale standard.",
+      "build_priority": "P0",
+      "apex_original": false,
+      "modelling_notes": "Do not substitute a needle-shaped generic asari cruiser. Preserve distinctive broad canopy profile.",
+      "confidence": "high"
+    },
+    {
+      "id": "ASA-002",
+      "faction": "Asari Republics",
+      "name": "Asari cruiser — fleet archetype",
+      "role": "cruiser",
+      "silhouette": "Smooth swept forms and fins sympathetic to Ascension, but no single class orthographic adopted as authoritative.",
+      "source_visibility": "Art-book visual language, fan chart examples",
+      "primary_source_ids": [
+        "art1",
+        "asari_fan"
+      ],
+      "geometry_status": "concept_only",
+      "length_m": null,
+      "length_note": "Fan class names (e.g., Cubanen) are not official.",
+      "build_priority": "P2",
+      "apex_original": false,
+      "modelling_notes": "Smooth swept forms and fins sympathetic to Ascension, but no single class orthographic adopted as authoritative.",
+      "confidence": "medium"
+    },
+    {
+      "id": "ASA-003",
+      "faction": "Asari Republics",
+      "name": "Asari escort/frigate",
+      "role": "frigate",
+      "silhouette": "Graceful, compact curved shell with slender central mass and reduced fins.",
+      "source_visibility": "Non-final reconstruction",
+      "primary_source_ids": [
+        "art1",
+        "asari_fan"
+      ],
+      "geometry_status": "concept_only",
+      "length_m": null,
+      "length_note": "Designer interpretation only.",
+      "build_priority": "P2",
+      "apex_original": false,
+      "modelling_notes": "Graceful, compact curved shell with slender central mass and reduced fins.",
+      "confidence": "low"
+    },
+    {
+      "id": "SAL-001",
+      "faction": "Salarian Union",
+      "name": "Salarian warship — concept archetype",
+      "role": "cruiser",
+      "silhouette": "Smooth rounded submarine / salamander-like profile; restrained protrusions.",
+      "source_visibility": "BioWare art-book species language",
+      "primary_source_ids": [
+        "art1"
+      ],
+      "geometry_status": "concept_only",
+      "length_m": null,
+      "length_note": "Do not fabricate a named official vessel or scale.",
+      "build_priority": "P2",
+      "apex_original": false,
+      "modelling_notes": "Smooth rounded submarine / salamander-like profile; restrained protrusions.",
+      "confidence": "medium"
+    },
+    {
+      "id": "SAL-A01",
+      "faction": "Salarian Union — Apex",
+      "name": "STG deep-space stealth corvette",
+      "role": "recon corvette",
+      "silhouette": "Smooth, small, sensor-forward hull with conformal heat-storage features and minimal exposed weaponry.",
+      "source_visibility": "Apex original based on salarian language",
+      "primary_source_ids": [
+        "art1",
+        "codex"
+      ],
+      "geometry_status": "apex_original",
+      "length_m": null,
+      "length_note": "Original, non-canon.",
+      "build_priority": "APEX",
+      "apex_original": true,
+      "modelling_notes": "Smooth, small, sensor-forward hull with conformal heat-storage features and minimal exposed weaponry.",
+      "confidence": "high"
+    },
+    {
+      "id": "QUR-001",
+      "faction": "Quarian Migrant Fleet",
+      "name": "Quarian ring cruiser",
+      "role": "cruiser",
+      "silhouette": "Distinct full annular structure intersecting an elongated industrial hull; dense modular structure and aft propulsion.",
+      "source_visibility": "ME3 Rannoch fleet cinematic, ship collectible",
+      "primary_source_ids": [
+        "model_ships",
+        "quarian"
+      ],
+      "geometry_status": "on_screen",
+      "length_m": 643,
+      "length_note": "Fan model-extraction measurement only.",
+      "build_priority": "P0",
+      "apex_original": false,
+      "modelling_notes": "Capture exact ring thickness, orientation and hull intersection. Do not infer all Quarian ships use identical rings.",
+      "confidence": "high"
+    },
+    {
+      "id": "QUR-002",
+      "faction": "Quarian Migrant Fleet",
+      "name": "Quarian liveship",
+      "role": "civilian capital ship / wartime gun platform",
+      "silhouette": "Massive life-support / agricultural habitat, elongated industrial spine and habitat elements; unlike purpose-built combat cruisers.",
+      "source_visibility": "ME3 model collectible and Rannoch lore",
+      "primary_source_ids": [
+        "model_ships",
+        "quarian"
+      ],
+      "geometry_status": "on_screen",
+      "length_m": null,
+      "length_note": "No established single length in this pack.",
+      "build_priority": "P1",
+      "apex_original": false,
+      "modelling_notes": "In Apex/ME3 wartime use, distinguish a cannon retrofit from a purpose-built dreadnought.",
+      "confidence": "high"
+    },
+    {
+      "id": "QUR-003",
+      "faction": "Quarian Migrant Fleet",
+      "name": "Idenna — converted Hensa-class",
+      "role": "reclaimed cruiser",
+      "silhouette": "Known batarian-built cruiser acquired by quarians; exact geometry unverified.",
+      "source_visibility": "Mass Effect: Ascension text, listed in ship index",
+      "primary_source_ids": [
+        "ships_list",
+        "quarian"
+      ],
+      "geometry_status": "text_only",
+      "length_m": null,
+      "length_note": "Do not treat fan-produced Hensa shape as definitive.",
+      "build_priority": "P2",
+      "apex_original": false,
+      "modelling_notes": "Known batarian-built cruiser acquired by quarians; exact geometry unverified.",
+      "confidence": "medium"
+    },
+    {
+      "id": "QUR-004",
+      "faction": "Quarian Migrant Fleet",
+      "name": "Armed migrant freighter",
+      "role": "converted freighter",
+      "silhouette": "Salvaged and modified original-faction hull, asymmetric repair geometry and externally mounted retrofit weapons.",
+      "source_visibility": "Fleet background lore",
+      "primary_source_ids": [
+        "quarian",
+        "starships"
+      ],
+      "geometry_status": "concept_only",
+      "length_m": null,
+      "length_note": "Build as original variant, not a fixed canonical craft.",
+      "build_priority": "P2",
+      "apex_original": false,
+      "modelling_notes": "Salvaged and modified original-faction hull, asymmetric repair geometry and externally mounted retrofit weapons.",
+      "confidence": "medium"
+    },
+    {
+      "id": "GET-001",
+      "faction": "Geth Consensus",
+      "name": "Geth cruiser",
+      "role": "cruiser",
+      "silhouette": "Smooth machine-organic forward shell with narrow segmented aft structure and exposed recesses.",
+      "source_visibility": "ME1/ME2/ME3, ship collectible",
+      "primary_source_ids": [
+        "model_ships",
+        "starships"
+      ],
+      "geometry_status": "on_screen",
+      "length_m": 700,
+      "length_note": "Fan model-extraction measurement only.",
+      "build_priority": "P0",
+      "apex_original": false,
+      "modelling_notes": "Do not confuse geth cruiser and transporter; inspect the separate named game models.",
+      "confidence": "high"
+    },
+    {
+      "id": "GET-002",
+      "faction": "Geth Consensus",
+      "name": "Geth dreadnought — Rannoch",
+      "role": "dreadnought",
+      "silhouette": "Enormous bulbous armoured machine hull and indented forebody, graceful dorsal curves, purple emissive details.",
+      "source_visibility": "ME3 Priority: Geth Dreadnought; original developer portfolio",
+      "primary_source_ids": [
+        "artist_geth",
+        "geth_dread",
+        "geth_replica"
+      ],
+      "geometry_status": "on_screen",
+      "length_m": 1190,
+      "length_note": "Fan model-extraction 1190 m; game description says ~30% larger than Alliance dreadnought.",
+      "build_priority": "P0",
+      "apex_original": false,
+      "modelling_notes": "Artist Rion Swanson specifically notes it was adapted from an earlier Geth ship. Preserve actual dreadnought modifications.",
+      "confidence": "high"
+    },
+    {
+      "id": "GET-003",
+      "faction": "Geth Consensus",
+      "name": "Geth fighter",
+      "role": "fighter",
+      "silhouette": "Small autonomous mechanical craft, thin fin-like geometry; violet sensor / weapons emission.",
+      "source_visibility": "ME3, miniature collectible",
+      "primary_source_ids": [
+        "model_ships"
+      ],
+      "geometry_status": "on_screen",
+      "length_m": null,
+      "length_note": "Scale by compare against ME3 model/scene.",
+      "build_priority": "P1",
+      "apex_original": false,
+      "modelling_notes": "Small autonomous mechanical craft, thin fin-like geometry; violet sensor / weapons emission.",
+      "confidence": "high"
+    },
+    {
+      "id": "GET-004",
+      "faction": "Geth Consensus",
+      "name": "Geth transporter",
+      "role": "transport",
+      "silhouette": "Dedicated insertion/transport vessel, anatomically related but distinct from cruiser.",
+      "source_visibility": "ME1 model source distinctions discussed by fans",
+      "primary_source_ids": [
+        "starships"
+      ],
+      "geometry_status": "concept_only",
+      "length_m": null,
+      "length_note": "Need direct in-game mesh verification; do not reuse cruiser by default.",
+      "build_priority": "P2",
+      "apex_original": false,
+      "modelling_notes": "Dedicated insertion/transport vessel, anatomically related but distinct from cruiser.",
+      "confidence": "medium"
+    },
+    {
+      "id": "REP-001",
+      "faction": "Reapers",
+      "name": "Sovereign-class capital Reaper",
+      "role": "capital Reaper",
+      "silhouette": "Approx. 2 km long; dark biomechanical cephalopod carapace; multi-jointed legs; central weapon anatomy.",
+      "source_visibility": "ME1/ME3 cinematics, in-game codex",
+      "primary_source_ids": [
+        "reapers"
+      ],
+      "geometry_status": "on_screen",
+      "length_m": 2000,
+      "length_note": "Codex class length.",
+      "build_priority": "P0",
+      "apex_original": false,
+      "modelling_notes": "Model long axial body and articulated side appendages separately. Keep subtle dark metallic material.",
+      "confidence": "high"
+    },
+    {
+      "id": "REP-002",
+      "faction": "Reapers",
+      "name": "Harbinger",
+      "role": "capital Reaper / flagship",
+      "silhouette": "Capital Reaper variant with distinct head and carapace details; recognisable at 3/4 view.",
+      "source_visibility": "ME3 finale, on-screen",
+      "primary_source_ids": [
+        "reapers"
+      ],
+      "geometry_status": "on_screen",
+      "length_m": null,
+      "length_note": "Do not invent a special exact length without source.",
+      "build_priority": "P0",
+      "apex_original": false,
+      "modelling_notes": "Capital Reaper variant with distinct head and carapace details; recognisable at 3/4 view.",
+      "confidence": "high"
+    },
+    {
+      "id": "REP-003",
+      "faction": "Reapers",
+      "name": "Reaper destroyer",
+      "role": "destroyer Reaper",
+      "silhouette": "160 m. Tall articulated four-main-leg ground-capable variant with folding facial plates around forward beam.",
+      "source_visibility": "ME3 Rannoch and Earth scenes, codex",
+      "primary_source_ids": [
+        "reapers"
+      ],
+      "geometry_status": "on_screen",
+      "length_m": 160,
+      "length_note": "Codex length.",
+      "build_priority": "P0",
+      "apex_original": false,
+      "modelling_notes": "Beam origin behind folding head plates; not a capital Reaper scaled down.",
+      "confidence": "high"
+    },
+    {
+      "id": "REP-004",
+      "faction": "Reapers",
+      "name": "Reaper troop transport",
+      "role": "troop transport",
+      "silhouette": "Codex type with no single authoritative standard silhouette.",
+      "source_visibility": "ME3 codex",
+      "primary_source_ids": [
+        "reapers"
+      ],
+      "geometry_status": "text_only",
+      "length_m": null,
+      "length_note": "Codex length range 200–1,000 m; model family is reconstruction.",
+      "build_priority": "P2",
+      "apex_original": false,
+      "modelling_notes": "Codex type with no single authoritative standard silhouette.",
+      "confidence": "medium"
+    },
+    {
+      "id": "REP-005",
+      "faction": "Reapers",
+      "name": "Reaper processor",
+      "role": "harvesting processor",
+      "silhouette": "Mass harvesting platform, potentially non-ship-like.",
+      "source_visibility": "ME3 codex",
+      "primary_source_ids": [
+        "reapers"
+      ],
+      "geometry_status": "text_only",
+      "length_m": null,
+      "length_note": "Dimensions unspecified.",
+      "build_priority": "P2",
+      "apex_original": false,
+      "modelling_notes": "Mass harvesting platform, potentially non-ship-like.",
+      "confidence": "medium"
+    },
+    {
+      "id": "REP-A01",
+      "faction": "Reapers — Apex",
+      "name": "Axiom",
+      "role": "benevolent capital Reaper",
+      "silhouette": "Weathered pale grey capital Reaper; real segmented old carapace, articulated limbs, no decorative fantasy armour.",
+      "source_visibility": "Apex original",
+      "primary_source_ids": [
+        "reapers"
+      ],
+      "geometry_status": "apex_original",
+      "length_m": 4200,
+      "length_note": "Apex specification: 4.2 km.",
+      "build_priority": "APEX",
+      "apex_original": true,
+      "modelling_notes": "Retain recognisable Reaper anatomy. Morale/anti-indoctrination function is effects and systems, not a totally new hull design.",
+      "confidence": "high"
+    },
+    {
+      "id": "COL-001",
+      "faction": "Collectors",
+      "name": "Collector cruiser / ship",
+      "role": "abduction warship",
+      "silhouette": "Dark beetle/termite-shaped ridged shell; central insectile body with tapered segmented protrusions.",
+      "source_visibility": "ME2 collector cruiser and artist commentary",
+      "primary_source_ids": [
+        "art2",
+        "collector_art"
+      ],
+      "geometry_status": "on_screen",
+      "length_m": null,
+      "length_note": "Do not adopt a firm length without primary citation.",
+      "build_priority": "P1",
+      "apex_original": false,
+      "modelling_notes": "Authoritative design guidance explicitly references termite hills and insect hives.",
+      "confidence": "high"
+    },
+    {
+      "id": "BAT-001",
+      "faction": "Batarian Hegemony",
+      "name": "Hensa-class cruiser",
+      "role": "cruiser",
+      "silhouette": "Named in canon, not firmly established as a specific on-screen silhouette.",
+      "source_visibility": "Mass Effect: Ascension text",
+      "primary_source_ids": [
+        "ships_list"
+      ],
+      "geometry_status": "text_only",
+      "length_m": null,
+      "length_note": "Obtain/approve independent reconstruction.",
+      "build_priority": "P2",
+      "apex_original": false,
+      "modelling_notes": "Named in canon, not firmly established as a specific on-screen silhouette.",
+      "confidence": "medium"
+    },
+    {
+      "id": "BAT-002",
+      "faction": "Batarian Hegemony",
+      "name": "Batarian dreadnought — conceptual",
+      "role": "dreadnought",
+      "silhouette": "Rugged strongly gun-forward military hull, based on BioWare concept interpreted by 3D mod artist.",
+      "source_visibility": "BioWare concept adapted by Paul Kiesling",
+      "primary_source_ids": [
+        "cerberus_page"
+      ],
+      "geometry_status": "concept_only",
+      "length_m": null,
+      "length_note": "Do not label Kiesling mesh as official BioWare design.",
+      "build_priority": "P2",
+      "apex_original": false,
+      "modelling_notes": "Rugged strongly gun-forward military hull, based on BioWare concept interpreted by 3D mod artist.",
+      "confidence": "medium"
+    },
+    {
+      "id": "VOL-001",
+      "faction": "Volus Protectorate",
+      "name": "Volus dreadnought — Kwunu",
+      "role": "dreadnought",
+      "silhouette": "Rare species-specific capital ship; visual appears in ME3 as image/war asset and has fan 3D models.",
+      "source_visibility": "ME3 still and fan reconstruction",
+      "primary_source_ids": [
+        "cerberus_page",
+        "ships_list"
+      ],
+      "geometry_status": "concept_only",
+      "length_m": null,
+      "length_note": "Canonical named ship, but 3D geometry is reconstruction.",
+      "build_priority": "P2",
+      "apex_original": false,
+      "modelling_notes": "Rare species-specific capital ship; visual appears in ME3 as image/war asset and has fan 3D models.",
+      "confidence": "medium"
+    },
+    {
+      "id": "TER-A01",
+      "faction": "Terminus Coalition — Apex",
+      "name": "Terminus armoured heavy cruiser",
+      "role": "cruiser",
+      "silhouette": "Refitted mixed-origin cruiser: central donor ship anatomy still recognisable, external grafts and nonstandard weapons.",
+      "source_visibility": "Apex expansion",
+      "primary_source_ids": [
+        "codex"
+      ],
+      "geometry_status": "apex_original",
+      "length_m": null,
+      "length_note": "Original Apex faction.",
+      "build_priority": "APEX",
+      "apex_original": true,
+      "modelling_notes": "Refitted mixed-origin cruiser: central donor ship anatomy still recognisable, external grafts and nonstandard weapons.",
+      "confidence": "high"
+    },
+    {
+      "id": "KRO-A01",
+      "faction": "Krogan Republic — Apex",
+      "name": "Krogan assault barge",
+      "role": "assault transport",
+      "silhouette": "Rugged heavily armoured troopship and breaching hull; human/turian donor hardware clearly visible beneath field modifications.",
+      "source_visibility": "Apex original",
+      "primary_source_ids": [
+        "codex"
+      ],
+      "geometry_status": "apex_original",
+      "length_m": null,
+      "length_note": "Original Apex faction; do not assert a canon Krogan naval hull.",
+      "build_priority": "APEX",
+      "apex_original": true,
+      "modelling_notes": "Rugged heavily armoured troopship and breaching hull; human/turian donor hardware clearly visible beneath field modifications.",
+      "confidence": "high"
+    }
+  ]
+}

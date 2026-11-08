@@ -16,3 +16,6 @@ e2e-screenshots/
 
 # Scratch analysis scripts written by audit agents are never committed.
 scripts/_*
+
+# Launcher packages (npm run package:launcher).
+release/

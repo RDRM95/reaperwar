@@ -1,8 +1,9 @@
+import { dcos, dsin } from '@/core/detmath';
 import { v3, type Vec3 } from '@/core/vec3';
 import { isCapitalRole } from '@/data/types';
 import type { AiContext, MovementGoal } from './ai';
 import { BATTLESPACE_SCALE as S } from './constants';
-import { fleetMotion, hash01, pdRange, rightOf } from './movement';
+import { fleetMotion, hash01, pdRange, rightOf, shipMotion } from './movement';
 import type { FleetState, ShipState, WeaponState } from './types';
 
 /**
@@ -68,7 +69,7 @@ const runStart = (ship: ShipState, target: ShipState): number => Math.max(1.15 *
 
 /**
  * The outward side of a target: away from the centre of its own formation (the exposed flank), or a seeded side
- * when the target sits at the centre.
+ * when the target sits at the centre — mirrored while the hunter's passes are unwinding (`HUNTER_UNWIND_RAD`).
  */
 function outwardOf(ctx: AiContext, ship: ShipState, target: ShipState): Vec3 {
   const c = ctx.enemyCentroid(ship.side);
@@ -76,14 +77,50 @@ function outwardOf(ctx: AiContext, ship: ShipState, target: ShipState): Vec3 {
   const hl = Math.hypot(h.x, h.z);
   const fl = hl > 1e-6 ? v3(h.x / hl, 0, h.z / hl) : v3(0, 0, 1);
   const r = rightOf(fl);
+  let out = hash01(ship.id, 23) < 0.5 ? r : v3(-r.x, 0, -r.z);
   if (c) {
     const ox = target.pos.x - c.x;
     const oz = target.pos.z - c.z;
     // The flank side of the target that faces away from its fleet.
     const side = ox * r.x + oz * r.z;
-    if (Math.abs(side) > 0.5) return side > 0 ? r : v3(-r.x, 0, -r.z);
+    if (Math.abs(side) > 0.5) out = side > 0 ? r : v3(-r.x, 0, -r.z);
   }
-  return hash01(ship.id, 23) < 0.5 ? r : v3(-r.x, 0, -r.z);
+  return shipMotion(ship).mirror ? v3(-out.x, 0, -out.z) : out;
+}
+
+/**
+ * No racetrack (brief §8.1: straight runs and turn-ins, not orbits): a hunter that comes in and breaks away on the
+ * same side pass after pass flies the same loop round its target each time and winds up turn after turn in one sense
+ * (measured on the Normandy in the canon Battle of Earth, seed 42: 2.6 net turns a minute). Its velocity heading's net
+ * turn is summed; a new pass that starts with more than this wound up in either sense is flown mirrored — in on the
+ * other flank, out the other way — and the passes stay mirrored while that unwinds, so the net turn stays within
+ * about a turn while the hunter keeps the exposed flank whenever it is not winding up.
+ */
+export const HUNTER_UNWIND_RAD = Math.PI;
+
+/** Sum the hunter's net turn (its flat velocity heading, wrapped), every step it moves. */
+function noteTurn(ship: ShipState): void {
+  const m = shipMotion(ship);
+  if (Math.hypot(ship.vel.x, ship.vel.z) < 0.05) {
+    m.lastYaw = undefined;
+    return;
+  }
+  const a = Math.atan2(ship.vel.x, ship.vel.z);
+  if (m.lastYaw !== undefined) {
+    let d = a - m.lastYaw;
+    d -= 2 * Math.PI * Math.round(d / (2 * Math.PI));
+    m.netTurn += d;
+  }
+  m.lastYaw = a;
+}
+
+/** At the start of a pass: mirror it while the net turn is wound up beyond `HUNTER_UNWIND_RAD` in the sense it had. */
+function choosePassSide(ship: ShipState): void {
+  const m = shipMotion(ship);
+  if (Math.abs(m.netTurn) > HUNTER_UNWIND_RAD && Math.sign(m.netTurn) !== m.unwindSign) {
+    m.mirror = !m.mirror;
+    m.unwindSign = Math.sign(m.netTurn);
+  } else if (Math.abs(m.netTurn) <= HUNTER_UNWIND_RAD / 2) m.unwindSign = 0;
 }
 
 /** The blind side of a target: behind it, on its exposed flank and below its plane (inside the guns' vertical reach of the hunter's own Thanix). */
@@ -167,7 +204,15 @@ export function hunterGoal(ctx: AiContext, ship: ShipState, fleet: FleetState, t
     return shadowGoal(ctx, ship, fleet);
   }
   let man = ship.manoeuvre;
-  if (!man) man = ship.manoeuvre = { phase: 'approach', until: now + 45 };
+  if (!man) {
+    // A new hunt: its passes are counted from here (shadowing with the fleet is not winding up round a target).
+    const m = shipMotion(ship);
+    m.netTurn = 0;
+    m.mirror = false;
+    m.unwindSign = 0;
+    man = ship.manoeuvre = { phase: 'approach', until: now + 45 };
+  }
+  noteTurn(ship);
   const tp = target.pos;
   const dist = Math.hypot(tp.x - ship.pos.x, tp.y - ship.pos.y, tp.z - ship.pos.z);
   switch (man.phase) {
@@ -241,8 +286,8 @@ export function hunterGoal(ctx: AiContext, ship: ShipState, fleet: FleetState, t
       const dl = Math.hypot(dx, dz);
       if (dl < 1e-6) return { position: to, speedFraction: 1, transit: true };
       const swing = (Math.floor(now / JINK_PERIOD + hash01(ship.id, 41) * 2) % 2 === 0 ? 1 : -1) * JINK_RAD;
-      const c = Math.cos(swing);
-      const sn = Math.sin(swing);
+      const c = dcos(swing);
+      const sn = dsin(swing);
       return { position: v3(ship.pos.x + (dx * c - dz * sn), to.y, ship.pos.z + (dx * sn + dz * c)), speedFraction: 1, transit: true };
     }
     case 'turn':
@@ -256,6 +301,7 @@ export function hunterGoal(ctx: AiContext, ship: ShipState, fleet: FleetState, t
       if (st.state === 'silent' || now > man.until) {
         man.phase = 'approach';
         man.until = now + 45;
+        choosePassSide(ship);
       }
       return shadowGoal(ctx, ship, fleet, target);
     }
@@ -291,7 +337,7 @@ function shadowGoal(ctx: AiContext, ship: ShipState, fleet: FleetState, target?:
   const r = rightOf(fleet.heading);
   const side = hash01(ship.id, 31) < 0.5 ? 1 : -1;
   const phase = (2 * Math.PI * ctx.time) / 50 + hash01(ship.id, 37) * 2 * Math.PI;
-  const lateral = side * (6 + Math.sin(phase) * 1.5);
+  const lateral = side * (6 + dsin(phase) * 1.5);
   const back = target ? 4 : 2;
   const p = v3(fleet.anchor.x + r.x * lateral - fleet.heading.x * back, fleet.anchor.y - 1.5, fleet.anchor.z + r.z * lateral - fleet.heading.z * back);
   return { position: p, speedFraction: 0.8, velocity: fleetMotion(fleet).anchorVel };

@@ -1,3 +1,4 @@
+import { dcos, dsin } from '@/core/detmath';
 import { Rng } from '@/core/rng';
 import {
   add,
@@ -22,11 +23,11 @@ import { getShipClass } from '@/data/ships';
 import { HADES_GATE, NAMED_FLAGSHIPS, isCapitalRole, type DamageType, type FactionId, type WarheadDef } from '@/data/types';
 import { WEAPONS, getWeapon } from '@/data/weapons';
 import { applyRulesToShip, applyRulesToWeapon, cloneRules, type EffectiveWeapon, type RuleSet } from '@/timelines/rules';
-import { beginWithdrawal, centroid, fleetDecision, movementGoal, shipDecision, type AiContext } from './ai';
+import { beginWithdrawal, centroid, fleetDecision, fleetEngagementRange, movementGoal, shipDecision, type AiContext } from './ai';
 import { threatenedGroup, topGunPlatform } from './reaperAi';
 import { applyDamage, barrierFraction, hitProbability } from './damage';
-import { assignSlots } from './formations';
-import { WITHDRAWAL, WITHDRAWN_QUIET_SECONDS, fleetMotion, steerShip } from './movement';
+import { layoutFormation, type FormationLayout } from './formations';
+import { WITHDRAWAL, WITHDRAWN_QUIET_SECONDS, approachProgress, enforceClearance, fleetMotion, noteLoss, spreadSlot, steerShip } from './movement';
 import { SHARED_SOLUTION_Q, barrierFlare, missOffset, shotQuality, solutionFactor, updateSolutions, usesSolution } from './solutions';
 import { CRAFT_DETECT_RANGE, STEALTH_SAFE_RANGE, STEALTH_VENT_FRACTION, detectable, hunterHoldsFire, silentHull } from './stealth';
 import { SimProfile } from './profile';
@@ -40,7 +41,7 @@ import { DistantLayer, type DistantHost } from './distant';
 import { considerDriveRun, tickDriveRun, type DriveHost } from './driveAttack';
 import { flagshipDestroyedEvent } from './flagships';
 import type { SimKernel } from './kernel';
-import { tickScriptedMove } from './scriptedMoves';
+import { inScriptedMove, tickScriptedMove } from './scriptedMoves';
 import { consumeForcedShot, createSpecials, dropForcedShot, forcedShotExtra, type Specials } from './specials';
 import {
   finishVolley,
@@ -125,8 +126,8 @@ export function mountWorldPosition(ship: ShipState, mountIndex: number): Vec3 | 
   const w = ship.weapons[mountIndex];
   if (!w) return undefined;
   const yaw = Math.atan2(ship.heading.x, ship.heading.z);
-  const sin = Math.sin(yaw);
-  const cos = Math.cos(yaw);
+  const sin = dsin(yaw);
+  const cos = dcos(yaw);
   const o = w.offset;
   return v3(ship.pos.x + o.x * cos + o.z * sin, ship.pos.y + o.y, ship.pos.z - o.x * sin + o.z * cos);
 }
@@ -139,6 +140,9 @@ export const hadesGateOpen = (target: ShipState): boolean =>
   target.role === 'reaper_capital' && (target.barriers <= 0 || barrierFraction(target) < HADES_GATE.barrierFractionBelow);
 
 const EMPTY_SHIPS: ShipState[] = [];
+/** Scratch words of `positionDigest` (one double, read as two 32-bit words). */
+const DIGEST_F64 = new Float64Array(1);
+const DIGEST_U32 = new Uint32Array(DIGEST_F64.buffer);
 
 /** Doctrine facing of a fleet (CINEMATIC_DESIGN.md §7.1): a broadside line turns its flank to the enemy; Reapers always fight bow-on. */
 const doctrineFacingFor = (faction: FactionId, formation: FormationType): 'bow' | 'broadside' => (formation === 'broadside_line' && faction !== 'reaper' ? 'broadside' : 'bow');
@@ -338,14 +342,14 @@ export class BattleSimulation implements AiContext {
     fleet.startPoints = created.reduce((a, s) => a + s.pointValue, 0);
     // A fleet made only of fixed platforms is static whatever the spec says: it never moves and rejects move orders.
     if (spec.static === undefined && created.length > 0 && created.every((s) => s.role === 'fixed_platform')) fleet.static = true;
-    // Slots.
-    const slots = assignSlots(
-      created.map((s) => ({ id: s.id, role: s.role, lengthKm: s.lengthKm })),
-      fleet.orders.formation,
-    );
+    // Battlegroup slots (brief §22): seeded from the battle seed and each ship id, the frontage bounded by the range.
+    this.applyLayout(fleet, created);
+    // Converging arcs: a fleet that deploys with the enemy in view starts at its approach progress; else far out.
+    // (Computed directly: the per-tick side cache must not be filled before this fleet's hulls exist.)
+    const enemy = centroid(this.ships.filter((o) => o.alive && !o.escaped && o.side !== spec.side && o.role !== 'fighter' && !this.isPending(o) && !silentHull(o)));
+    fleetMotion(fleet).approach = enemy ? approachProgress(Math.hypot(enemy.x - fleet.anchor.x, enemy.z - fleet.anchor.z), fleetEngagementRange(created)) : 1;
     for (const s of created) {
-      s.slot = slots.get(s.id) ?? v3();
-      const world = this.slotWorld(fleet, s.slot);
+      const world = this.stationWorld(fleet, s);
       s.pos = world;
       s.prevPos = clone(world);
       s.heading = clone(fleet.heading);
@@ -388,7 +392,7 @@ export class BattleSimulation implements AiContext {
       if (!a || !s.alive) continue;
       const fleet = this.fleets.get(s.fleetId);
       if (fleet) {
-        const to = this.slotWorld(fleet, s.slot);
+        const to = this.stationWorld(fleet, s);
         a.from = v3(a.from.x + to.x - a.to.x, a.from.y + to.y - a.to.y, a.from.z + to.z - a.to.z);
         a.to = to;
       }
@@ -418,11 +422,29 @@ export class BattleSimulation implements AiContext {
     }
   }
 
-  private slotWorld(fleet: FleetState, slot: Vec3): Vec3 {
+  /** A hull's station on the anchor (its slot, with the approach spread on its group's reference): deployment and arrivals. */
+  private stationWorld(fleet: FleetState, ship: ShipState): Vec3 {
+    const slot = spreadSlot(ship, fleetMotion(fleet).approach);
     const h = fleet.heading;
     const rx = h.z;
     const rz = -h.x;
     return v3(fleet.anchor.x + rx * slot.x + h.x * slot.z, fleet.anchor.y + slot.y, fleet.anchor.z + rz * slot.x + h.z * slot.z);
+  }
+
+  /** Lay a fleet's hulls out as battlegroups (formations.ts): slots, group leaders and references, station yaw. */
+  private applyLayout(fleet: FleetState, ships: ShipState[]): FormationLayout {
+    const layout = layoutFormation(
+      ships.map((s) => ({ id: s.id, role: s.role, lengthKm: s.lengthKm })),
+      fleet.orders.formation,
+      { seed: this.config.seed, range: fleetEngagementRange(ships) },
+    );
+    for (const s of ships) {
+      s.slot = layout.slots.get(s.id) ?? s.slot ?? v3();
+      s.groupLeaderId = layout.leaders.get(s.id);
+      s.groupSlot = layout.groupSlots.get(s.id);
+      s.stationYaw = layout.yaw.get(s.id);
+    }
+    return layout;
   }
 
   private rulesFor(spec: FleetSpec): RuleSet {
@@ -680,6 +702,22 @@ export class BattleSimulation implements AiContext {
       c.B = topGunPlatform(this.enemyCombatants('B'), this.sideCache.rogueB);
     }
     return side === 'A' ? c.A : c.B;
+  }
+
+  /** Every live hull of either side within `radius` of `p` (the spatial grid, start-of-tick positions; brief §22). */
+  hullsNear(p: Vec3, radius: number): ShipState[] {
+    return this.grid.queryRadius(p, radius);
+  }
+  private largestCache = { tick: -1, km: 0 };
+  /** Length of the largest live non-craft hull in the battle (km; cached per tick). */
+  largestHullKm(): number {
+    const c = this.largestCache;
+    if (c.tick !== this.tick) {
+      c.tick = this.tick;
+      c.km = 0;
+      for (const s of this.ships) if (s.alive && !s.escaped && s.role !== 'fighter' && s.lengthKm > c.km) c.km = s.lengthKm;
+    }
+    return c.km;
   }
 
   /** Living, present members of a fleet in ship-index order (cached per tick). */
@@ -956,12 +994,7 @@ export class BattleSimulation implements AiContext {
   }
 
   private reassignSlots(fleet: FleetState): void {
-    const mine = this.ships.filter((s) => s.fleetId === fleet.spec.id && s.alive && !s.escaped);
-    const slots = assignSlots(
-      mine.map((s) => ({ id: s.id, role: s.role, lengthKm: s.lengthKm })),
-      fleet.orders.formation,
-    );
-    for (const s of mine) s.slot = slots.get(s.id) ?? s.slot;
+    this.applyLayout(fleet, this.ships.filter((s) => s.fleetId === fleet.spec.id && s.alive && !s.escaped));
   }
 
   // ------------------------------------------------------------------- loop
@@ -1072,6 +1105,8 @@ export class BattleSimulation implements AiContext {
       if (profiling) tp = prof.lap('weapons', tp);
     }
 
+    // No two hulls ever clip (brief §22): the clearance backstop after every hull has moved.
+    enforceClearance(this, this.ships, (sh) => sh.driveRun !== undefined || sh.arrival !== undefined || inScriptedMove(sh));
     this.updateProjectiles(dt);
     if (profiling) tp = prof.lap('projectiles', tp);
     this.updateMissiles(dt);
@@ -1086,6 +1121,42 @@ export class BattleSimulation implements AiContext {
       prof.lap('end', tp);
       prof.endStep(t0);
     }
+  }
+
+  /**
+   * A digest of the battle's state at this step: every hull's id, life, position, velocity, heading, hull and barriers,
+   * bit for bit (FNV-1a over the IEEE-754 words). The same config and seed give the same digest on every engine — the
+   * cross-engine determinism check (tests/battlegroups.test.ts pins it in Node, e2e/game.spec.ts recomputes it in the
+   * browser; ARCHITECTURE.md: replay = re-simulation).
+   */
+  positionDigest(): string {
+    const f = DIGEST_F64;
+    const u = DIGEST_U32;
+    let h = 0x811c9dc5;
+    const mix = (x: number): void => {
+      h = Math.imul((h ^ x) >>> 0, 0x01000193) >>> 0;
+    };
+    const num = (v: number): void => {
+      f[0] = v;
+      mix(u[0]);
+      mix(u[1]);
+    };
+    for (const s of this.ships) {
+      for (let i = 0; i < s.id.length; i++) mix(s.id.charCodeAt(i));
+      mix(s.alive ? 1 : 0);
+      num(s.pos.x);
+      num(s.pos.y);
+      num(s.pos.z);
+      num(s.vel.x);
+      num(s.vel.y);
+      num(s.vel.z);
+      num(s.heading.x);
+      num(s.heading.y);
+      num(s.heading.z);
+      num(s.hull);
+      num(s.barriers);
+    }
+    return h.toString(16).padStart(8, '0');
   }
 
   /** Run to completion (headless). Returns the result. */
@@ -1129,7 +1200,7 @@ export class BattleSimulation implements AiContext {
     let faceDir: Vec3 | undefined;
     if (goal.face) faceDir = sub(goal.face, ship.pos);
     else if (speed > maxSpeed * 0.15) faceDir = ship.vel;
-    else if (ship.role !== 'fighter') faceDir = fleet.heading;
+    else if (ship.role !== 'fighter') faceDir = ship.stationYaw ? rotateY(fleet.heading, ship.stationYaw) : fleet.heading;
     if (faceDir) this.turnToward(ship, faceDir, dt);
   }
 
@@ -1147,8 +1218,8 @@ export class BattleSimulation implements AiContext {
         let axis = cross(cur, target);
         if (lengthSq(axis) < 1e-8) axis = v3(0, 1, 0);
         axis = normalize(axis);
-        const c = Math.cos(maxTurn);
-        const s = Math.sin(maxTurn);
+        const c = dcos(maxTurn);
+        const s = dsin(maxTurn);
         // Rodrigues rotation.
         const term1 = scale(cur, c);
         const term2 = scale(cross(axis, cur), s);
@@ -1347,8 +1418,8 @@ export class BattleSimulation implements AiContext {
       m.id = ship.id;
       m.tick = this.tick;
       m.yaw = Math.atan2(ship.heading.x, ship.heading.z);
-      m.sin = Math.sin(m.yaw);
-      m.cos = Math.cos(m.yaw);
+      m.sin = dsin(m.yaw);
+      m.cos = dcos(m.yaw);
     }
     return m;
   }
@@ -1386,7 +1457,7 @@ export class BattleSimulation implements AiContext {
   private arcParams(ship: ShipState, w: WeaponState): { sin: number; cos: number; cosLimit: number } {
     const yaw = this.yawOf(ship).yaw + w.facing;
     const halfArc = ((w.def.arc / 2) * Math.PI) / 180;
-    return { sin: Math.sin(yaw), cos: Math.cos(yaw), cosLimit: Math.cos(halfArc + 0.05) };
+    return { sin: dsin(yaw), cos: dcos(yaw), cosLimit: dcos(halfArc + 0.05) };
   }
 
   private inArc(ship: ShipState, w: WeaponState, target: Vec3): boolean {
@@ -1676,8 +1747,10 @@ export class BattleSimulation implements AiContext {
             target = e;
           }
         }
-        // Spinal guns wait for the primary target rather than wasting a shot — except on a volley's or salvo's beat.
-        if (target && def.antiCapital && def.arc <= 20 && primary && primary.alive && target.id !== primary.id && !coordinated && this.rng.chance(0.6)) return undefined;
+        // Spinal guns wait for a primary target within range (turning onto it) rather than wasting a shot — except on a
+        // volley's or salvo's beat; a primary out of range is no reason to hold a gun that has something to shoot.
+        // (The roll is drawn as before whatever the range, so the battle's random stream is not reshuffled by it.)
+        if (target && def.antiCapital && def.arc <= 20 && primary && primary.alive && target.id !== primary.id && !coordinated && this.rng.chance(0.6) && within(primary)) return undefined;
       }
       if (!target) return undefined;
     }
@@ -1818,7 +1891,7 @@ export class BattleSimulation implements AiContext {
             const ang = this.rng.next() * Math.PI * 2;
             const mag = solved ? missOffset(target.radiusKm, q, this.rng.next()) : target.radiusKm * (1.6 + this.rng.next() * 3) + 0.05;
             missDistance = mag;
-            aimPoint = add(aim, add(scale(perp, Math.cos(ang) * mag), scale(up, Math.sin(ang) * mag)));
+            aimPoint = add(aim, add(scale(perp, dcos(ang) * mag), scale(up, dsin(ang) * mag)));
           }
           const dir = normalize(sub(aimPoint, origin));
           this.projectiles.push({
@@ -1865,7 +1938,7 @@ export class BattleSimulation implements AiContext {
           const mag = target.radiusKm * 2.5 + 0.3;
           const ang = this.rng.next() * Math.PI * 2;
           const up = cross(perp, dir);
-          w.beamEnd = add(addScaled(target.pos, dir, 6), add(scale(perp, Math.cos(ang) * mag), scale(up, Math.sin(ang) * mag)));
+          w.beamEnd = add(addScaled(target.pos, dir, 6), add(scale(perp, dcos(ang) * mag), scale(up, dsin(ang) * mag)));
         }
         break;
       }
@@ -2126,6 +2199,9 @@ export class BattleSimulation implements AiContext {
     if (killer) killer.stats.kills++;
     ship.alive = false;
     ship.destroyedAt = this.time;
+    // The gap it leaves in its fleet's formation, for a hull further back to fill (brief §22).
+    const home = this.fleets.get(ship.fleetId);
+    if (home) noteLoss(home, ship, this.membersOf(ship.fleetId));
     if (ship.flight) {
       ship.hull = 0;
       this.noteFlightLosses(ship);

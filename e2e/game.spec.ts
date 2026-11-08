@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { DIGEST_PIN } from '../tests/support/digests';
 
 /** Advance the simulation instantly (software GL in CI renders slowly). */
 const advance = (page: Page, seconds: number) =>
@@ -56,9 +57,10 @@ test.describe('Reaper War Simulator', () => {
     // Select a ship from the list, then order the fleet to attack a Reaper destroyer.
     await page.locator('.ship-list .ship-row').first().click();
     await expect(page.locator('.target-panel')).toContainText('SSV');
-    // Unnamed Reapers carry tracking designations (brief §12): RD-nn for destroyers, RC-nn for capitals.
-    const destroyerRow = page.locator('.ship-row', { hasText: /RD-\d+/ }).first();
-    await destroyerRow.click({ button: 'right' });
+    // Above 64 active ships the lists show one row per fleet, so right-click the Reaper fleet's row
+    // (in a smaller battle it would be a Reaper's own row, e.g. a destroyer's RD-nn designation).
+    const reaperRow = page.locator('.ship-row[data-fleet]', { hasText: /Reaper/ }).or(page.locator('.ship-row', { hasText: /RD-\d+/ })).first();
+    await reaperRow.click({ button: 'right' });
     await expect(page.locator('.toast')).toContainText('ATTACK');
 
     // Battle proceeds and finishes.
@@ -123,5 +125,68 @@ test.describe('Reaper War Simulator', () => {
     await page.fill('[data-count="sideB:reaper_destroyer"]', '2');
     await page.click('[data-action="launch-custom"]');
     await expect(page.locator('[data-action="pause"]')).toBeVisible();
+  });
+
+  // Brief §22 "free camera rotation and zoom" (0ab870b): a real drag and wheel over the battle view — not events
+  // dispatched on the canvas — must reach the camera through the full-screen HUD layer and hand a director-driven view
+  // over to a free orbit.
+  test('a mouse drag and wheel over the battle view hand the cinematic camera to a free orbit', async ({ page }) => {
+    await page.goto('/');
+    await page.click('[data-menu="quick-battle"]');
+    await page.click('[data-action="launch"]');
+    await expect(page.locator('[data-action="pause"]')).toBeVisible();
+    await page.click('[data-action="pause"]');
+    await page.click('[data-camera="cinematic"]');
+    await page.waitForTimeout(400);
+    type Rig = { mode: string; yaw: number; distance: number };
+    const rig = (): Promise<Rig> =>
+      page.evaluate(() => {
+        const r = (window as unknown as { reaperwar: { battle: { view: { rig: Rig } } } }).reaperwar.battle.view.rig;
+        return { mode: r.mode, yaw: r.yaw, distance: r.distance };
+      });
+    const vp = page.viewportSize()!;
+    const cx = vp.width / 2;
+    const cy = vp.height / 2;
+    // What sits under the centre of the view is the battle canvas, not the HUD layer.
+    const hit = await page.evaluate(([x, y]) => document.elementFromPoint(x, y)?.id ?? '', [cx, cy]);
+    expect(hit).toBe('battle-canvas');
+    expect((await rig()).mode).toBe('cinematic');
+    await page.mouse.move(cx, cy);
+    await page.mouse.down();
+    await page.mouse.move(cx + 60, cy + 10, { steps: 6 });
+    await page.mouse.move(cx + 140, cy + 20, { steps: 6 });
+    await page.mouse.up();
+    const dragged = await rig();
+    expect(dragged.mode).toBe('tactical');
+    await page.mouse.wheel(0, -300);
+    await page.waitForTimeout(200);
+    const zoomed = await rig();
+    expect(zoomed.mode).toBe('tactical');
+    expect(Math.abs(zoomed.distance - dragged.distance)).toBeGreaterThan(1);
+    // The drag turned the orbit (the handover itself keeps the view where it was; the drag then moves it).
+    await page.mouse.move(cx, cy);
+    await page.mouse.down();
+    await page.mouse.move(cx + 120, cy, { steps: 8 });
+    await page.mouse.up();
+    expect(Math.abs((await rig()).yaw - zoomed.yaw)).toBeGreaterThan(0.1);
+  });
+
+  // ARCHITECTURE.md: replay = re-simulation. The browser plays the battle the tests pin in Node, bit for bit
+  // (tests/battlegroups.test.ts pins the same digest; the simulation keeps engine-dependent arithmetic out).
+  test('the browser plays the canon Battle of Earth (seed 42) bit for bit as Node does', async ({ page }) => {
+    await page.goto('/');
+    await page.click('[data-menu="quick-battle"]');
+    await expect(page.locator('.screen-body h2')).toHaveText('Battle of Earth');
+    await page.locator('label.field', { hasText: 'Timeline' }).locator('select').selectOption(DIGEST_PIN.rules);
+    await page.fill('input[type="number"]', String(DIGEST_PIN.seed));
+    await page.click('[data-action="launch"]');
+    await expect(page.locator('[data-action="pause"]')).toBeVisible();
+    const digest = await page.evaluate((tick) => {
+      const b = (window as unknown as { reaperwar: { battle: { config: { seed: number; scenarioId: string; rules: { id: string } }; sim: { tick: number; step(): void; positionDigest(): string } } } }).reaperwar.battle;
+      if (b.sim.tick > tick) return `too late: tick ${b.sim.tick}`;
+      while (b.sim.tick < tick) b.sim.step();
+      return `${b.config.scenarioId}/${b.config.rules.id}/${b.config.seed}@${b.sim.tick}:${b.sim.positionDigest()}`;
+    }, DIGEST_PIN.tick);
+    expect(digest).toBe(`${DIGEST_PIN.scenario}/${DIGEST_PIN.rules}/${DIGEST_PIN.seed}@${DIGEST_PIN.tick}:${DIGEST_PIN.digest}`);
   });
 });

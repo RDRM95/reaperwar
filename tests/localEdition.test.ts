@@ -405,6 +405,16 @@ describe('Local Edition launcher: arguments and plan', () => {
     expect(plan.browser).toBe('C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe');
     expect(plan.args).toContain('--user-data-dir=C:\\Games\\reaperwar\\.local-profile');
     expect(plan.args).toContain('--app=http://127.0.0.1:4190/?local=1');
+    expect(plan.args).toContain('--start-maximized');
+    expect(plan.args).not.toContain('--start-fullscreen');
+  });
+
+  it('maximizes the Windows game window without affecting fullscreen or GPU diagnostics', () => {
+    const winHost = { platform: 'win32', env: {}, exists: (p: string) => p.endsWith('msedge.exe'), repoRoot: 'C:\\Games\\reaperwar' };
+    expect(planLaunch(parseLaunchArgs(['--fullscreen']), winHost).args).toContain('--start-fullscreen');
+    expect(planLaunch(parseLaunchArgs(['--fullscreen']), winHost).args).not.toContain('--start-maximized');
+    expect(planLaunch(parseLaunchArgs(['--gpu-info']), winHost).args).not.toContain('--start-maximized');
+    expect(planLaunch(parseLaunchArgs([]), host).args).not.toContain('--start-maximized');
   });
 
   it('parses every option and rejects bad ones', () => {
@@ -575,6 +585,12 @@ describe('Local Edition detection and first-run default', () => {
   it('describes the GPU and the machine', () => {
     expect(localEditionStatus('ANGLE (NVIDIA, NVIDIA GeForce RTX 5090 Direct3D11 vs_5_0 ps_5_0, D3D11)')).toBe("Local Edition: running on this machine's GPU (ANGLE (NVIDIA, NVIDIA GeForce RTX 5090 Direct3D11 vs_5_0 ps_5_0, D3D11))");
     expect(localEditionStatus(undefined)).toBe("Local Edition: running on this machine's GPU");
+    // No WebGL at all (graphics acceleration off, crashed GPU process): said plainly, never "running on the GPU".
+    expect(localEditionStatus(undefined, false)).toMatch(/^Local Edition: WebGL 2 is not available in this window, so battles cannot be drawn/);
+    expect(localEditionStatus(undefined, false)).not.toMatch(/running on this machine's GPU/);
+    // The advice is self-contained (the launcher package's README.txt has no "Confirm it runs on your GPU" section).
+    expect(localEditionStatus('llvmpipe (LLVM 15.0.7, 256 bits)')).toMatch(/update the graphics driver/);
+    expect(localEditionStatus('llvmpipe (LLVM 15.0.7, 256 bits)')).not.toMatch(/README/);
     expect(localEditionDetails(true, 32)).toBe('Cross-origin isolated (ready for a multi-threaded simulation) · 32 CPU threads; the simulation uses one for now.');
     expect(localEditionDetails(false, 0)).toBe('Not cross-origin isolated.');
   });

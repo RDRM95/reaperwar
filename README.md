@@ -2,6 +2,18 @@
 
 > **Change the variables. Change the war.**
 
+> **Development branches:** The current full game with AU campaign, 43 battle chapters,
+> main-gun POV and numerical battle resolver is maintained at
+> [Reaper War Codex Build](https://github.com/RDRM95/reaperwarCodexBuild)
+> ([play online](https://rdrm95.github.io/reaperwarCodexBuild/)).
+> For GPU-intensive fleet spectating and Scene Script mode, use
+> [Reaper War Spectator Sandbox](https://github.com/RDRM95/reaper-war-sandbox).
+> This original repository remains playable, and its one-click launcher
+> **still installs this original edition**. It has not been redirected and
+> existing local saves are not migrated automatically.
+
+
+
 A browser-based, real-time 3D naval warfare simulator set during the Reaper War of 2186. Canon Mass Effect 3 is the default; alternate-universe rule sets are optional and never presented as canon.
 
 **Unofficial, non-commercial fan project.** Mass Effect is a trademark of Electronic Arts / BioWare. No game assets, fonts, models, textures, music or dialogue recordings are used. All ship models are original procedural geometry, all audio is synthesised at runtime, and all text is original.
@@ -18,11 +30,41 @@ npm run dev        # http://localhost:5173
 
 To play on your own graphics card with the best settings, use the Local Edition below.
 
+## One-click Windows launcher (recommended)
+
+**No Git commands, Node.js installation, or admin rights required.** Download [PLAY-REAPERWAR.cmd](PLAY-REAPERWAR.cmd), save it to your Windows Desktop, and **double-click it**. Keep that file on your Desktop to play again later.
+
+On first run the launcher:
+
+1. Downloads this original `reaperwar` repository to `%LOCALAPPDATA%\ReaperWar\game` (not the separate Codex/sandbox repository).
+2. Uses an existing compatible Node.js, or obtains an official portable Node.js LTS ZIP from nodejs.org, checks it against the published SHA-256 manifest, and extracts it only for this game. It does not install Node globally or need administrator privileges.
+3. Installs npm dependencies, builds the Local Edition and opens it in its own Chrome/Edge game window using your GPU.
+
+On later double-clicks it checks for the latest `main` commit and updates the local copy if necessary. Windows starts the game **maximized** to fit the monitor's usable desktop area. The menu shortens its spacing and scrolls vertically when the available height is limited (including high display scaling); every option remains accessible. If the window is already open before applying the update, close it and relaunch with the same Desktop shortcut. Your game saves stay in the dedicated `.local-profile` folder and are preserved across updates. When offline it can reuse a previously installed copy. The first download/build requires an internet connection; no remote game server or account is needed for play. Windows may show a security warning for a downloaded unsigned `.cmd`; inspect the launcher source and choose to run it only if you trust this repository.
+
+**If a launcher window flashes and disappears:** delete the earlier downloaded `PLAY-REAPERWAR.cmd` and download the current copy from this repository. The updated launcher always pauses before exiting, prints the error, and writes `%LOCALAPPDATA%\\ReaperWar\\launcher-last-run.log`. Do not delete the `ReaperWar` data folder to troubleshoot; it may contain your save profile. If no game appears, copy the error text from the open window or inspect that log.
+
+If setup fails, the command window stays open with the error message. Files are stored under `%LOCALAPPDATA%\ReaperWar`, not a system-wide installation.
+
+## Play on your own PC (no install)
+
+Download **ReaperWar-v….zip** (the release asset, not "Source code") from the [latest release](https://github.com/RDRM95/reaperwar/releases/latest), unzip it anywhere, and start the launcher for your system:
+
+| System | Launcher | Needs |
+| --- | --- | --- |
+| Windows | double-click `Play Reaper War (Windows).cmd` | Microsoft Edge (built in) or Google Chrome |
+| macOS | double-click `Play Reaper War (macOS).command`; the first time, allow it in System Settings → Privacy & Security → Open Anyway (macOS 14 and earlier: right-click → Open) | Google Chrome or Microsoft Edge |
+| Linux | run `./play-reaper-war-linux.sh` in a terminal | Google Chrome, Chromium or Microsoft Edge (Snap Store and Flathub installs work too) |
+
+The whole game is one self-contained file, so nothing is installed and no internet or server is needed. The launcher opens it as its own window on a separate browser profile (with its own saves), with flags that use your graphics card fully and lift the browser's frame-rate cap (add `--vsync` to keep the browser on the monitor's refresh), and the game starts on the Ultra graphics quality and paces battles at up to 144 FPS (Settings → Graphics → Frame rate limit). Settings → Graphics names the graphics chip in use. Saves carry over to newer versions; saves from this web version or the one-click launcher move over with Settings → Export save data / Import save data. If Windows Smart App Control or S mode blocks the `.cmd`, open `game\index.html` in Edge directly (without the launcher's graphics flags). `README.txt` in the zip covers each system.
+
+Each new version on `main` is packaged, checked and published as a release by `.github/workflows/launcher.yml`: the smoke test opens the game from disk in Chromium and runs a battle, and the launcher check unzips the release with each system's own tool (on Windows, macOS and Linux runners) into a folder named with spaces, accents and Cyrillic, starts the real launcher as a player would, checks the browser arguments and opens the game in Edge or Chromium. Locally on Linux or macOS: `npm run package:launcher`, then `npm run test:launcher` and `npm run check:launcher`. On Windows, `npm run package:launcher` builds the playable folder in `release/` but no zip (Windows cannot keep the macOS and Linux launchers executable), so the zip checks run in CI. Unlike the one-click Windows launcher above, this package needs no internet, no Node.js download and no build, and it does not update itself: download a newer zip to update.
+
 ## Run it locally on your own GPU (Local Edition)
 
 The web version already draws on your graphics card through WebGL, but a browser tab holds it back: the render resolution is capped, the frame rate is locked to the monitor, and detail distances and effect budgets are tuned for average machines. The Local Edition builds the game on your computer, serves it to that computer only, and opens it in Chrome or Edge with settings meant for a dedicated GPU such as an RTX 5090.
 
-**You need:** [Node.js](https://nodejs.org/en/download) 20.19 or newer (on the 22 line, 22.12 or newer; the current LTS is fine), [Git](https://git-scm.com/downloads), and Google Chrome or Microsoft Edge (every Windows 10 and 11 PC has Edge).
+**For the manual Git-based method below, you need:** [Node.js](https://nodejs.org/en/download) 20.19 or newer (on the 22 line, 22.12 or newer; the current LTS is fine), [Git](https://git-scm.com/downloads), and Google Chrome or Microsoft Edge (every Windows 10 and 11 PC has Edge).
 
 **Windows**
 
@@ -74,18 +116,89 @@ On macOS the browser stays open after its window closes: quit it (⌘Q) or press
 
 **Confirm it runs on your GPU.** Settings → Graphics shows `Local Edition: running on this machine's GPU (…)` with the renderer the browser reports, for example `ANGLE (NVIDIA, NVIDIA GeForce RTX 5090 … Direct3D11 …)`. For the full picture run `run-local.cmd --gpu-info` (or `./run-local.sh --gpu-info`), which opens `chrome://gpu` on the game's own browser profile (Edge shows it as `edge://gpu`): under *Graphics Feature Status*, WebGL and WebGL2 should read *Hardware accelerated*; *GL_RENDERER* should name your card; *Command Line* lists the flags above. If Settings shows `Local Edition: software rendering (…)`, or `chrome://gpu` shows *SwiftShader*, *Software only* or *Microsoft Basic Render Driver*, the GPU is not in use: update the graphics driver, and on a laptop set Chrome or Edge to *High performance* in Windows Settings → System → Display → Graphics.
 
+**Large battle performance and 144 Hz displays (November 2026)**
+
+- **Settings → Graphics → Frame rate limit:** select **144 FPS** (the Local Edition default on existing saves without a frame cap), 60, 90, 120, 165, 240 or Unlimited. This caps *presented frames* only; the fixed 20 Hz battle simulation and its deterministic outcome are unchanged. The cap cannot force 144 FPS when the engine is overloaded.
+- **GPU instancing for 500+ ships:** repeated ships of the same class share static geometry and materials in class/LOD batches. Their positions and orientations remain independent; the nearest large hulls, selected vessels and followed ships still use individual high-detail models. At greater distance they use the original scalable point cloud. This targets the thousands of draw calls caused by repeated individual ship meshes while retaining original ship silhouettes.
+- **Performance numbers in the battle HUD:** `CPU SIM` measures wall time spent advancing the battle simulation in each presented frame; `CPU VIEW` measures main-thread 3D/overlay preparation and rendering submission, **not** GPU execution time. Use these with `DRAWS` and FPS to identify the next bottleneck.
+- **Architecture limit:** the battle simulation still runs on the browser's main JavaScript thread, at a deterministic 20 Hz. A low overall CPU percentage on an 8-core machine does not indicate spare performance on that specific thread. GPU instancing reduces rendering overhead, but does not make this simulation parallel across cores or guarantee 144 FPS for thousands of combatants. A dedicated worker/simulation data pipeline is a separate architectural change.
+
 **What the Local Edition changes compared with the web version**
 
 - **Ultra — local GPU** graphics quality, selected on the first run (change it in Settings; your choice is kept): native resolution (your display's full pixel density, up to 3×, instead of High's 2× cap) with antialiasing, full detail and hull meshes kept 2.5× farther away before ships become points, doubled effect budgets (sparks, tracers, barrier flashes, debris, point-defence lines), maximum anisotropic filtering on the generated planet and sky textures, a larger environment map for hull reflections, and a frames-per-second readout beside the draw-call count on the battle HUD. Ultra can be picked in the web version too.
-- **Uncapped frame rate**: the battle view draws as many frames as the GPU can, so a high-refresh monitor is never the limit and the FPS readout shows the real headroom (`--vsync` restores the cap).
+- **Selectable frame rate limit:** the launcher leaves Chrome/Edge uncapped, while the in-game Graphics setting defaults to **144 FPS** for Local Edition. You can change the cap or choose Unlimited; `--vsync` also allows the browser to synchronise to the monitor. The FPS readout reports frames actually drawn.
 - **Cross-origin isolation**: the server sends `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp`, which unlock `SharedArrayBuffer` for a later multi-threaded simulation.
 - The main menu shows *Local Edition* next to the version.
+
+**Large-battle visibility and rendering (web and Local Edition)**
+
+- When more than 64 simulated ships/flights are active, tactical labels become **fleet name + current vessel count**, and the side panels show one selectable row per fleet instead of dozens of individual ship rows. As an engagement shrinks, individual ship details return automatically.
+- Zooming in, hovering or selecting a ship preserves its identity and status. Selecting a whole fleet no longer draws thousands of individual targeting lines.
+- The far-ship point cloud now grows beyond its former 2,048-vessel limit; distant ships share one GPU draw call rather than being silently omitted.
+- At very large ship counts, the camera keeps a bounded set of nearby detailed hulls and renders the rest as points. This controls draw calls without changing combat, AI, losses or replay results.
+- These are **rendering/UI optimisations**, not a promise of thousands of fully detailed hull meshes at a fixed frame rate. The single-thread simulation limit below remains.
 
 **What it does not change yet**
 
 - The simulation still runs on one CPU core, on the browser's main thread: very large battles are limited by that core, not by the GPU. Fixing 8× playback and moving the simulation to a worker thread are separate work.
 - Battle results are identical at every graphics quality and in both editions: everything above is drawing only.
 - Saves are kept per address, so the Local Edition starts with its own saves. Move them with Settings → Export save data (web version) and Import save data (Local Edition).
+
+## Copy-paste battle presets from ChatGPT
+
+In **Custom Battle**, expand **AI BATTLE PRESET — PASTE / EXPORT**. Ask ChatGPT to
+"Make me a Reaper War Simulator battle preset in reaperwar-battle-v1 JSON" and
+describe the factions, ship numbers, timeline, formations and arrival times.
+Paste the complete JSON into the box and select **Import battle**. The
+existing side A/B fleet cards fill automatically, so you can review them before
+pressing **Launch**. **Show setup JSON** and **Copy setup** let you share or edit a
+scenario and paste it back later.
+
+The import is **local-only**. It validates every ship class against the
+installed ship catalogue, faction ownership, formations, timeline ID, unique
+flagships and numeric bounds; it rejects unsupported parameters rather than
+silently ignoring them. Fleet arrival times are in seconds. Thousands of ships
+are allowed, but simulation performance still depends on the CPU.
+
+Example (all three fleets are independently editable after import):
+
+    {
+      "format": "reaperwar-battle-v1",
+      "rulesId": "cerberus_reformed",
+      "environment": "earth_orbit",
+      "seed": 2186,
+      "startingDistanceKm": 122,
+      "maxDuration": 900,
+      "sideA": [
+        {
+          "faction": "alliance",
+          "name": "Sword Fleet",
+          "formation": "line_abreast",
+          "arrivalTime": 0,
+          "ships": {"alliance_dreadnought": 6, "alliance_cruiser": 20, "alliance_frigate": 40}
+        },
+        {
+          "faction": "cerberus",
+          "name": "Cerberus Black Fleet (allied)",
+          "formation": "strike_wedge",
+          "arrivalTime": 45,
+          "ships": {"cerberus_dreadnought": 2, "cerberus_cruiser": 18, "cerberus_frigate": 24}
+        }
+      ],
+      "sideB": [
+        {
+          "faction": "reaper",
+          "name": "Reaper blockade",
+          "formation": "swarm_descent",
+          "arrivalTime": 0,
+          "ships": {"reaper_capital": 50, "reaper_destroyer": 100, "harbinger": 1}
+        }
+      ]
+    }
+
+Use only ship IDs already present in Custom Battle. This format currently
+imports fleet rosters and battle conditions, **not** unsimulated scripted
+events, campaign turns, manually specified fighter counts or new technologies.
 
 ## What works today (v0.4.0)
 
@@ -142,3 +255,17 @@ Architecture, lore sourcing, AU rules, known issues and the changelog are docume
 ## Deployment
 
 `.github/workflows/deploy.yml` builds with `VITE_BASE=/<repo>/` and publishes `dist/` to GitHub Pages on every push to `main` (or manually via *workflow_dispatch*). One-time setup in the repository: **Settings → Pages → Build and deployment → Source: GitHub Actions**. `.github/workflows/ci.yml` runs typecheck, unit tests, the production build and the Playwright suite on every branch.
+
+## Large-fleet local GPU performance update
+
+This original edition retains its established **`PLAY-REAPERWAR.cmd`**
+installer, portable release and local GPU launcher. The update does **not**
+redirect your installation to the Codex or Spectator projects and does not
+alter local save paths or ports.
+
+The existing GPU-instanced ship renderer and dynamically sized far-point
+cloud now select the nearest hero hulls without sorting every live ship on
+the rendering thread. Squared-distance LOD and cached faction colours retain
+the original quality thresholds, camera shots, ship behaviours and weapon
+effects. Run `npm test`, `npm run build` and `npm run perf` to validate
+the changes. Actual frame-rate gains depend on the target PC and battle.
