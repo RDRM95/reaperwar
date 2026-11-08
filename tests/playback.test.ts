@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { buildCustomBattle } from '@/scenarios';
+import { BATCH_EVENT_THRESHOLD, MAX_INTERCEPTS, batchEvents } from '@/rendering/eventBatching';
+import { CUSTOM_DEFAULT_DISTANCE, CUSTOM_DEFAULT_DURATION, buildCustomBattle, buildScenario } from '@/scenarios';
 import { BattleSimulation, SIM_DT } from '@/simulation/battle';
-import type { BattleConfig } from '@/simulation/types';
+import type { BattleConfig, BattleEvent, BattleResult } from '@/simulation/types';
 import {
   BUDGET_FLOOR_MS,
   FAST_BUDGET_CEILING_MS,
   FRAME_SHARE,
+  FrameStats,
   MAX_BACKLOG_S,
   MAX_FRAME_DT_S,
   NORMAL_SPEED_INDEX,
@@ -17,6 +19,7 @@ import {
   type Stepper,
 } from '@/ui/playback';
 import { LocalSimDriver } from '@/ui/simDriver';
+import { yieldToLoop } from './support/async';
 
 /**
  * The playback clock and Fast-forward to result (brief §19.1, src/ui/playback.ts). Time is injected: a fake clock
@@ -450,4 +453,193 @@ describe('LocalSimDriver (the in-thread side of the worker seam)', () => {
     expect(sim.result).toEqual(plain.result);
     expect(JSON.stringify(sim.events)).toBe(JSON.stringify(plain.events));
   });
+});
+
+describe('FrameStats (the performance HUD figures)', () => {
+  it('averages each bucket exponentially and keeps the worst frame of the last completed window', () => {
+    const stats = new FrameStats(0.5, 1000);
+    const sample = (frame: number, ticks: number) => ({ frame, sim: frame / 2, events: 1, view: 2, render: 3, overlay: 0.5, hud: 0.25, ticks });
+    stats.record(sample(16, 1), 0);
+    expect(stats.mean.frame).toBe(16);
+    expect(stats.mean.sim).toBe(8);
+    expect(stats.mean.ticks).toBe(1);
+    expect(stats.fps).toBeCloseTo(62.5, 6);
+    stats.record(sample(32, 3), 500);
+    expect(stats.mean.frame).toBe(24);
+    expect(stats.mean.ticks).toBe(2);
+    // The window closes at 1000 ms: the worst frame and the most ticks seen in it.
+    expect(stats.worstFrameMs).toBe(0);
+    stats.record(sample(20, 2), 1000);
+    expect(stats.worstFrameMs).toBe(32);
+    expect(stats.maxTicks).toBe(3);
+    stats.record(sample(Number.NaN, 0), 1200);
+    expect(Number.isFinite(stats.mean.frame)).toBe(true);
+    expect(stats.frames).toBe(4);
+  });
+});
+
+// ---------------------------------------------------------------------------------------- effects batching
+
+const at = { x: 1, y: 2, z: 3 };
+const fire = (shipId: string, weaponIndex: number): BattleEvent => ({ t: 1, type: 'weapon_fired', shipId, weaponId: 'w', targetId: 'x', weaponIndex, kind: 'mass_accelerator' });
+const impact = (targetId: string, barrierDamage: number, hullDamage: number): BattleEvent => ({ t: 1, type: 'projectile_impact', shipId: 's', targetId, damage: barrierDamage + hullDamage, damageType: 'kinetic', barrierDamage, hullDamage, pos: at });
+const intercept = (missileId: number): BattleEvent => ({ t: 1, type: 'missile_intercepted', missileId, interceptorId: 'pd', pos: at });
+const destroyed = (shipId: string): BattleEvent => ({ t: 1, type: 'ship_destroyed', shipId, classId: 'alliance_frigate', faction: 'alliance', side: 'A', name: shipId, pos: at, role: 'frigate', cause: 'kinetic' });
+
+/** The Final Battle of Earth, canon, seed 42, the default combined fleet (the briefing's "Default combined fleet", genophage cured). */
+const finalBattle = (): BattleConfig => buildScenario('final_battle_of_earth', 'canon_me3', 42, { forces: 'default', genophage: 'cured' });
+
+describe('effects batching at high speed (src/rendering/eventBatching.ts; render only)', () => {
+  it('keeps the newest shot per ship, merges impacts per target, bounds intercepts, keeps every destruction, counts the rest, and never writes the events', () => {
+    const events: BattleEvent[] = [
+      fire('a', 0), impact('t1', 10, 0), fire('b', 1), fire('a', 2), impact('t1', 0, 50), impact('t2', 5, 5),
+      ...Array.from({ length: MAX_INTERCEPTS + 8 }, (_, i) => intercept(i)),
+      destroyed('d1'), { t: 1, type: 'comms', faction: 'alliance', side: 'A', text: 'Firing.' }, destroyed('d2'), fire('c', 0),
+    ];
+    const frozen = JSON.stringify(events);
+    const batch = batchEvents(events);
+    expect(batch.fires.map((e) => [e.shipId, e.weaponIndex])).toEqual([['a', 2], ['b', 1], ['c', 0]]);
+    expect(batch.impacts.map((m) => [m.last.targetId, m.barrierDamage, m.hullDamage, m.count])).toEqual([['t1', 10, 50, 2], ['t2', 5, 5, 1]]);
+    expect(batch.intercepts.length).toBe(MAX_INTERCEPTS);
+    expect(batch.rest.map((e) => e.type)).toEqual(['ship_destroyed', 'comms', 'ship_destroyed']);
+    expect(batch.merged).toBe(1 + 1 + 8);
+    expect(batch.total).toBe(events.length);
+    expect(JSON.stringify(events)).toBe(frozen);
+    expect(BATCH_EVENT_THRESHOLD).toBeGreaterThan(100);
+  });
+
+  it('a real second of the Final Battle at 8× (160 ticks) spawns one flash per firing ship and one impact per target, every loss kept', () => {
+    const sim = new BattleSimulation(finalBattle());
+    // The window opens 20 s into the exchange of fire (wherever the pacing puts first contact), when rounds are landing.
+    let seen = sim.events.length;
+    while (!sim.finished) {
+      sim.step();
+      if (sim.events.slice(seen).some((e) => e.type === 'weapon_fired')) break;
+      seen = sim.events.length;
+    }
+    sim.skipTo(sim.time + 20);
+    const from = sim.events.length;
+    for (let i = 0; i < 160; i++) sim.step();
+    const frame = sim.events.slice(from);
+    const batch = batchEvents(frame);
+    const fires = frame.filter((e) => e.type === 'weapon_fired');
+    const impacts = frame.filter((e) => e.type === 'projectile_impact');
+    const losses = frame.filter((e) => e.type === 'ship_destroyed');
+    expect(fires.length).toBeGreaterThan(200);
+    expect(impacts.length).toBeGreaterThan(100);
+    expect(batch.fires.length).toBe(new Set(fires.map((e) => (e as { shipId: string }).shipId)).size);
+    expect(batch.impacts.length).toBe(new Set(impacts.map((e) => (e as { targetId: string }).targetId)).size);
+    expect(batch.impacts.reduce((s, m) => s + m.count, 0)).toBe(impacts.length);
+    expect(batch.rest.filter((e) => e.type === 'ship_destroyed').length).toBe(losses.length);
+    expect(batch.fires.length + batch.impacts.length).toBeLessThan((fires.length + impacts.length) / 2);
+    expect(batch.merged + batch.fires.length + batch.impacts.length + batch.intercepts.length + batch.rest.length).toBe(frame.length);
+  });
+});
+
+// ------------------------------------------------------------------------------- seed-42 determinism (brief §19.3)
+
+/** The 300-vs-300 custom battle of docs/apex/PLAYBACK_PERF.md §1.2: the Custom Battle screen's defaults with these counts, canon, seed 42. */
+const c300 = (): BattleConfig =>
+  buildCustomBattle({
+    seed: 42,
+    rulesId: 'canon_me3',
+    environment: 'deep_space',
+    startingDistanceKm: CUSTOM_DEFAULT_DISTANCE,
+    sideA: { faction: 'alliance', name: 'Alliance Task Force', formation: 'line_abreast', counts: { alliance_dreadnought: 18, alliance_carrier: 6, alliance_cruiser: 96, alliance_frigate: 180 } },
+    sideB: { faction: 'reaper', name: 'Reaper harvest group', formation: 'strike_wedge', counts: { reaper_capital: 75, reaper_destroyer: 225 } },
+    maxDuration: CUSTOM_DEFAULT_DURATION,
+  });
+
+interface Outcome {
+  time: number;
+  result: BattleResult | undefined;
+  /** The complete event log as JSON. */
+  events: string;
+  count: number;
+}
+
+const outcomeOf = (sim: BattleSimulation): Outcome => ({ time: sim.time, result: sim.result, events: JSON.stringify(sim.events), count: sim.events.length });
+
+/**
+ * A battle played through the clock at `speed` with simulated 60 fps frames and an injected clock on which each tick
+ * costs `tickCostMs`, so every budget decision is exact and independent of the machine. The driver's events are
+ * drained once per frame, as the controller does.
+ */
+async function throughClock(config: BattleConfig, speed: number, tickCostMs: number): Promise<Outcome & { frames: number; cut: number; shed: number; drained: number; atStart: number }> {
+  const time = new FakeTime();
+  const sim = new BattleSimulation(config);
+  const atStart = sim.events.length;
+  const driver = new LocalSimDriver(sim);
+  const stepper: Stepper = {
+    step: () => {
+      driver.step(1);
+      time.t += tickCostMs;
+    },
+    get finished() {
+      return driver.finished;
+    },
+  };
+  const clock = new PlaybackClock({ now: time.now, speedIndex: speedIndex(speed) });
+  settle(clock, stepper, 1000 / 60, 2);
+  let frames = 0;
+  let drained = 0;
+  while (!sim.finished) {
+    clock.frame(FRAME_60, stepper);
+    clock.endFrame(2);
+    drained += driver.drain().length;
+    if (++frames % 400 === 0) await yieldToLoop();
+  }
+  return { ...outcomeOf(sim), frames, cut: clock.cutFrames, shed: clock.shedTotal, drained, atStart };
+}
+
+/** Fast-forward to result in the smallest slices: one tick per slice on the injected clock, yielding for real every 64 slices. */
+async function throughFastForward(config: BattleConfig): Promise<Outcome & { slices: number; ticks: number }> {
+  const time = new FakeTime();
+  const sim = new BattleSimulation(config);
+  const driver = new LocalSimDriver(sim);
+  const stepper: Stepper = {
+    step: () => {
+      driver.step(1);
+      time.t += 1;
+    },
+    get finished() {
+      return driver.finished;
+    },
+  };
+  let n = 0;
+  const out = await runToResult(stepper, { now: time.now, sliceMs: 1, yieldFn: () => (++n % 64 === 0 ? yieldToLoop() : Promise.resolve()) });
+  driver.drain();
+  return { ...outcomeOf(sim), slices: out.slices, ticks: out.ticks };
+}
+
+/** (a) 1× at 60 fps, (b) 8× with 6 ms ticks (the 12 ms budget cuts almost every frame and the backlog sheds), (c) runToResult in tiny slices: deep-equal battles. */
+async function expectSameBattleAtEverySpeed(config: BattleConfig, atLeastEvents: number): Promise<void> {
+  const normal = await throughClock(config, 1, 1);
+  expect(normal.result).toBeDefined();
+  expect(normal.count).toBeGreaterThan(atLeastEvents);
+  // 60 frames per simulated second at 1×, give or take the last fraction; no frame cut; every event drained exactly once.
+  expect(normal.frames).toBeGreaterThanOrEqual(Math.floor(normal.time * 60));
+  expect(normal.cut).toBe(0);
+  expect(normal.drained).toBe(normal.count - normal.atStart);
+  const fast = await throughClock(config, 8, 6);
+  expect(fast.cut).toBeGreaterThan(fast.frames / 2);
+  expect(fast.shed).toBeGreaterThan(1);
+  const forwarded = await throughFastForward(config);
+  expect(forwarded.slices).toBe(forwarded.ticks);
+  for (const other of [fast, forwarded]) {
+    expect(other.time).toBe(normal.time);
+    expect(other.count).toBe(normal.count);
+    expect(other.result).toEqual(normal.result);
+    expect(other.events).toBe(normal.events);
+  }
+}
+
+describe('seed-42 determinism: identical battles at 1×, at 8× under budget cuts and through Fast-forward to result (brief §19.3)', () => {
+  it('the Final Battle of Earth (canon)', async () => {
+    await expectSameBattleAtEverySpeed(finalBattle(), 10_000);
+  }, 600_000);
+
+  it('a 300-vs-300 custom battle (canon)', async () => {
+    await expectSameBattleAtEverySpeed(c300(), 10_000);
+  }, 900_000);
 });
