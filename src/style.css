@@ -368,11 +368,10 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .ff-bar i { position: absolute; left: 0; top: 0; bottom: 0; width: 0; background: var(--orange); }
 .ff-hulls { font-size: 12px; letter-spacing: 0.15em; }
 .ff-pace { font-size: 10px; letter-spacing: 0.15em; margin-top: 4px; min-height: 14px; }
-.perf-hud { position: absolute; right: 12px; bottom: 12px; width: 372px; font-family: var(--mono); font-size: 10px; line-height: 1.5; padding: 10px 12px; }
+/* The panel sits in the 190 px strip below the right column (.hud-right ends 190 px above the bottom), so it covers
+   no control at any height; 420 px holds the longest row ("… ticks/frame (max 70) · 3.55 ms/tick") without an ellipsis. */
+.perf-hud { position: absolute; right: 12px; bottom: 12px; width: 420px; max-width: calc(100vw - 24px); font-family: var(--mono); font-size: 10px; line-height: 1.5; padding: 10px 12px; }
 .perf-hud .panel-title { margin-bottom: 4px; }
 .perf-row { display: grid; grid-template-columns: 58px 1fr; gap: 8px; }
 .perf-row .k { color: var(--text-dim); letter-spacing: 0.15em; }
 .perf-row .v { color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-@media (max-height: 760px) {
-  .perf-hud { bottom: auto; top: 118px; }
-}
