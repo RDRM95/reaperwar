@@ -60,6 +60,10 @@ const CARRIER_WEAVE_PERIOD = 40;
 const REAPER_ADVANCE_FRACTION = 0.6;
 /** An anchor goal is dropped once the anchor is within this distance of it (compressed km; every step stays rate-limited). */
 export const ANCHOR_GOAL_REACHED_KM = 1e-4;
+/** The share of the fleet's anchor speed an anchor goal may take; the order's own movement keeps the rest. */
+export const ANCHOR_GOAL_SHARE = 0.9;
+/** An anchor goal glides in at this fraction of the slowest hull's acceleration (below the hard-manoeuvre threshold). */
+export const ANCHOR_GOAL_GLIDE = 0.5;
 
 const ZERO: Vec3 = Object.freeze(v3()) as Vec3;
 /** The fixed simulation step (SIM_DT, battle.ts) for rate limits computed outside the step loop. */
@@ -533,21 +537,43 @@ export function steerFleet(ctx: AiContext, fleet: FleetState, view: FleetView, d
     }
   }
   // An ordered anchor goal (`FleetOrders.anchorGoal`, the Final Battle's Reaper climb into the coalition's plane, AP
-  // §4.2): each component it names leaves the order's movement and drifts toward the goal at the fleet's anchor speed,
-  // never sweeping the line of sight from the aim point faster than the formation may turn (the heading-rate limit) —
-  // the formation rises (or slides) as a whole; it never pitches or wheels. The goal is dropped once reached.
+  // §4.2): each component it names leaves the order's movement and drifts toward the goal, never sweeping the line of
+  // sight from the aim point faster than the formation may turn (the heading-rate limit) — the formation rises (or
+  // slides) as a whole; it never pitches or wheels. The goal takes at most `ANCHOR_GOAL_SHARE` of the anchor speed
+  // and the order's movement keeps what is left, so the anchor never outruns its slowest hull; it glides in at
+  // `ANCHOR_GOAL_GLIDE` of that hull's acceleration, so the formation arrives at rest instead of stopping hard (a hard
+  // stop is a manoeuvre that costs every enemy's firing solution, solutions.ts). The goal is dropped once reached.
   const g = o.anchorGoal;
   if (g) {
     const cur = v3(g.x !== undefined ? ax : fleet.anchor.x, g.y !== undefined ? ay : fleet.anchor.y, g.z !== undefined ? az : fleet.anchor.z);
+    // The order's movement this tick on the components the goal leaves free (zero on the named ones).
+    let ox = cur.x - ax;
+    let oy = cur.y - ay;
+    let oz = cur.z - az;
     const dx = g.x !== undefined ? g.x - cur.x : 0;
     const dy = g.y !== undefined ? g.y - cur.y : 0;
     const dz = g.z !== undefined ? g.z - cur.z : 0;
     const d = Math.hypot(dx, dy, dz);
-    let sp = speed;
+    let accel = Infinity;
+    for (const s of view.mine) if (s.maxSpeed > 0) accel = Math.min(accel, s.acceleration * (0.3 + 0.7 * s.subsystems.engines));
+    let sp = speed * ANCHOR_GOAL_SHARE;
     if (aim) sp = Math.min(sp, rate * Math.hypot(aim.x - cur.x, aim.y - cur.y, aim.z - cur.z));
+    if (Number.isFinite(accel)) sp = Math.min(sp, Math.sqrt(2 * ANCHOR_GOAL_GLIDE * accel * d));
     const step = d > 1e-9 ? Math.min(d, sp * dt) : 0;
-    fleet.anchor = d > 1e-9 ? v3(cur.x + (dx / d) * step, cur.y + (dy / d) * step, cur.z + (dz / d) * step) : cur;
-    if (d - step <= ANCHOR_GOAL_REACHED_KM) delete o.anchorGoal;
+    const budget = Math.sqrt(Math.max(0, (speed * dt) ** 2 - step * step));
+    const ol = Math.hypot(ox, oy, oz);
+    if (ol > budget && ol > 1e-12) {
+      ox *= budget / ol;
+      oy *= budget / ol;
+      oz *= budget / ol;
+    }
+    const k = d > 1e-9 ? step / d : 0;
+    fleet.anchor = v3(ax + ox + dx * k, ay + oy + dy * k, az + oz + dz * k);
+    if (d - step <= ANCHOR_GOAL_REACHED_KM) {
+      // Reached: the named components settle exactly on the goal.
+      fleet.anchor = v3(g.x ?? fleet.anchor.x, g.y ?? fleet.anchor.y, g.z ?? fleet.anchor.z);
+      delete o.anchorGoal;
+    }
   }
   // Converging arcs (brief §22): the approach progress falls from 1 far out to 0 at the lock range; the stations of
   // the groups are spread wider and higher by it (`spreadSlot`), so the groups close in on gently converging curves.

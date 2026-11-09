@@ -1,5 +1,5 @@
 import { FACTIONS } from '@/data/factions';
-import type { FactionId, ShipRole } from '@/data/types';
+import { isCapitalRole, type FactionId, type ShipRole } from '@/data/types';
 import { DEFAULT_ARRIVAL_STAGGER } from './arrival';
 import type { BattleSimulation } from './battle';
 import { SIM_DT } from './constants';
@@ -7,7 +7,7 @@ import { FORCE_TARGET_SECONDS } from './specials';
 import { gridFilterPasses } from './spatial';
 import { silentHull } from './stealth';
 import { volleyMount } from './volley';
-import type { Beat, BeatEvent, BeatScript, FleetOrders, FleetSel, FleetSpec, FleetState, ShipRef, ShipState, Side, SpecialTrigger } from './types';
+import type { Beat, BeatEvent, BeatScript, FleetOrders, FleetSel, FleetSpec, FleetState, ShipRef, ShipState, Side, SpecialTrigger, VolleyMounts } from './types';
 
 export type { ArrivalProfile, Beat, BeatEvent, BeatScript, CaptionStyle, FleetSel, ShipRef, SpecialTrigger, VolleyMounts } from './types';
 
@@ -201,6 +201,59 @@ export function waveSpawnPending(sim: BattleSimulation, side: Side): boolean {
   return false;
 }
 
+/** A spread's weight: a hull already chosen by n ships counts as `1 + SPREAD_LOAD × n` times as far… */
+export const SPREAD_LOAD = 0.5;
+/** …and a hull whose class (capital-class or not) n ships already chose as `1 + SPREAD_CLASS_LOAD × n` times as far. */
+export const SPREAD_CLASS_LOAD = 0.15;
+/** Candidates within this × the shooter's reach (its longest mount of the class) come first; none within reach, all count. */
+export const SPREAD_REACH = 1.1;
+
+/**
+ * A spread's per-ship targets (AP §4.3: "resolved per mount, so the beams spread over the nearest line hulls"; the mark,
+ * "barriers ripple in a wall"): in ship order, each shooter takes, among the hulls its `nearest` query qualifies (side,
+ * role filters; present, visible, hostile) — those within its reach first —, the one that minimises distance × (1 +
+ * SPREAD_LOAD × the shooters that already chose that hull) × (1 + SPREAD_CLASS_LOAD × the shooters that already chose
+ * its class), so the fire spreads over the nearest hulls and over the classes the query names (the answer's cruisers
+ * and the dreadnoughts behind them). Deterministic (ties by ship id). Any other reference resolves per ship as before.
+ */
+export function spreadTargets(sim: BattleSimulation, shooters: readonly ShipState[], ref: ShipRef, mounts?: VolleyMounts): Map<string, string> {
+  const out = new Map<string, string>();
+  const load = new Map<string, number>();
+  const classLoad = new Map<boolean, number>();
+  const host: RefHost = { ships: sim.ships, fleets: sim.fleets, config: sim.config, getShip: (id) => sim.getShip(id), pending: (x) => sim.isPending(x) };
+  const nearest = 'query' in ref && ref.query === 'nearest' && ref.to === undefined ? ref : undefined;
+  const cands = nearest ? [...queryCands(host, nearest.side, nearest.role, nearest.roles)] : [];
+  for (const s of shooters) {
+    let t: ShipState | undefined;
+    if (nearest) {
+      let reach = 0;
+      for (const w of s.weapons) if ((mounts ? volleyMount(w, mounts) : !w.def.antiSmall) && w.def.range > reach) reach = w.def.range;
+      const pick = (inReach: boolean): ShipState | undefined => {
+        let found: ShipState | undefined;
+        let bestScore = Infinity;
+        for (const c of cands) {
+          if (c === s || !gridFilterPasses(s, c)) continue;
+          const d = Math.hypot(c.pos.x - s.pos.x, c.pos.y - s.pos.y, c.pos.z - s.pos.z);
+          if (inReach && d > reach * SPREAD_REACH) continue;
+          const score = d * (1 + SPREAD_LOAD * (load.get(c.id) ?? 0)) * (1 + SPREAD_CLASS_LOAD * (classLoad.get(isCapitalRole(c.role)) ?? 0));
+          if (score < bestScore || (score === bestScore && found !== undefined && c.id < found.id)) {
+            bestScore = score;
+            found = c;
+          }
+        }
+        return found;
+      };
+      t = pick(true) ?? pick(false);
+    } else t = sim.resolveShipRef(ref, s);
+    if (!t) continue;
+    out.set(s.id, t.id);
+    load.set(t.id, (load.get(t.id) ?? 0) + 1);
+    const cls = isCapitalRole(t.role);
+    classLoad.set(cls, (classLoad.get(cls) ?? 0) + 1);
+  }
+  return out;
+}
+
 /** The fleet's representative for references resolved per fleet: its largest live, present hull. */
 const representative = (sim: BattleSimulation, fleet: FleetState): ShipState | undefined =>
   best(
@@ -284,9 +337,12 @@ function runBeat(sim: BattleSimulation, beat: Beat): BeatOutcome {
       }
       // Strict references (`requireAlive: true`): an unresolved anchor or target skips the beat instead.
       if (note !== undefined && beat.requireAlive === true) return SKIPPED;
+      const mounts = ev.mounts ?? 'spinal';
+      const shooters = targetRef && ev.spread ? fleets.flatMap((f) => sim.membersOf(f.spec.id).filter((s) => s.role !== 'fighter' && !s.stealth && s.weapons.some((w) => volleyMount(w, mounts)))) : [];
+      const targets = targetRef && ev.spread ? spreadTargets(sim, shooters, targetRef, mounts) : undefined;
       sim.orderVolley(
         fleets.map((f) => f.spec.id),
-        { lead: ev.lead, window: ev.window, mounts: ev.mounts, targetRef, anchorShipId, syncArrival: ev.syncArrival },
+        { lead: ev.lead, window: ev.window, mounts: ev.mounts, targetRef, targets, anchorShipId, syncArrival: ev.syncArrival },
       );
       return { outcome: 'fired', note };
     }
@@ -298,14 +354,28 @@ function runBeat(sim: BattleSimulation, beat: Beat): BeatOutcome {
         if (s && !ships.includes(s)) ships.push(s);
       }
       const fleets = ev.fleets !== undefined ? sim.resolveFleetSel(ev.fleets) : [];
-      for (const f of fleets) for (const s of sim.membersOf(f.spec.id)) if (s.role !== 'fighter' && !ships.includes(s)) ships.push(s);
+      // A fleet-wide mark leaves stealth hunters to their doctrine (they hold no line station and fire in no volley,
+      // brief §15.2); a scripted reference that names one (`ships`) still forces it.
+      for (const f of fleets) for (const s of sim.membersOf(f.spec.id)) if (s.role !== 'fighter' && !s.stealth && !ships.includes(s)) ships.push(s);
       if (ships.length === 0) return SKIPPED;
       const seconds = (ev.seconds ?? FORCE_TARGET_SECONDS) * scale;
       // Strict references (`requireAlive: true`): a target that resolves for none of the ships skips the beat.
       if (beat.requireAlive === true && !ships.some((s) => { const t = sim.resolveShipRef(ev.target, s); return t !== undefined && t !== s && gridFilterPasses(s, t); })) return SKIPPED;
       let assigned = 0;
+      // A spread mark distributes the ships over the hulls the reference qualifies; a per-fleet mark resolves the
+      // reference once per fleet, from its largest hull, for every member (the Final Battle's mark, AP §4.3).
+      const pre = new Map<string, string>();
+      if (ev.spread && !ev.mounts) for (const [k, v] of spreadTargets(sim, ships, ev.target)) pre.set(k, v);
+      else if (ev.perFleet) {
+        for (const f of fleets) {
+          const rep = representative(sim, f);
+          const t = rep ? sim.resolveShipRef(ev.target, rep) : undefined;
+          if (t) for (const s of sim.membersOf(f.spec.id)) pre.set(s.id, t.id);
+        }
+      }
       for (const s of ships) {
-        const t = sim.resolveShipRef(ev.target, s);
+        const assignedId = pre.get(s.id);
+        const t = assignedId !== undefined ? sim.getShip(assignedId) : sim.resolveShipRef(ev.target, s);
         if (!t || t === s || !gridFilterPasses(s, t)) continue;
         assigned++;
         if (ev.mounts) {

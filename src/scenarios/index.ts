@@ -1,27 +1,45 @@
-import { au, canon, estimate, inferred, type Sourced } from '@/core/provenance';
-import { v3, type Vec3 } from '@/core/vec3';
+import { v3 } from '@/core/vec3';
 import { getPreset } from '@/timelines/presets';
 import { isApexRules, type RuleSet } from '@/timelines/rules';
-import { UNIQUE_CLASS_IDS, type FactionId } from '@/data/types';
-import type { BattleConfig, Environment, FleetSpec, FormationType, ShipSpec, Side } from '@/simulation/types';
+import type { FactionId } from '@/data/types';
+import type { BattleConfig, Environment, FleetSpec, FormationType, Side } from '@/simulation/types';
 import { SHIP_CLASSES } from '@/data/ships';
 import { FACTIONS } from '@/data/factions';
+import { distantLayerFor } from './distantGroups';
+import { buildFinalBattle, fieldsAuContent } from './finalBattle';
+import { FLEET_SCALING_KEY, SCENARIO_SPACING, base, fleet, reaperFleet, scenarioAt, scenarioSecs, type FleetOpts } from './fleets';
+import { DISTANT_LAYER_OPTION, FINAL_BATTLE_WORLD_STATE, SHEPARD_WORLD_STATE, resolveWorldState, type WorldStateOption } from './worldState';
 
 /**
  * Battle scenarios. Each scenario builds a BattleConfig from a rule set and a
  * seed. Fleet sizes marked SIMULATION_ESTIMATE are compressed representations
- * of much larger canon engagements so that the battle is watchable.
+ * of much larger canon engagements so that the battle is watchable. The fleet
+ * builders and the vessel-name lists live in `fleets.ts`, the declared world
+ * state in `worldState.ts`, the Final Battle of Earth in `finalBattle.ts` and
+ * `finalBattleBeats.ts`; everything is re-exported here.
  */
 
-export interface WorldStateOption {
-  id: string;
-  label: string;
-  /** Provenance category for the UI. */
-  kind: 'player_dependent' | 'extrapolation' | 'au';
-  description: string;
-  choices: { id: string; label: string; description: string }[];
-  default: string;
-}
+export { FLEET_SCALING_KEY, NAMES, NAME_PROVENANCE, SCENARIO_SPACING, base, fleet, reaperFleet, scaleCount, type FleetOpts, type ReaperFleetOpts } from './fleets';
+export {
+  AUTO,
+  BEAT_SCALE_CHOICES,
+  CERBERUS_HOSTILE_TEXT,
+  DISTANT_LAYER_APEX_TEXT,
+  DISTANT_LAYER_CANON_TEXT,
+  DISTANT_LAYER_OPTION,
+  FINAL_BATTLE_WORLD_STATE,
+  SHEPARD_WORLD_STATE,
+  campaignForces,
+  describeOption,
+  resolveWorldState,
+  type CampaignAlliedFleet,
+  type WorldStateChoice,
+  type WorldStateHost,
+  type WorldStateOption,
+} from './worldState';
+export { APEX_ONLY_BEATS, FINAL_BATTLE_ARRIVALS, FINAL_BATTLE_BEATS, FINAL_BATTLE_FLEET_IDS, FINAL_BATTLE_LOCK_UNTIL, finalBattlePreview, finalBattleScript, type FinalBattleScriptOptions } from './finalBattleBeats';
+export { buildFinalBattle, fieldsAuContent, openingDepthScale } from './finalBattle';
+export { UNIQUE_CLASS_IDS } from '@/data/types';
 
 export interface ScenarioDef {
   id: string;
@@ -41,178 +59,57 @@ export interface ScenarioDef {
   briefing: string[];
 }
 
-/**
- * World-state key that controls whether scenario fleets scale with the rule
- * set's fleetStrength. Comparison mode fixes fleets so only technology and
- * doctrine differ between the two runs.
- */
-export const FLEET_SCALING_KEY = 'fleet_scaling';
+// ------------------------------------------------------------ the Sol scenarios' shared parts
 
-/** Everest-class dreadnoughts (ADOPTION_PLAN.md §14.2): the mountain convention, ending in SSV Ararat; no battle names. */
-const ALLIANCE_DN_NAMES = ['SSV Everest', 'SSV Fuji', 'SSV Elbrus', 'SSV Logan', 'SSV Denali', 'SSV Ararat'];
-/** Kilimanjaro-class dreadnoughts: SSV Kilimanjaro and SSV Orizaba are canon, the rest are the pack's list (verify). */
-const ALLIANCE_DN_K_NAMES = ['SSV Kilimanjaro', 'SSV Orizaba', 'SSV Tai Shan', 'SSV Shasta', 'SSV Aconcagua'];
-const ALLIANCE_CRUISER_NAMES = ['SSV Emden', 'SSV Geneva', 'SSV Warsaw', 'SSV Cairo', 'SSV Madrid', 'SSV Shanghai', 'SSV Cape Town', 'SSV Jakarta', 'SSV Hastings', 'SSV Agincourt', 'SSV Trafalgar', 'SSV Midway', 'SSV Leyte', 'SSV Jutland', 'SSV Salamis', 'SSV Lepanto'];
-const ALLIANCE_FRIGATE_NAMES = ['SSV Hong Kong', 'SSV Iwo Jima', 'SSV Cheyenne', 'SSV Agamemnon', 'SSV Achilles', 'SSV Perugia', 'SSV Hyderabad', 'SSV Trident', 'SSV Lexington', 'SSV Saratoga'];
-/** SR-2-pattern stealth frigates: original names (SIMULATION_ESTIMATE); the Normandy itself is `normandy_sr2`. */
-const ALLIANCE_PATTERN_FRIGATE_NAMES = ['SSV Thermopylae', 'SSV Austerlitz', 'SSV Sekigahara', 'SSV Adwa', 'SSV Plataea', 'SSV Carrhae', 'SSV Talas', 'SSV Lechfeld'];
-const TURIAN_DN_NAMES = ['PFS Indomitable', 'PFS Vengeance', 'PFS Cipritine', 'PFS Digeris', 'PFS Taetrus', 'PFS Invictus', 'PFS Macedyn', 'PFS Oma Ker'];
-const TURIAN_CRUISER_NAMES = ['PFS Resolute', 'PFS Steadfast', 'PFS Unyielding', 'PFS Adamant', 'PFS Vigilant', 'PFS Relentless', 'PFS Spirit of Menae', 'PFS Bastion', 'PFS Rampart', 'PFS Ardent', 'PFS Stalwart', 'PFS Tenacious'];
-const ASARI_DN_NAMES = ['Cyone', 'Serrice Guard', 'Armali', 'Lusia'];
-const ASARI_CRUISER_NAMES = ['Tevura', 'Athame', 'Lucen', 'Piares', 'Nevos', 'Dilinaga', 'Anthea', 'Illium Dawn', 'Thessia Star', 'Nos Astra', 'Sanves', 'Niacal'];
-const CERBERUS_NAMES = ['Minuteman', 'Cronos', 'Elbrus', 'Horizon', 'Sanctum', 'Covenant', 'Lazarus', 'Overlord', 'Firewalker', 'Arrival'];
-
-/** Canonical name lists by class (names are original where canon gives none). A name never appears in two lists. */
-export const NAMES: Record<string, string[]> = {
-  alliance_dreadnought: ALLIANCE_DN_NAMES,
-  alliance_dreadnought_k: ALLIANCE_DN_K_NAMES,
-  /** The owner's AU super-dreadnought line is led by SSV Omaha (docs/apex/INTEGRATION_NOTES.md). */
-  alliance_super_dreadnought: ['SSV Omaha', 'SSV Olympus Mons', 'SSV Mauna Kea'],
-  alliance_cruiser: ALLIANCE_CRUISER_NAMES,
-  alliance_frigate: ALLIANCE_FRIGATE_NAMES,
-  alliance_carrier: ['SSV Einstein', 'SSV Hawking', 'SSV Newton'],
-  alliance_frigate_thanix: ALLIANCE_PATTERN_FRIGATE_NAMES,
-  normandy_sr2: ['SSV Normandy SR-2'],
-  normandy_valkyrie: ['SSV Normandy Valkyrie'],
-  turian_dreadnought: TURIAN_DN_NAMES,
-  turian_super_dreadnought: ['PFS Praetor', 'PFS Legate'],
-  turian_cruiser: TURIAN_CRUISER_NAMES,
-  asari_dreadnought: ASARI_DN_NAMES,
-  asari_cruiser: ASARI_CRUISER_NAMES,
-  destiny_ascension: ['Destiny Ascension'],
-  salarian_dreadnought: ['Sur’Kesh', 'Mannovai', 'Jaëto', 'Erinle'],
-  salarian_cruiser: ['Talat', 'Nasurn', 'Aegohr', 'Halegeuse', 'Gorot', 'Heshtok', 'Dagnes', 'Senoquol', 'Tuchanka Watch', 'Kirrahe', 'Virmire', 'Solus'],
-  salarian_frigate: ['STG Scalpel', 'STG Needle', 'STG Lancet', 'STG Quill', 'STG Thorn', 'STG Barb', 'STG Sliver', 'STG Spine', 'STG Awl', 'STG Stylus'],
-  cerberus_cruiser: CERBERUS_NAMES,
-  cerberus_heavy_cruiser: ['Erebus', 'Nyx'],
-  cerberus_dreadnought: ['Black Fleet Flagship Prometheus', 'Eos', 'Hyperion'],
-  harbinger: ['Harbinger'],
-  quarian_liveship: ['Rayya', 'Shellen', 'Tonbay'],
-  quarian_heavy: ['Qwib-Qwib', 'Alarei', 'Neema', 'Idenna', 'Moreh', 'Iktomi'],
-  quarian_cruiser: ['Usela', 'Tesleya', 'Chayym', 'Defrahnz', 'Honorata', 'Konesh', 'Rannoch Hope', 'Tasi', 'Ulnay', 'Yaska'],
-  geth_dreadnought: ['Geth dreadnought'],
-};
+/** Named single hulls of the Sol fleets that never scale with fleet strength (the K-class pair, SSV Omaha). */
+const SOL_FIXED = ['alliance_dreadnought_k', 'alliance_super_dreadnought'];
 
 /**
- * Per-name provenance for the lists ADOPTION_PLAN.md §14.2 anchors (stage D
- * copies the CANON_INFERRED entries onto LORE_REFERENCE.md's verify list).
+ * What the Apex Sol scenarios add to the Alliance line under the Apex mechanics (AP §22.1, CINEMATIC_DESIGN.md §7.9;
+ * the owner's SSV Omaha, INTEGRATION_NOTES.md): the Valkyrie (`valkyrieAvailable`), one Olympus-class heavy
+ * dreadnought — the first of its list, SSV Omaha — (`superDreadnoughts`) and `patternFrigates` SR-2-pattern stealth
+ * frigates, which scale with fleet strength. Nothing under any other rule set.
  */
-export const NAME_PROVENANCE: Record<string, Sourced<string>> = {
-  'SSV Kilimanjaro': canon('Kilimanjaro-class dreadnought named in ME3 (LORE_REFERENCE.md).'),
-  'SSV Orizaba': canon('Kilimanjaro-class dreadnought named in ME3 (LORE_REFERENCE.md).'),
-  'SSV Everest': canon('The Everest-class name is canon (ME1 codex); the lead ship bears the class name.'),
-  ...Object.fromEntries(['SSV Fuji', 'SSV Elbrus', 'SSV Logan', 'SSV Denali', 'SSV Ararat', 'SSV Tai Shan', 'SSV Shasta', 'SSV Aconcagua'].map((n) => [n, inferred('pack list; verify class')])),
-  ...Object.fromEntries(ALLIANCE_PATTERN_FRIGATE_NAMES.map((n) => [n, estimate('Original name for an SR-2-pattern stealth frigate; the trilogy names only the Normandy.')])),
-  'SSV Normandy SR-2': canon('The Normandy SR-2 is canon (ME2–ME3).'),
-  'SSV Normandy Valkyrie': au('AU LOCK one-off (ADOPTION_PLAN.md §8).'),
-  ...Object.fromEntries(['SSV Omaha', 'SSV Olympus Mons', 'SSV Mauna Kea', 'PFS Praetor', 'PFS Legate', 'Erebus', 'Nyx', 'Black Fleet Flagship Prometheus', 'Eos', 'Hyperion'].map((n) => [n, au('Original name for an alternate-universe hull.')])),
-};
-
-/** Scale a ship count by a fleet strength multiplier, never below 1 if the base was >= 1. */
-export const scaleCount = (base: number, mult: number): number => (base <= 0 ? 0 : Math.max(1, Math.round(base * mult)));
-
-const fleetMult = (rules: RuleSet, faction: FactionId, ws: Record<string, string>): number =>
-  ws[FLEET_SCALING_KEY] === 'fixed' ? 1 : rules.fleetStrength[faction];
-
-export interface FleetOpts {
-  /** Ship counts by class id (before scaling). */
-  counts: Record<string, number>;
-  /** Classes that do not scale with fleet strength (named single ships). */
-  fixedClasses?: string[];
-  name: string;
-  side?: Side;
-  formation?: FormationType;
-  position?: Vec3;
-  heading?: Vec3;
-  mult?: number;
-  arrivalTime?: number;
-  playerControlled?: boolean;
-  ws?: Record<string, string>;
-  initialOrder?: FleetSpec['initialOrder'];
-}
-
-/** Generic fleet builder for any faction. */
-export function fleet(id: string, faction: FactionId, rules: RuleSet, opts: FleetOpts): FleetSpec {
-  const m = opts.mult ?? fleetMult(rules, faction, opts.ws ?? {});
-  const ships: ShipSpec[] = [];
-  for (const [classId, base] of Object.entries(opts.counts)) {
-    if (base <= 0) continue;
-    // Unique hulls (Harbinger, the Ascension, the Normandy, the Valkyrie) exist once per battle and never scale (AP §22.1).
-    const unique = UNIQUE_CLASS_IDS.includes(classId);
-    const fixed = unique || opts.fixedClasses?.includes(classId);
-    // Carriers scale more conservatively than the line.
-    const mult = fixed ? 1 : classId.endsWith('carrier') ? Math.min(m, 1.5) : m;
-    const count = unique ? Math.min(1, base) : scaleCount(base, mult);
-    ships.push({ classId, count, names: NAMES[classId] });
-  }
-  const side = opts.side ?? (faction === 'reaper' ? 'B' : 'A');
+function apexSolAdditions(rules: RuleSet, patternFrigates: number): Record<string, number> {
+  if (!isApexRules(rules)) return {};
   return {
-    id,
-    name: opts.name,
-    faction,
-    side,
-    ships,
-    formation: opts.formation ?? (faction === 'reaper' ? 'strike_wedge' : 'defensive_screen'),
-    position: opts.position ?? (side === 'A' ? v3(0, 0, -36) : v3(0, 0, 40)),
-    heading: opts.heading ?? (side === 'A' ? v3(0, 0, 1) : v3(0, 0, -1)),
-    playerControlled: opts.playerControlled ?? side === 'A',
-    arrivalTime: opts.arrivalTime,
-    initialOrder: opts.initialOrder,
+    ...(rules.special.valkyrieAvailable ? { normandy_valkyrie: 1 } : {}),
+    ...(rules.special.superDreadnoughts ? { alliance_super_dreadnought: 1 } : {}),
+    alliance_frigate_thanix: patternFrigates,
   };
 }
 
-const reaperFleet = (id: string, rules: RuleSet, opts: { capitals: number; destroyers: number; harbinger?: boolean; name?: string; side?: Side; position?: Vec3; heading?: Vec3; arrivalTime?: number; mult?: number; ws?: Record<string, string>; formation?: FormationType }): FleetSpec =>
-  fleet(id, 'reaper', rules, {
-    counts: { ...(opts.harbinger ? { harbinger: 1 } : {}), reaper_capital: opts.capitals, reaper_destroyer: opts.destroyers },
-    fixedClasses: ['harbinger'],
-    name: opts.name ?? 'Reaper harvest group',
-    side: opts.side,
-    position: opts.position,
-    heading: opts.heading,
-    arrivalTime: opts.arrivalTime,
-    mult: opts.mult,
-    ws: opts.ws,
-    formation: opts.formation,
-    playerControlled: opts.side === 'A',
-  });
-
-const SHEPARD_WORLD_STATE: WorldStateOption = {
-  id: 'normandy',
-  label: 'Normandy SR-2 present',
-  kind: 'player_dependent',
-  description: 'Whether Shepard’s Normandy takes part in the engagement.',
-  choices: [
-    { id: 'yes', label: 'Normandy present', description: 'The Normandy SR-2 joins the fleet with its Thanix cannon.' },
-    { id: 'no', label: 'Normandy absent', description: 'The Normandy is elsewhere.' },
-  ],
-  default: 'yes',
-};
-
-const base = (id: string, name: string, scenarioId: string, seed: number, rules: RuleSet, environment: Environment, maxDuration: number, objective: string, ws: Record<string, string>, fleets: FleetSpec[]): BattleConfig => ({
-  id: `${id}-${rules.id}-${seed}`,
-  name,
-  scenarioId,
-  seed,
-  rules,
-  environment,
-  maxDuration,
-  perspectiveSide: 'A',
-  objective,
-  worldState: ws,
-  fleets,
-});
-
 /**
- * More room between fleets (brief §22, "more space in the map between fleets"): every scenario's fleet positions,
- * late arrivals and time limit are 1.6 × the 0.12 values, so the fleets start well apart, visibly manoeuvre and close,
- * and the battles still resolve. The full codex-scale change follows in the pacing pass (docs/apex/PACING_PLAN.md).
- * SIMULATION_ESTIMATE.
+ * The Sol platforms of an Apex Sol scenario (AP §19 8.10): two dreadnought-grade stations, two heavy super-accelerator
+ * stations more under `heavyPlatforms`, static on an arc ahead of the line. The Final Battle fields its own under
+ * every preset (`finalBattle.ts`); the canon Battle of Earth keeps none (AP §0.1 lists the Final Battle's platforms).
  */
-export const SCENARIO_SPACING = 1.6;
-/** A scenario position (nominal km) at the §22 spacing. */
-const at = (x: number, y: number, z: number): Vec3 => v3(x * SCENARIO_SPACING, y * SCENARIO_SPACING, z * SCENARIO_SPACING);
-/** A scenario time (arrival or time limit, s) at the §22 spacing, in whole seconds. */
-const secs = (t: number): number => Math.round(t * SCENARIO_SPACING);
+function solPlatforms(rules: RuleSet, position: ReturnType<typeof v3>): FleetSpec[] {
+  if (!isApexRules(rules)) return [];
+  return [
+    fleet('sol-platforms', 'alliance', rules, {
+      counts: { sol_defence_platform: 2, sol_platform_heavy: rules.special.heavyPlatforms ? 2 : 0 },
+      name: 'Sol defence platforms',
+      position,
+      formation: 'static',
+      mult: 1,
+      static: true,
+      initialOrder: { order: 'defend_position' },
+    }),
+  ];
+}
+
+/** Attaches what every scenario config may carry: the distant layer (when its option is on), the AU flag, the notes. */
+function finish(config: BattleConfig, rules: RuleSet, ws: Record<string, string>, notes: string[] = []): BattleConfig {
+  if (ws.distant_layer === 'on') config.distant = distantLayerFor(rules, config.fleets);
+  if (fieldsAuContent(config.fleets)) config.auContent = true;
+  if (notes.length > 0) config.notes = notes;
+  return config;
+}
+
+/** A scenario position (nominal km) and a scenario time at the §22 spacing (`SCENARIO_SPACING`, fleets.ts). */
+const at = scenarioAt;
+const secs = scenarioSecs;
 
 export const SCENARIOS: ScenarioDef[] = [
   {
@@ -239,20 +136,26 @@ export const SCENARIOS: ScenarioDef[] = [
         ],
         default: 'standard',
       },
+      DISTANT_LAYER_OPTION,
     ],
     briefing: [
       'Reaper forces have entered Sol in strength. Arcturus Station is lost.',
       'Fleet command intends to delay the harvest group in low Earth orbit while evacuation transports clear the gravity well.',
       'Reaper capital ships cannot be engaged in the open on equal terms. Concentrate fire; protect the dreadnoughts.',
     ],
-    build: (rules, seed, ws) => {
+    build: (rules, seed, input) => {
+      const { ws, notes } = resolveWorldState(getScenario('battle_of_earth'), rules, input);
       const commitment = ws.fleet_commitment ?? 'standard';
-      const c = commitment === 'heavy' ? { alliance_dreadnought: 8, alliance_carrier: 2, alliance_cruiser: 18, alliance_frigate: 30 } : commitment === 'light' ? { alliance_dreadnought: 4, alliance_carrier: 1, alliance_cruiser: 10, alliance_frigate: 18 } : { alliance_dreadnought: 6, alliance_carrier: 1, alliance_cruiser: 14, alliance_frigate: 24 };
-      return base('battle_of_earth', 'Battle of Earth', 'battle_of_earth', seed, rules, 'earth_orbit', secs(420), 'Hold Earth orbit against the Reaper harvest group.', ws, [
-        fleet('alliance-5th', 'alliance', rules, { counts: { ...c, normandy_sr2: (ws.normandy ?? 'yes') === 'yes' ? 1 : 0 }, name: 'Alliance Fifth Fleet', position: at(0, 0, -34), ws }),
+      // The dreadnought line always includes the Kilimanjaro-class pair (SSV Kilimanjaro, SSV Orizaba; AP §4.2, §0.1): the
+      // commitment's dreadnought count is unchanged, two of them are the K-class (identical combat values).
+      const c = commitment === 'heavy' ? { alliance_dreadnought: 6, alliance_carrier: 2, alliance_cruiser: 18, alliance_frigate: 30 } : commitment === 'light' ? { alliance_dreadnought: 2, alliance_carrier: 1, alliance_cruiser: 10, alliance_frigate: 18 } : { alliance_dreadnought: 4, alliance_carrier: 1, alliance_cruiser: 14, alliance_frigate: 24 };
+      const fleets = [
+        fleet('alliance-5th', 'alliance', rules, { counts: { alliance_dreadnought_k: 2, ...c, ...apexSolAdditions(rules, 3), normandy_sr2: ws.normandy === 'no' ? 0 : 1 }, fixedClasses: SOL_FIXED, name: 'Alliance Fifth Fleet', position: at(0, 0, -34), ws }),
+        ...solPlatforms(rules, at(0, 0, -25)),
         reaperFleet('reaper-sol', rules, { capitals: 3, destroyers: 7, position: at(6, 2, 46), heading: v3(-0.12, 0, -1), ws }),
         reaperFleet('reaper-sol-2', rules, { capitals: 1, destroyers: 3, position: at(-40, -3, 70), heading: v3(0.4, 0, -1), arrivalTime: secs(55), name: 'Reaper second wave', ws }),
-      ]);
+      ];
+      return finish(base('battle_of_earth', 'Battle of Earth', 'battle_of_earth', seed, rules, 'earth_orbit', secs(420), 'Hold Earth orbit against the Reaper harvest group.', ws, fleets), rules, ws, notes);
     },
   },
   {
@@ -495,50 +398,14 @@ export const SCENARIOS: ScenarioDef[] = [
     recommendedRules: ['canon_me3', 'prime_apex', 'prepared_galaxy'],
     objective: 'Break the Reaper blockade of Earth.',
     maxDuration: secs(540),
-    worldState: [
-      {
-        id: 'forces',
-        label: 'Order of battle',
-        kind: 'extrapolation',
-        description: 'Use the current campaign’s fleets, or the default combined fleet.',
-        choices: [
-          { id: 'campaign', label: 'From campaign (if one is saved)', description: 'Surviving allied fleets vs remaining Reaper fleets.' },
-          { id: 'default', label: 'Default combined fleet', description: 'Alliance, Hierarchy, Republics, Migrant Fleet and geth vs Harbinger’s armada.' },
-        ],
-        default: 'campaign',
-      },
-      {
-        id: 'genophage',
-        label: 'Genophage cure',
-        kind: 'player_dependent',
-        description: 'In canon the Dalatrass commits the Salarian First Fleet only if Shepard sabotages the cure.',
-        choices: [
-          { id: 'cured', label: 'Cure deployed', description: 'No salarian fleet joins Sword (krogan ground forces instead, not modelled here).' },
-          { id: 'sabotaged', label: 'Cure sabotaged', description: 'The Salarian First Fleet joins the default combined fleet.' },
-        ],
-        default: 'cured',
-      },
+    worldState: FINAL_BATTLE_WORLD_STATE,
+    briefing: [
+      'Sword fleet engages the Reapers in orbit while Hammer lands.',
+      'Harbinger commands the blockade in person.',
+      'Campaign-linked: fleet strengths follow the saved war when one exists.',
+      'Cinematic opening: the fleets arrive in waves and open with a coordinated volley; orders unlock at 01:20 (K skips the opening).',
     ],
-    briefing: ['Sword fleet engages the Reapers in orbit while Hammer lands.', 'Harbinger commands the blockade in person.', 'Campaign-linked: fleet strengths follow the saved war when one exists.'],
-    build: (rules, seed, ws) => {
-      const fleets: FleetSpec[] = [];
-      const campaignCounts = ws.campaignAllied ? (JSON.parse(ws.campaignAllied) as { name: string; faction: FactionId; counts: Record<string, number> }[]) : undefined;
-      const reaperCounts = ws.campaignReaper ? (JSON.parse(ws.campaignReaper) as Record<string, number>) : undefined;
-      if ((ws.forces ?? 'campaign') === 'campaign' && campaignCounts && campaignCounts.length > 0 && reaperCounts) {
-        campaignCounts.forEach((f, i) => fleets.push(fleet(`sword-${i}`, f.faction, rules, { counts: f.counts, name: f.name, position: at(-24 + (i % 4) * 16, 0, -34 - Math.floor(i / 4) * 8), formation: i === 0 ? 'line_abreast' : 'defensive_screen', mult: 1 })));
-        fleets.push(fleet('reaper-blockade', 'reaper', rules, { counts: reaperCounts, fixedClasses: ['harbinger'], name: 'Reaper blockade', side: 'B', position: at(0, 0, 46), heading: v3(0, 0, -1), formation: 'strike_wedge', mult: 1 }));
-      } else {
-        fleets.push(fleet('sword-alliance', 'alliance', rules, { counts: { alliance_dreadnought: 6, alliance_carrier: 2, alliance_cruiser: 16, alliance_frigate: 24, normandy_sr2: (ws.normandy ?? 'yes') === 'yes' ? 1 : 0 }, name: 'Sword Fleet (Alliance)', position: at(-20, 0, -34), formation: 'line_abreast', ws }));
-        fleets.push(fleet('sword-turian', 'turian', rules, { counts: { turian_dreadnought: 5, turian_cruiser: 10, turian_frigate: 16 }, name: 'Sword Fleet (Hierarchy)', position: at(18, 0, -38), formation: 'line_abreast', ws }));
-        fleets.push(fleet('sword-asari', 'asari', rules, { counts: { destiny_ascension: ws.ascension === 'absent' ? 0 : 1, asari_dreadnought: 2, asari_cruiser: 8 }, fixedClasses: ['destiny_ascension'], name: 'Sword Fleet (Republics)', position: at(0, 4, -48), formation: 'defensive_screen', ws }));
-        fleets.push(fleet('sword-quarian', 'quarian', rules, { counts: { quarian_heavy: 3, quarian_cruiser: 10 }, name: 'Migrant Fleet detachment', position: at(-40, 0, -46), formation: 'defensive_screen', ws }));
-        fleets.push(fleet('sword-geth', 'geth', rules, { counts: { geth_dreadnought: 1, geth_cruiser: 8, geth_frigate: 12 }, fixedClasses: ['geth_dreadnought'], name: 'Geth fleet', position: at(40, 0, -44), formation: 'strike_wedge', ws }));
-        if (ws.genophage === 'sabotaged') fleets.push(fleet('sword-salarian', 'salarian', rules, { counts: { salarian_dreadnought: 2, salarian_cruiser: 8, salarian_frigate: 12 }, name: 'Salarian First Fleet', position: at(0, -6, -56), formation: 'line_abreast', ws }));
-        fleets.push(reaperFleet('reaper-blockade', rules, { capitals: 6, destroyers: 14, harbinger: true, name: 'Reaper blockade', position: at(0, 0, 46), ws }));
-        fleets.push(reaperFleet('reaper-blockade-2', rules, { capitals: 3, destroyers: 8, name: 'Reaper reserve', position: at(-50, 0, 76), heading: v3(0.4, 0, -1), arrivalTime: secs(90), ws }));
-      }
-      return base('final_battle_of_earth', 'Final Battle of Earth', 'final_battle_of_earth', seed, rules, 'earth_orbit', secs(540), 'Break the Reaper blockade of Earth.', ws, fleets);
-    },
+    build: (rules, seed, ws) => buildFinalBattle(rules, seed, ws),
   },
   {
     id: 'alliance_fleet_engagement',
@@ -572,12 +439,23 @@ export const SCENARIOS: ScenarioDef[] = [
       'The Alliance Home Fleet is at full war strength. No allied fleets are available.',
       'Expect the Reapers to adapt. Their numbers and weapons are unchanged.',
     ],
-    build: (rules, seed, ws) =>
-      base('prime_apex_sol_defence', 'Prime/Apex — Sol Defence', 'prime_apex_sol_defence', seed, rules, 'earth_orbit', secs(480), 'Defeat the Reaper invasion force in Sol without allied assistance.', ws, [
-        fleet('alliance-home', 'alliance', rules, { counts: { alliance_dreadnought: 8, alliance_carrier: 2, alliance_cruiser: 18, alliance_frigate: 30, normandy_sr2: 1 }, name: 'Alliance Home Fleet', formation: 'line_abreast', position: at(0, 0, -36), mult: 1 }),
-        reaperFleet('reaper-sol', rules, { capitals: 4, destroyers: 8, position: at(0, 0, 44), mult: 1 }),
-        reaperFleet('reaper-sol-2', rules, { capitals: 2, destroyers: 4, position: at(-45, 0, 70), heading: v3(0.4, 0, -1), arrivalTime: secs(70), name: 'Reaper second wave', mult: 1 }),
-      ]),
+    worldState: [SHEPARD_WORLD_STATE],
+    build: (rules, seed, input) => {
+      const { ws, notes } = resolveWorldState(getScenario('prime_apex_sol_defence'), rules, input);
+      // The Home Fleet at full war strength: the K-class pair in its dreadnought line, and under the Apex mechanics the
+      // Valkyrie, SSV Omaha, four SR-2-pattern stealth frigates and the Sol platforms (AP §22.1, §19 8.10).
+      return finish(
+        base('prime_apex_sol_defence', 'Prime/Apex — Sol Defence', 'prime_apex_sol_defence', seed, rules, 'earth_orbit', secs(480), 'Defeat the Reaper invasion force in Sol without allied assistance.', ws, [
+          fleet('alliance-home', 'alliance', rules, { counts: { alliance_dreadnought_k: 2, alliance_dreadnought: 6, alliance_carrier: 2, alliance_cruiser: 18, alliance_frigate: 30, ...apexSolAdditions(rules, 4), normandy_sr2: ws.normandy === 'no' ? 0 : 1 }, fixedClasses: SOL_FIXED, name: 'Alliance Home Fleet', formation: 'line_abreast', position: at(0, 0, -36), mult: 1 }),
+          ...solPlatforms(rules, at(0, 0, -26)),
+          reaperFleet('reaper-sol', rules, { capitals: 4, destroyers: 8, position: at(0, 0, 44), mult: 1 }),
+          reaperFleet('reaper-sol-2', rules, { capitals: 2, destroyers: 4, position: at(-45, 0, 70), heading: v3(0.4, 0, -1), arrivalTime: secs(70), name: 'Reaper second wave', mult: 1 }),
+        ]),
+        rules,
+        ws,
+        notes,
+      );
+    },
   },
   {
     id: 'prime_apex_palaven_defence',
@@ -645,11 +523,20 @@ export const defaultWorldState = (s: ScenarioDef): Record<string, string> => {
   return ws;
 };
 
-/** Convenience: build a config for a scenario + preset id. */
+/**
+ * Convenience: build a config for a scenario + preset id. The world state is resolved against the rules first
+ * (`resolveWorldState`: defaults, `'auto'`, unavailable or disabled choices), so headless runs, tests and the briefing
+ * build the same battle.
+ */
 export function buildScenario(scenarioId: string, rulesId: string, seed: number, worldState?: Record<string, string>): BattleConfig {
   const s = getScenario(scenarioId);
   const rules = getPreset(rulesId);
-  return s.build(rules, seed, { ...defaultWorldState(s), ...(worldState ?? {}) });
+  const resolved = resolveWorldState(s, rules, { ...defaultWorldState(s), ...(worldState ?? {}) });
+  const config = s.build(rules, seed, resolved.ws);
+  // The builder sees the resolved record, so the coercion notes come from this resolution.
+  const notes = [...resolved.notes, ...(config.notes ?? []).filter((n) => !resolved.notes.includes(n))];
+  if (notes.length > 0) config.notes = notes;
+  return config;
 }
 
 // ------------------------------------------------------------ custom battles

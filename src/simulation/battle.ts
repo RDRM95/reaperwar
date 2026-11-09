@@ -38,6 +38,7 @@ import { ARC_VERTICAL_REACH, BATTLESPACE_SCALE as S, SIM_DT } from './constants'
 import { DEFAULT_ARRIVAL_STAGGER, arrivalPending, arrivalPos, arrivalProfileFor } from './arrival';
 import { applyBeat, beatApplies, clampBeatScale, resolveFleetSel as resolveFleetSelIn, resolveShipRef as resolveShipRefIn, scheduleBeats, waveSpawnPending, type ScheduledBeat } from './beats';
 import { DistantLayer, type DistantHost } from './distant';
+import { readinessCrewQuality } from './readiness';
 import { considerDriveRun, tickDriveRun, type DriveHost } from './driveAttack';
 import { flagshipDestroyedEvent } from './flagships';
 import type { SimKernel } from './kernel';
@@ -447,12 +448,20 @@ export class BattleSimulation implements AiContext {
     return layout;
   }
 
+  /**
+   * The rules a fleet's hulls are built with: the battle's, plus the fleet's `techOverride` and its readiness tier
+   * (AP §1.6: crew quality × the tier weight × `special.readinessScale`, on top of the override or the faction's value;
+   * Reapers never take a tier).
+   */
   private rulesFor(spec: FleetSpec): RuleSet {
-    if (!spec.techOverride) return this.rules;
+    const tier = spec.readiness !== undefined && spec.faction !== 'reaper' ? spec.readiness : undefined;
+    if (!spec.techOverride && !tier) return this.rules;
     let r = this.fleetRules.get(spec.id);
     if (!r) {
       r = cloneRules(this.rules);
-      r.factionOverrides[spec.faction] = { ...(r.factionOverrides[spec.faction] ?? {}), ...spec.techOverride };
+      const over = { ...(r.factionOverrides[spec.faction] ?? {}), ...(spec.techOverride ?? {}) };
+      if (tier) over.crewQuality = readinessCrewQuality(over.crewQuality ?? r.organic.crewQuality, tier, r.special.readinessScale);
+      r.factionOverrides[spec.faction] = over;
       this.fleetRules.set(spec.id, r);
     }
     return r;
@@ -789,9 +798,10 @@ export class BattleSimulation implements AiContext {
 
   /**
    * Applies an order patch to a fleet. `'player'` (through `issueOrders`): a static fleet refuses the whole patch when
-   * it would move; a new order clears every forced target of the fleet. `'beat'` (scripted, passes the player lock): a
-   * static fleet keeps the parts it can follow (a hold, a priority, a target) and refuses only the movement; a new
-   * order spares the scripted forced targets (`forcedTargetUntil` set), which lapse on their own.
+   * it would move (`order_rejected`); a new order clears every forced target of the fleet. `'beat'` (scripted, passes
+   * the player lock): a static fleet keeps the parts it can follow (a hold, a priority, a target) and drops only the
+   * movement, quietly (a side-wide beat reaches the platforms too); a new order spares the scripted forced targets
+   * (`forcedTargetUntil` set), which lapse on their own.
    */
   private applyOrders(fleetId: string, input: Partial<FleetOrders>, source: 'beat' | 'player'): 'issued' | 'rejected' {
     const fleet = this.fleets.get(fleetId);
@@ -807,8 +817,11 @@ export class BattleSimulation implements AiContext {
     }
     const label = orderLabel(patch);
     if (fleet.static && movesFleet(patch, fleet.orders)) {
-      this.emit({ t: this.time, type: 'order_rejected', fleetId, order: label, reason: 'static_fleet' });
-      if (source === 'player') return 'rejected';
+      // The rejection is the player's feedback (the HUD toast); a scripted order drops the movement quietly.
+      if (source === 'player') {
+        this.emit({ t: this.time, type: 'order_rejected', fleetId, order: label, reason: 'static_fleet' });
+        return 'rejected';
+      }
       const kept: Partial<FleetOrders> = { ...patch };
       if (kept.order !== undefined && MOVE_ORDERS.has(kept.order)) delete kept.order;
       delete kept.formation;

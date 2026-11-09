@@ -102,9 +102,15 @@ export type BeatEvent =
   /** Deploys `arrivalMode: 'beat'` fleets: by id, or by selector (`{ side, wave }` picks the n-th wave by faction order). */
   | { kind: 'spawn_wave'; fleetId?: string; fleets?: FleetSel; stagger?: number; run?: Partial<ArrivalProfile> }
   | { kind: 'set_fleet_order'; fleets: FleetSel; patch: Partial<FleetOrders> }
-  | { kind: 'fleet_volley'; fleets: FleetSel; window?: number; lead?: number; mounts?: VolleyMounts; target?: ShipRef; anchor?: ShipRef; syncArrival?: boolean }
+  /** `spread` (with a `nearest` target): each ship takes the nearest qualifying hull, weighted by how many ships already chose it (AP §4.3: the answer's beams spread over the nearest line hulls). */
+  | { kind: 'fleet_volley'; fleets: FleetSel; window?: number; lead?: number; mounts?: VolleyMounts; target?: ShipRef; anchor?: ShipRef; syncArrival?: boolean; spread?: boolean }
   /** `seconds` (scene seconds, × beatScale; default `FORCE_TARGET_SECONDS`) is how long the scripted target holds. */
-  | { kind: 'force_target'; ships?: ShipRef[]; fleets?: FleetSel; target: ShipRef; forceNextShot?: 'hit' | 'hit_penetrating'; mounts?: VolleyMounts; seconds?: number }
+  /**
+   * `spread` (ship-level, with a `nearest` target): the ships spread over the qualifying hulls like a spread volley
+   * (`beats.ts` `spreadTargets`); `perFleet`: the target is resolved once per fleet, from its largest hull, for all its
+   * members (AP §4.3's mark: each coalition fleet on the Reaper capital nearest to it).
+   */
+  | { kind: 'force_target'; ships?: ShipRef[]; fleets?: FleetSel; target: ShipRef; forceNextShot?: 'hit' | 'hit_penetrating'; mounts?: VolleyMounts; seconds?: number; spread?: boolean; perFleet?: boolean }
   | { kind: 'launch_drones'; fleets?: FleetSel; ships?: ShipRef[]; burst?: number }
   | { kind: 'trigger_special'; special: SpecialTrigger }
   | { kind: 'caption'; text: string; duration: number; style: CaptionStyle; speaker?: string; au?: boolean }

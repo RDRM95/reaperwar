@@ -123,12 +123,14 @@ export function apexDistantGroups(simulated: SimulatedBySide): DistantGroup[] {
 
 /**
  * The non-Apex layer: one extrapolated echelon per real fleet, `factor ×` its simulated hulls (default 12), behind
- * that fleet's side. Shown as percentages only. Static fleets (platforms) have no distant echelon.
+ * that fleet's side. Shown as percentages only. Static fleets (platforms) and rogue groups have no distant echelon.
  */
 export function canonDistantGroups(fleets: readonly FleetSpec[], factor = CANON_DISTANT_FACTOR): DistantGroup[] {
   const groups: DistantGroup[] = [];
   for (const side of ['A', 'B'] as const) {
-    const own = fleets.filter((f) => f.side === side && !f.static && hullsOf(f) > 0 && !f.ships.every((s) => SHIP_CLASSES[s.classId]?.role === 'fixed_platform'));
+    // Platforms have no distant echelon, and neither has a rogue group (hostile to both sides, AP §4.1: it is no
+    // vanguard of a larger force on either side).
+    const own = fleets.filter((f) => f.side === side && !f.static && !f.rogue && hullsOf(f) > 0 && !f.ships.every((s) => SHIP_CLASSES[s.classId]?.role === 'fixed_platform'));
     own.forEach((f, i) => {
       const count = Math.max(0, Math.round(factor * hullsOf(f)));
       const counts = Object.fromEntries(f.ships.map((s) => [s.classId, s.count]));

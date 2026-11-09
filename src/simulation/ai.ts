@@ -67,6 +67,8 @@ export interface AiContext {
   hullsNear(p: Vec3, radius: number): ShipState[];
   /** Length of the largest live non-craft hull in the battle (km; cached per tick). */
   largestHullKm(): number;
+  /** A scripted opening holds the player's orders (`BattleSimulation.playerLocked`); undefined outside a simulation. */
+  readonly playerLocked?: boolean;
 }
 
 /** A craft farther than this from its carrier (else its fleet's anchor), chasing a target as far out, turns for home. */
@@ -578,10 +580,14 @@ function hullGoal(ctx: AiContext, ship: ShipState, fleet: FleetState): MovementG
 
 /** The goal of a hull in the line: moving up, advancing (Reapers), the carrier stand-off, or its station. */
 function stationedGoal(ctx: AiContext, ship: ShipState, fleet: FleetState, station: { pos: Vec3; vel: Vec3 }, target: ShipState | undefined): MovementGoal {
-  // Reapers never idle: once engaged, with no target in range, close on the nearest enemy hull (Q3).
+  // Reapers never idle: once engaged, with no target in range, close on the nearest enemy hull (Q3) — except a fleet a
+  // scripted opening holds (the player locked out and the fleet ordered to hold: the Final Battle's blockade waits
+  // below the coalition's plane for its advance beat, AP §4.2).
   if (ship.faction === 'reaper') {
-    const advance = reaperAdvanceGoal(ctx, ship, fleet, target);
-    if (advance) return advance;
+    if (!(ctx.playerLocked === true && fleet.orders.order === 'hold_formation')) {
+      const advance = reaperAdvanceGoal(ctx, ship, fleet, target);
+      if (advance) return advance;
+    }
   } else {
     // No organic hull idles at the back: out of reach for 10 s while engaged, it moves up (brief §22, Q2b).
     const up = moveUpGoal(ctx, ship, fleet);

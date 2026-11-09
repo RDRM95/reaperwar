@@ -69,6 +69,8 @@ export interface VolleyOptions {
   targetId?: string;
   /** A target resolved for each ship of the volley (so the beams spread over the nearest line hulls, AP §4.3); overrides `targetId`. */
   targetRef?: ShipRef;
+  /** An explicit target per ship id (a spread volley, `beats.ts`); overrides `targetRef` and `targetId` for the ships it names. */
+  targets?: ReadonlyMap<string, string>;
   /** This ship's mounts get offset 0 (the camera is on its bow at `at`); an absent or dead anchor falls back to the largest capital. */
   anchorShipId?: string;
   /** Offsets subtract each round's flight time so the impacts, not the departures, cluster (min 0, max ≤ window). */
@@ -168,7 +170,9 @@ export function orderVolley(host: VolleyHost, fleetIds: readonly string[], opts:
       if (s.fleetId !== fleet.spec.id || !takesPart(host, s)) continue;
       // A per-ship target (resolved for this ship) or the volley's one target.
       let target: ShipState | undefined;
-      if (opts.targetRef) target = host.resolveShipRef(opts.targetRef, s);
+      const assigned = opts.targets?.get(s.id);
+      if (assigned !== undefined) target = host.getShip(assigned);
+      else if (opts.targetRef) target = host.resolveShipRef(opts.targetRef, s);
       else if (opts.targetId) target = host.getShip(opts.targetId);
       // Only a live, hostile hull can be a volley's target (a mis-aimed reference falls back to the hull's own choice).
       if (target && (!target.alive || target.escaped || !gridFilterPasses(s, target))) target = undefined;
@@ -200,11 +204,13 @@ export function orderVolley(host: VolleyHost, fleetIds: readonly string[], opts:
       }
       for (const [k, o] of offsets) offsets.set(k, Math.min(window - 0.1, Math.max(0, o - min)));
     }
-    const focus = opts.targetId && !opts.targetRef ? host.getShip(opts.targetId) : undefined;
+    const focus = opts.targetId && !opts.targetRef && !opts.targets ? host.getShip(opts.targetId) : undefined;
     if (focus && focus.alive && (focus.side !== fleet.spec.side || focus.rogue !== (fleet.spec.rogue ?? false))) fleet.focusTargetId = focus.id;
-    const v: VolleyState = { at, window, mounts, targetId: opts.targetRef ? undefined : opts.targetId, syncArrival: opts.syncArrival ?? false, offsets, fired: 0, held: 0, silent: 0 };
+    const v: VolleyState = { at, window, mounts, targetId: opts.targetRef || opts.targets ? undefined : opts.targetId, syncArrival: opts.syncArrival ?? false, offsets, fired: 0, held: 0, silent: 0 };
     // The standing hold shows the class the volley holds (HUD: HOLDING FIRE); the volley gate itself holds the mounts.
-    if (mounts === 'spinal' || mounts === 'beams') fleet.orders.holdFire = mounts;
+    // A standing hold of every anti-ship mount ('all') stays until the window closes, so nothing but the volley speaks
+    // first (the Final Battle's opening, AP §20: the volley, then the first losses).
+    if ((mounts === 'spinal' || mounts === 'beams') && fleet.orders.holdFire !== 'all') fleet.orders.holdFire = mounts;
     fleet.volley = v;
     host.emit({ t: host.time, type: 'fleet_volley_ordered', fleetId: fleet.spec.id, at, window, mounts, mountsOrdered: offsets.size, ...(anchor ? { anchorShipId: anchor.id } : {}) });
     out.push(v);
