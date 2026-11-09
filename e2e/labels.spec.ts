@@ -60,6 +60,9 @@ const frame = (page: Page): Promise<{ labels: Placed[]; bars: Bar[]; hidden: str
     return { labels: o.lastLabels.map((l) => ({ id: l.id, kind: l.kind, text: l.text, x: l.x, y: l.y, w: l.w, h: l.h, members: [...l.members] })), bars: o.lastBars.map((b) => ({ ...b })), hidden: [...o.lastHidden], markers: { ...o.lastMarkers } };
   });
 
+/** Resolves once the battle loop has drawn a frame after the call (its pending animation frame, then one more). */
+const drawn = (page: Page): Promise<void> => page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+
 /** Whether the overlay canvas holds any drawn pixel. */
 const inked = (page: Page): Promise<boolean> =>
   page.evaluate(() => {
@@ -96,7 +99,9 @@ test.describe('Tactical labels and the large-battle HUD (brief §12)', () => {
 
     for (const mode of ['tactical', 'cinematic', 'command']) {
       await page.evaluate((m) => (window as unknown as { reaperwar: { battle: Battle } }).reaperwar.battle.setCamera(m), mode);
-      await page.waitForTimeout(1500);
+      // The frame hooks hold the last frame drawn, so wait for the battle loop to draw one in the new mode: a fixed
+      // wait read the previous mode's frame when a software-rendered frame of this battle took longer than it.
+      await drawn(page);
       await expect.poll(async () => (await labels(page)).length, { timeout: 30_000 }).toBeGreaterThan(3);
       const { labels: placed, bars, hidden, markers } = await frame(page);
       expect(placed.length).toBeLessThanOrEqual(60);

@@ -8,7 +8,7 @@
 - **O toggles the tactical overlay** independently of H, so a recording without the HUD can keep the markers, or a full HUD can hide them; the pause menu has the same switch.
 - Health bars show for named ships, the selection and the command view, instead of a stack of bars on every hull.
 - Drawing and UI only: battle results are unchanged (the browser-equals-Node seed-42 test still passes).
-- Release gate: GATE_LINE
+- Release gate: typecheck clean; 535 unit tests in 50 files; build clean; 14/14 end-to-end tests (the labels test now waits for a frame drawn in the camera mode it checks: its fixed wait had read the previous mode's frame on a loaded machine); launcher package, smoke test and launcher check on Linux, with Windows and macOS runners in the release workflow. Battle results are unchanged: the browser-equals-Node seed-42 test passes.
 
 ## 0.12.4 — Play offline on your own PC; large battles by fleet
 
