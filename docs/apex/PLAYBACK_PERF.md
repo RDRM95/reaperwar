@@ -199,9 +199,41 @@ The figures are from §2 (GPU-light unless stated). File and line references are
 
 No simulation change is needed for this workstream. The simulation's own cost per step (finding 1) belongs to the extreme-scale programme (brief §17).
 
-## 5. After
+## 5. After — the stage P playback controller (commit `b5821ff`, 9 November 2026)
 
-To be added by the implementation step: the same command and the same tables. Measure Before again in the same session on a build of `d27997a` (§2.4), so that both sides see the same machine.
+Measured 9 Nov 14:29–14:41 UTC in one session with the same command on both builds: Before = `d27997a` built in a scratch worktree and served on port 4176, After = `b5821ff` on port 4177 (`node scripts/perf.mjs http://localhost:<port> --playback --quiet-wait 120`, GPU-light and SwiftShader profiles, 6 s windows). Other load stayed below 0.06 cores for every run except the Before no-draw run of the Final Battle (1.36 cores). The two builds do not simulate the same battles: `b5821ff` carries the simulation of releases 0.12.2–0.12.4 (named vessels, the drive attack, the distant layer, the 3D formations fix, the Oculus screens), so the Final Battle lasts 334 s instead of 195 s and is in a quieter phase at T+30 s (0 rounds in flight against 454), and the 300 vs 300 battle costs 2.5× more per simulated second headless (11.73 against 4.70 ms a step). The headless column therefore compares simulations, not controllers; the controller comparison is in the frame rate, the frame time, the steps a frame and the achieved speed at a given step cost.
+
+### 5.1 Before and After, GPU-light profile (the main thread paces the frames)
+
+| Battle | Run | Before fps · frame ms mean / p95 | After fps · frame ms mean / p95 | Before achieved (sim s dropped) | After achieved (sim s dropped) | Before steps/frame · ms/step | After steps/frame · ms/step |
+|---|---|---:|---:|---:|---:|---:|---:|
+| Final Battle of Earth | 1× | 27.1 · 36.9 / 50.1 | 30.8 · 32.4 / 50.1 | 1.00× (0.0) | 1.00× (0.0) | 0.7 · 7.60 | 0.7 · 3.24 |
+| Final Battle of Earth | 8× | 13.1 · 76.5 / 100.0 | 29.9 · 33.4 / 50.0 | 5.38× (15.5) | 4.44× (21.0) | 8.2 · 4.74 | 3.0 · 3.03 |
+| Final Battle of Earth | 8× no-draw | 52.9 · 18.9 / 33.4 | 59.7 · 16.8 / 16.8 | 7.92× (0.6) | 6.76× (7.1) | 3.0 · 3.71 | 2.3 · 3.89 |
+| 300 vs 300 | 1× | 26.9 · 37.2 / 50.1 | 25.2 · 39.6 / 50.1 | 0.99× (0.0) | 1.07× (0.0) | 0.7 · 8.33 | 0.8 · 15.93 |
+| 300 vs 300 | 8× | 11.6 · 86.1 / 100.1 | 21.5 · 46.5 / 66.7 | 3.16× (28.9) | 1.07× (41.4) | 5.5 · 8.03 | 1.0 · 19.61 |
+| 300 vs 300 | 8× no-draw | 24.7 · 40.5 / 50.1 | 50.4 · 19.9 / 33.4 | 6.45× (9.5) | 2.52× (32.7) | 5.2 · 6.84 | 1.0 · 16.22 |
+
+Main-thread milliseconds a frame at 8×, GPU-light (sim · view.update · view.render · overlay · HUD · outside the loop): Final Battle Before 39.0 · 2.8 · 12.4 · 0.8 · 0.5 · 20.9, After 9.0 · 0.6 · 4.6 · 0.4 · 0.1 · 18.5; 300 vs 300 Before 43.8 · 3.6 · 13.6 · 2.0 · 0.7 · 22.2, After 19.6 · 2.4 · 5.0 · 0.8 · 0.5 · 17.6. Heap retained after GC over the 8× window: Before 7.1 and 2.4 MB, After 0.7 and 0.9 MB (the GC count a window rose, 56 against 34 on the Final Battle; not investigated).
+
+Headless run to the result: Final Battle 194.9 s simulated in 7.21 s (27.0×, 1.85 ms a step) Before against 333.8 s in 20.28 s (16.5×, 3.04 ms a step) After; 300 vs 300 212.5 s in 19.97 s (10.6×, 4.70 ms a step) against 179.0 s in 41.97 s (4.3×, 11.73 ms a step).
+
+### 5.2 SwiftShader profile (everything rasterised in software, about a second a frame)
+
+| Battle | Run | Before fps · achieved (sim s dropped) | After fps · achieved (sim s dropped) | After steps/frame · budget mean |
+|---|---|---:|---:|---:|
+| Final Battle of Earth | 1× | 1.6 · 0.15× (5.4) | 1.5 · 1.04× (0.3) | 13.9 · 222 ms |
+| Final Battle of Earth | 8× | 1.2 · 0.32× (49.3) | 1.2 · 3.40× (30.2) | 58.3 · 183 ms |
+| 300 vs 300 | 1× | 1.2 · 0.11× (5.7) | 0.7 · 0.51× (2.4) | 14.4 · 244 ms |
+| 300 vs 300 | 8× | 1.0 · 0.22× (60.0) | 0.8 · 0.44× (48.2) | 11.2 · 246 ms |
+
+### 5.3 What the numbers say
+
+1. **The frame rate no longer collapses at 8×.** Before, 8× meant 76–86 ms frames (13.1 and 11.6 fps): the controller spent up to its fixed 40 ms budget on simulation every frame. After, the adaptive budget keeps the Final Battle at 29.9 fps (33 ms frames, p95 50 ms, the same as at 1×) and the 300 vs 300 battle at 21.5 fps (46.5 ms, p95 67 ms): the frame time at 8× is within 1.2× of the 1× frame time, against 2.1–2.3× Before.
+2. **Nothing is dropped silently.** Every run reports what the clock requested, ran and shed, and the HUD shows the achieved speed (brief §19.1). At 8× the Final Battle achieves 4.44× (Before 5.38× at twice the frame time).
+3. **Slow machines keep real time.** Under SwiftShader (0.7–1.5 fps) the 0.12.1 controller's frame-delta cap made 1× run at 0.11–0.15× real time, in slow motion. The playback clock runs 14 steps a frame when a frame takes 670 ms and holds 1.04× on the Final Battle; the 300 vs 300 battle reaches 0.51× because a step there costs 15.7 ms and 14 of them already fill the 244 ms paced budget.
+4. **Heavy battles at 8×: throughput lost to the frame-time ceiling (finding P-A1, for the fix round).** When one step costs more than the budget (300 vs 300: 15.9–19.6 ms a step against a budget of 10–14 ms), the clock runs exactly one step a frame (the first owed tick always runs) and the achieved speed becomes fps × 0.05 s: 1.07× at 8× (Before 3.16× at 11.6 fps) and 2.52× with drawing stubbed out (Before 6.45×). A player who asks for 8× on a 600-hull battle gets real time with a smooth picture and an honest readout, which is not what they asked for. The FAST_SPEED ceiling ("a frame stays near the display's frame time") should give way to a frame-rate floor when the requested speed is high: at 4× and above let the budget grow until the frame rate would fall to about 20 fps (budget ≈ 50 ms − the UI cost), which on this battle gives two steps a frame (about 2×) at 20 fps and changes nothing on the Final Battle (3 ms a step). Fast-forward to result stays the way to skip ahead.
+5. **The simulation itself got dearer between the builds**, outside this workstream: headless 300 vs 300 went from 4.70 to 11.73 ms a step (10.6× to 4.3× real time) with the simulation of 0.12.2–0.12.4 running on 1,000 live ships. That cost a step belongs to the extreme-scale programme (brief §17) and is what caps the achieved speed in every row above.
 
 ## 6. The worker seam (brief §19.1 "Web Worker where beneficial"; §17.2 item 2)
 
