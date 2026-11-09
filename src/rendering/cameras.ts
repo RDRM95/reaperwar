@@ -242,7 +242,8 @@ export class CameraRig {
   }
 
   private fallback(dt: number, centre: THREE.Vector3): void {
-    this.focus.lerp(centre, 0.05);
+    // Ease by time, not per frame (identical at 60 fps, unchanged pace with the frame-rate cap off).
+    this.focus.lerp(centre, 1 - Math.pow(0.95, dt * 60));
     this.desiredLook.copy(this.focus);
     const off = new THREE.Vector3(Math.sin(this.yaw) * Math.cos(this.pitch), Math.sin(this.pitch), Math.cos(this.yaw) * Math.cos(this.pitch)).multiplyScalar(this.distance);
     this.desiredPos.copy(this.focus).add(off);

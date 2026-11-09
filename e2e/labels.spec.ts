@@ -30,7 +30,7 @@ interface Battle {
   setCamera(mode: string): void;
   sim: { time: number; finished: boolean; step(): void; ships: { id: string; fleetId: string; side: string; flagship?: boolean; alive: boolean; escaped: boolean; role: string }[] };
   view: { selectedIds: Set<string>; followId?: string };
-  overlay: { visible: boolean; lastLabels: Placed[]; lastBars: Bar[]; lastHidden: string[] };
+  overlay: { visible: boolean; lastLabels: Placed[]; lastBars: Bar[]; lastHidden: string[]; lastMarkers: { brackets: number; dots: number } };
 }
 const battle = (): Battle => (window as unknown as { reaperwar: { battle: Battle } }).reaperwar.battle;
 
@@ -53,11 +53,11 @@ async function finalBattle(page: Page, t: number): Promise<void> {
 const labels = (page: Page): Promise<Placed[]> =>
   page.evaluate(() => (window as unknown as { reaperwar: { battle: Battle } }).reaperwar.battle.overlay.lastLabels.map((l) => ({ id: l.id, kind: l.kind, text: l.text, x: l.x, y: l.y, w: l.w, h: l.h, members: [...l.members] })));
 
-/** The labels, bars and left-out markers of one overlay frame. */
-const frame = (page: Page): Promise<{ labels: Placed[]; bars: Bar[]; hidden: string[] }> =>
+/** The labels, bars, left-out markers and marker counts of one overlay frame. */
+const frame = (page: Page): Promise<{ labels: Placed[]; bars: Bar[]; hidden: string[]; markers: { brackets: number; dots: number } }> =>
   page.evaluate(() => {
     const o = (window as unknown as { reaperwar: { battle: Battle } }).reaperwar.battle.overlay;
-    return { labels: o.lastLabels.map((l) => ({ id: l.id, kind: l.kind, text: l.text, x: l.x, y: l.y, w: l.w, h: l.h, members: [...l.members] })), bars: o.lastBars.map((b) => ({ ...b })), hidden: [...o.lastHidden] };
+    return { labels: o.lastLabels.map((l) => ({ id: l.id, kind: l.kind, text: l.text, x: l.x, y: l.y, w: l.w, h: l.h, members: [...l.members] })), bars: o.lastBars.map((b) => ({ ...b })), hidden: [...o.lastHidden], markers: { ...o.lastMarkers } };
   });
 
 /** Whether the overlay canvas holds any drawn pixel. */
@@ -98,47 +98,61 @@ test.describe('Tactical labels and the large-battle HUD (brief §12)', () => {
       await page.evaluate((m) => (window as unknown as { reaperwar: { battle: Battle } }).reaperwar.battle.setCamera(m), mode);
       await page.waitForTimeout(1500);
       await expect.poll(async () => (await labels(page)).length, { timeout: 30_000 }).toBeGreaterThan(3);
-      const { labels: placed, bars, hidden } = await frame(page);
+      const { labels: placed, bars, hidden, markers } = await frame(page);
       expect(placed.length).toBeLessThanOrEqual(60);
       expectNoOverlap(placed, vp.width, vp.height);
-      // No label lies on a drawn bar of a hull it does not stand for (the command view draws bars under every hull).
-      if (mode === 'command') expect(bars.length).toBeGreaterThan(placed.length);
+      // No label lies on a drawn bar of a hull it does not stand for (the command view draws bars under every
+      // bracketed hull; a large battle's far hulls beyond the bracket budget are dots and carry none).
+      if (mode === 'command') {
+        expect(markers.brackets).toBeGreaterThan(0);
+        expect(bars.length).toBe(markers.brackets);
+      }
       for (const l of placed)
         for (const b of bars) {
           const on = l.x < b.x + b.w && b.x < l.x + l.w && l.y < b.y + b.h && b.y < l.y + l.h;
           expect(on && !l.members.includes(b.id), `"${l.text}" lies on the bars of ${b.id} (${mode})`).toBe(false);
         }
       if (mode === 'tactical') {
-        // Pulled back over 120 allied hulls, crowded battlegroups and fleets carry one label each ...
+        // Pulled back over 146 hulls and their craft (fleet mode: more than the shared threshold of 64 active ships
+        // and flights), crowded battlegroups and fleets carry one label each, a fleet's counting its hulls and craft ...
         const aggregates = placed.filter((l) => l.kind !== 'ship');
         expect(aggregates.length).toBeGreaterThan(0);
-        for (const l of aggregates) expect(l.text).toMatch(l.kind === 'group' ? / group · \d+$/ : / · \d+\/\d+$/);
-        // ... and, the allies being over the large-battle threshold, the hulls such a label stands for lose their own
-        // brackets (none named or a flagship); the 21 Reapers keep every bracket.
+        for (const l of aggregates) expect(l.text).toMatch(l.kind === 'group' ? / group · \d+$/ : / · \d+\/\d+( · \d+ craft)?$/);
+        // ... and the hulls such a label stands for, on either side, lose their own brackets (none named, a flagship
+        // or selected: those always keep their identity).
         expect(hidden.length).toBeGreaterThan(0);
         const standFor = new Set(aggregates.flatMap((l) => l.members));
         const info = await page.evaluate((ids) => {
           const b = (window as unknown as { reaperwar: { battle: Battle } }).reaperwar.battle;
           return ids.map((id) => {
             const s = b.sim.ships.find((x) => x.id === id)!;
-            return { allied: s.side === b.config.perspectiveSide, flagship: !!s.flagship, selected: b.view.selectedIds.has(id) };
+            return { flagship: !!s.flagship, selected: b.view.selectedIds.has(id) };
           });
         }, hidden);
         for (let i = 0; i < hidden.length; i++) {
           expect(standFor.has(hidden[i]), hidden[i]).toBe(true);
-          expect(info[i], hidden[i]).toEqual({ allied: true, flagship: false, selected: false });
+          expect(info[i], hidden[i]).toEqual({ flagship: false, selected: false });
         }
       }
     }
 
-    // 125 allied hulls (over the default 48): one row per fleet with live/deployed counts; the 21 Reapers stay per ship.
-    const fleetRows = page.locator('.hud-left .ship-list').first().locator('.fleet-row');
+    // 278 active ships and flights (over the shared threshold of 64): both lists show one row per fleet with
+    // live/deployed hull counts and the fleet's fighter craft; the Reaper blockade is one hostile row, which opens
+    // into its capital-led battlegroups.
+    const allied = page.locator('.hud-left .ship-list').first();
+    const fleetRows = allied.locator('.fleet-row');
     await expect(fleetRows).toHaveCount(5);
     await expect(fleetRows.first()).toContainText('Sword Fleet (Alliance)');
     await expect(fleetRows.first().locator('.agg-count')).toHaveText(/^\d+\/49$/);
+    await expect(fleetRows.first().locator('.agg-craft')).toHaveText(/^\d+ craft$/);
     const hostile = page.locator('.hud-left .ship-list').nth(1);
-    await expect(hostile.locator('.fleet-row')).toHaveCount(0);
-    await expect(hostile.locator('.ship-row', { hasText: /RC-\d+/ }).first()).toBeVisible();
+    await expect(hostile.locator('.fleet-row')).toHaveCount(1);
+    await expect(hostile.locator('.fleet-row')).toContainText('Reaper blockade');
+    await expect(hostile.locator('.fleet-row .agg-count')).toHaveText(/^\d+\/21$/);
+    await hostile.locator('.fleet-row .agg-toggle').click();
+    await expect(hostile.locator('.group-row', { hasText: /RC-\d+|Harbinger/ }).first()).toBeVisible();
+    await hostile.locator('.fleet-row .agg-toggle').click();
+    await expect(hostile.locator('.group-row')).toHaveCount(0);
 
     // A fleet row selects its live hulls; its toggle opens the battlegroups, which select and focus too.
     const alliance = page.locator('.fleet-row[data-fleet="sword-alliance"]');
@@ -150,7 +164,7 @@ test.describe('Tactical labels and the large-battle HUD (brief §12)', () => {
     await expect(page.locator('.target-panel')).toContainText(`${live} ships selected`);
     await expect(alliance).toHaveClass(/selected/);
     await alliance.locator('.agg-toggle').click();
-    const groups = page.locator('.group-row');
+    const groups = allied.locator('.group-row');
     await expect.poll(() => groups.count()).toBeGreaterThanOrEqual(6);
     await expect(groups.first()).toContainText(/group/);
     await groups.first().dblclick();

@@ -9,6 +9,31 @@
 - Health bars show for named ships, the selection and the command view, instead of a stack of bars on every hull.
 - Release gate: typecheck clean; 503 unit tests; build clean; 14/14 end-to-end tests (new: no overlapping labels in the Final Battle, fleet rows, the overlay toggle); screenshots inspected. Battle results are unchanged (the browser-equals-Node seed-42 test still passes).
 
+## 0.12.4 — Play offline on your own PC; large battles by fleet
+
+### Stand-alone launcher (new)
+- **Download, unzip, play.** `ReaperWar-v0.12.4.zip` on the [Releases page](https://github.com/RDRM95/reaperwar/releases/latest) holds the whole game in one file plus a Play launcher for Windows (`.cmd`), macOS (`.command`) and Linux (`.sh`). The launcher opens the game in Edge, Chrome or Chromium as its own window on a separate browser profile, on your graphics card with the browser's frame-rate cap lifted (`--vsync` keeps the browser on the monitor's refresh), starting on the Ultra graphics quality and pacing battles at up to 144 FPS (Settings → Graphics → Frame rate limit). No install, no server, no internet, no Node.js. Saves carry over to newer versions; Settings → Export / Import save data brings saves over from the web version or the one-click launcher.
+- Works from folders named with spaces, accents or non-Latin letters (the address handed to the browser is now plain ASCII; Chromium ignores any other), with Snap Store and Flathub browsers on Linux (Steam Deck, Bazzite, Silverblue), and keeps running when the Linux terminal is closed. `README.txt` explains macOS 15's Gatekeeper (Privacy & Security → Open Anyway) and what to do when Windows Smart App Control or S mode blocks the `.cmd`.
+- Each version on `main` is built, tested and published once as a release: typecheck and unit tests, a smoke test that opens the game from disk and runs a battle, and a launcher check on Windows, macOS and Linux runners that unzips the release with the system's own tool into an awkwardly named folder, starts the real launcher as a player would, checks what it hands the browser and opens the game in Edge or Chromium. A published zip is never replaced.
+
+### Large battles, frame pacing and presets (the owner's work on `main`)
+- Above 64 active ships and flights, tactical labels show fleet name and current count, and the side panels show one selectable row per fleet; individual ship rows return as an engagement shrinks. Zooming in, hovering or selecting keeps a ship's identity, and selecting a whole fleet no longer draws thousands of targeting lines.
+- The far-ship point cloud grows past its former 2,048-ship limit, and at very large counts the camera keeps a bounded set of nearby detailed hulls and draws the rest as points. Drawing only: battle results are unchanged.
+- **Frame rate limit** in Settings → Graphics (60 to 240 FPS or Unlimited; 144 FPS by default in the Local Edition and the launcher): caps the frames drawn, never the fixed-step simulation, so battle results are unchanged. The battle HUD shows simulation and drawing time per frame.
+- **Faster firing-range checks in big fleets:** the "is any target in range" probe stops at the first hull it finds instead of gathering every grid cell first; same results.
+- **GPU-instanced hulls:** identical hulls are drawn in batches, so full-detail models stay visible farther away in big battles; selection, picking, muzzle flashes and destruction effects keep working.
+- **Custom Battle presets:** a validated, shareable JSON format with paste, import and export in the Custom Battle builder.
+- The main menu fits short screens and 125–200 % Windows display scaling (it scrolls instead of clipping); the Windows Local Edition opens maximised.
+- **One-click Windows starter** (`PLAY-REAPERWAR.cmd`): downloads the game, uses or fetches a checksum-verified portable Node.js, builds the Local Edition, keeps it up to date and keeps your saves; it stays open with a log if anything fails.
+
+### Fixes
+- **Menus no longer keep the CPU and GPU busy** when the frame rate is uncapped (the launchers' default): a hidden loading-screen animation kept the browser drawing frames back to back. In a test the main menu went from about 1.7 CPU cores to about 1 % of one.
+- The barrier-hit shimmer and the fallback camera's easing now run on time rather than per frame, so they look the same at 60 fps and at hundreds of fps.
+- **No WebGL** (graphics acceleration off, a crashed GPU process, a remote desktop): starting a battle goes back to the menu (or the campaign map, where the engagement can still be auto-resolved) with an explanation instead of a blank screen, and Settings says WebGL 2 is not available instead of "running on this machine's GPU". The software-rendering hint now says what to do without pointing to a README section.
+- Release gate: typecheck clean; 507 unit tests in 45 files; build clean; 12/12 end-to-end tests (the complete Battle of Earth test now right-clicks the Reaper fleet's row: it had failed since the fleet-row HUD, so CI on `main` was red); launcher smoke test and launcher check on Linux, with Windows and macOS runners in the release workflow; screenshots inspected. Battle results are unchanged: the only simulation change is the faster range probe, which returns the same answers (its regression test compares it with the full radius query across 600 ships), and the browser-equals-Node seed-42 test passes.
+
+Known limitations: the simulation runs on one CPU core (very large battles are limited by that core, not the GPU); new hull classes still use placeholder models; 8× playback still lags on large battles.
+
 ## 0.12.3 — Battlegroups instead of rows, free camera
 
 - **Battlegroup formations.** Every fleet deploys as battlegroups: each capital leads its own escorts in a loose 3D cluster, the groups stand in staggered echelons in depth and height, and seeded variation means no ships line up in rows or columns. Screens fly ahead of their group, carriers behind and above; Reapers fly as capital-led clusters with their destroyers. Capitals keep at least three of their own lengths apart, and groups keep enough room for a camera to tell them apart.

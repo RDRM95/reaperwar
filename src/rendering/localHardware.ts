@@ -23,6 +23,8 @@ export function isLocalEdition(
   loc: LocationLike | undefined = typeof location === 'undefined' ? undefined : location,
   crossOriginIsolated: boolean = typeof self !== 'undefined' && self.crossOriginIsolated === true,
 ): boolean {
+  // The stand-alone launcher build (opened from disk by the Play launchers) is always the Local Edition.
+  if (typeof __LAUNCHER_BUILD__ !== 'undefined' && __LAUNCHER_BUILD__) return true;
   if (!loc) return false;
   if (new URLSearchParams(loc.search).get('local') === '1') return true;
   return crossOriginIsolated && LOOPBACK_HOSTS.has(loc.hostname);
@@ -34,25 +36,33 @@ export function isLocalEdition(
  * Ultra; a stored choice always wins, and the web build is unchanged.
  */
 export function startupGraphics(graphics: GraphicsSettings, local: boolean = isLocalEdition()): GraphicsSettings {
-  if (!local || graphics.chosen === true) return graphics;
-  return withQuality(graphics, 'ultra');
+  if (!local) return graphics;
+  const capped = { ...graphics, frameCap: graphics.frameCap ?? 144 };
+  if (capped.chosen === true) return capped;
+  return withQuality(capped, 'ultra');
 }
 
 let rendererCache: string | null | undefined;
+let webglCache: boolean | undefined;
 
 /**
  * The GPU renderer string, from WEBGL_debug_renderer_info when the browser
  * exposes it (else the plain RENDERER string). Probed once with a throwaway
- * context that is released straight away; undefined without WebGL.
+ * context that is released straight away; undefined without WebGL, or when the
+ * browser does not name the renderer (webglAvailable() tells the two apart).
  */
 export function gpuRenderer(): string | undefined {
   if (rendererCache !== undefined) return rendererCache ?? undefined;
   rendererCache = null;
   if (typeof document === 'undefined') return undefined;
+  webglCache = false;
   try {
     const canvas = document.createElement('canvas');
-    const gl: WebGL2RenderingContext | WebGLRenderingContext | null = canvas.getContext('webgl2') ?? canvas.getContext('webgl');
+    const gl2 = canvas.getContext('webgl2');
+    const gl: WebGL2RenderingContext | WebGLRenderingContext | null = gl2 ?? canvas.getContext('webgl');
     if (gl) {
+      // The renderer (three.js r163 and later) needs WebGL 2; WebGL 1 can still name the GPU.
+      webglCache = gl2 !== null;
       const info = gl.getExtension('WEBGL_debug_renderer_info');
       const raw: unknown = gl.getParameter(info ? info.UNMASKED_RENDERER_WEBGL : gl.RENDERER);
       if (typeof raw === 'string' && raw.trim() !== '') rendererCache = raw.trim();
@@ -64,13 +74,22 @@ export function gpuRenderer(): string | undefined {
   return rendererCache ?? undefined;
 }
 
+/** Whether this window can create a WebGL 2 context, which battles need. Probed once, with gpuRenderer(). */
+export function webglAvailable(): boolean {
+  if (webglCache === undefined) gpuRenderer();
+  return webglCache !== false;
+}
+
 /** Renderer strings of software rasterisers: the browser is not using the GPU. */
 export const SOFTWARE_RENDERER = /swiftshader|llvmpipe|softpipe|software|basic render/i;
 
-/** The Settings screen's Local Edition line; a software renderer is called out, never reported as the GPU. */
-export function localEditionStatus(renderer: string | undefined): string {
+/** The Settings screen's Local Edition line; a software renderer or a missing WebGL is called out, never reported as the GPU. */
+export function localEditionStatus(renderer: string | undefined, webgl: boolean = true): string {
+  if (!webgl) {
+    return 'Local Edition: WebGL 2 is not available in this window, so battles cannot be drawn: turn on graphics acceleration in the browser or update the graphics driver.';
+  }
   if (renderer && SOFTWARE_RENDERER.test(renderer)) {
-    return `Local Edition: software rendering (${renderer}). The GPU is not in use: see "Confirm it runs on your GPU" in the README.`;
+    return `Local Edition: software rendering (${renderer}). The GPU is not in use: update the graphics driver; on a laptop, also set Chrome or Edge to High performance in the system's graphics settings.`;
   }
   return `Local Edition: running on this machine's GPU${renderer ? ` (${renderer})` : ''}`;
 }

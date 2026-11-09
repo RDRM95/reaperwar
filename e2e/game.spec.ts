@@ -54,12 +54,28 @@ test.describe('Reaper War Simulator', () => {
     await expect(page.locator('[data-order="advance"]')).toHaveClass(/active/);
     await page.selectOption('select >> nth=0', 'strike_wedge');
 
-    // Select a ship from the list, then order the fleet to attack a Reaper destroyer.
-    await page.locator('.ship-list .ship-row').first().click();
-    await expect(page.locator('.target-panel')).toContainText('SSV');
-    // Unnamed Reapers carry tracking designations (brief §12): RD-nn for destroyers, RC-nn for capitals.
-    const destroyerRow = page.locator('.ship-row', { hasText: /RD-\d+/ }).first();
-    await destroyerRow.click({ button: 'right' });
+    // Select a ship from the list, then order the fleet to attack a Reaper destroyer. Above 64 active ships and
+    // flights the lists show one row per fleet, which selects the whole fleet and opens into battlegroups and ships
+    // (0.12.5), so pick a ship inside the first fleet's first battlegroup; in a smaller battle the first row is a
+    // ship's own. The fighters launching in the first seconds can tip the battle over the threshold between two
+    // clicks, so the pick is retried on the rows as they stand.
+    const targetPanel = page.locator('.target-panel');
+    const shipList = page.locator('.ship-list').first();
+    for (let attempt = 0; attempt < 3 && !/SSV/.test(await targetPanel.innerText()); attempt++) {
+      const firstRow = shipList.locator('.ship-row').first();
+      if ((await firstRow.locator('.agg-toggle').count()) > 0) {
+        if ((await shipList.locator('.group-row').count()) === 0) await firstRow.locator('.agg-toggle').click();
+        if ((await shipList.locator('.ship-row.nested').count()) === 0) await shipList.locator('.group-row .agg-toggle').first().click();
+        await shipList.locator('.ship-row.nested').first().click();
+      } else {
+        await firstRow.click();
+      }
+    }
+    await expect(targetPanel).toContainText('SSV');
+    // Right-click the Reaper fleet's row (one row per fleet above the threshold) or, in a smaller battle, a Reaper's
+    // own row, e.g. a destroyer's RD-nn designation.
+    const reaperRow = page.locator('.ship-row[data-fleet]', { hasText: /Reaper/ }).or(page.locator('.ship-row', { hasText: /RD-\d+/ })).first();
+    await reaperRow.click({ button: 'right' });
     await expect(page.locator('.toast')).toContainText('ATTACK');
 
     // Battle proceeds and finishes.

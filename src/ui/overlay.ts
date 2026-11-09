@@ -5,6 +5,7 @@ import { RESERVED_NAMES } from '@/data/names';
 import { isCapitalRole } from '@/data/types';
 import { battlegroups, inFight } from './fleetGroups';
 import { DAMAGED_HULL, LABEL_PRIORITY, MAX_LABELS, layoutLabels, type LabelBox, type LabelFleetInfo, type LabelGroupInfo, type LabelHull, type LabelKind, type LabelSlot, type PlacedLabel } from './labelLayout';
+import { useFleetSummary } from './scalePolicy';
 
 const NAMED = new Set(RESERVED_NAMES);
 /**
@@ -18,10 +19,16 @@ const LABELS_AT_1080P = MAX_LABELS;
 /** Craft get a bracket (not a dot) only in the command view and nearer the camera than this (render units). */
 const CRAFT_BRACKET_DEPTH = 6000;
 /**
- * Large battles (brief §12): a hull nearer the camera than this (render units: 15 km, about half the tactical view's
- * orbit) keeps its bracket when a group or fleet label stands for it.
+ * Fleet mode (brief §12): a hull nearer the camera than this (render units: 32 km) keeps its identity: its bracket, its
+ * bars where due and a chance of its own name. A farther one loses its bracket while a group or fleet label stands for
+ * it, and is named only as one of the viewport-capped best (`maxLabels` of them, by tier and distance). The distance is
+ * the one the owner's fleet map used for the ships it kept drawing one by one.
  */
-const NEAR_BRACKET_DEPTH = 150;
+const NEAR_IDENTITY_DEPTH = 320;
+/** Fleet mode: at most this many near hulls (the nearest) are named for being near; inspected and named hulls aside. */
+const NEARBY_NAME_CAP = 28;
+/** Fleet mode: brackets, and the command view's bars, for at most this many hulls a frame (nearest first); the rest are dots. */
+const BRACKET_BUDGET = 400;
 const FONT: Record<LabelKind, string> = {
   ship: '10px Consolas, "Roboto Mono", monospace',
   group: '10px Consolas, "Roboto Mono", monospace',
@@ -51,13 +58,25 @@ const hullFraction = (ships: readonly ShipState[]): number => {
   return max > 0 ? hull / max : 0;
 };
 
+const byId = (a: { id: string }, b: { id: string }): number => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+
 /**
  * 2D tactical overlay drawn on a canvas above the WebGL view: hull brackets, hull/barrier bars and text labels,
  * selection boxes, target lines and the command grid. Its own toggle is O (brief §12), independent of the HUD level
  * (H). Labels never overlap each other or a drawn bar: labelLayout.ts places them by priority each frame and folds
- * crowded battlegroups and fleets into one label each, so names stay readable however far the camera pulls back. In a
- * large battle (a side over the Settings threshold of live hulls) the hulls such a label stands for lose their own
- * brackets too, unless selected, hovered, followed, a flagship or named, or near the camera.
+ * crowded battlegroups and fleets into one label each, so names stay readable however far the camera pulls back.
+ *
+ * Large battles (fleet mode, the scale policy the HUD lists share): over the Settings threshold of active ships and
+ * flights on both sides, the overlay is a fleet map and its work per frame is bounded whatever the battle's size.
+ * Craft are counted in their fleet's label and not drawn, unless inspected or their fleet has no hull left: then its
+ * flights stand for it under its label. A hull keeps its identity when inspected (selected as one of up to 12, hovered,
+ * followed, or the hull the follow camera would take), named (a flagship or a unique name), near the camera (the nearest
+ * `NEARBY_NAME_CAP` within `NEAR_IDENTITY_DEPTH`) or among the viewport-capped best of the rest by tier and distance;
+ * every other hull folds into its battlegroup's or fleet's label when crowded, is never named on its own, loses its
+ * bracket while such a label stands for it and, beyond `BRACKET_BUDGET` brackets a frame, is drawn as a dot. Fleet
+ * labels are anchored on the fleet's live hulls on screen (the capitals and escorts, never the fighter screen) and
+ * count every live hull and craft of the fleet, on screen or not. Below the threshold every hull is bracketed and
+ * every name is a candidate. Display only: nothing here reaches the simulation.
  */
 export class TacticalOverlay {
   private ctx: CanvasRenderingContext2D;
@@ -65,13 +84,15 @@ export class TacticalOverlay {
   hoverId?: string;
   /** Screen areas labels keep clear of: the visible HUD panels (CSS px; the battle controller keeps it current). */
   blocked: LabelBox[] = [];
-  /** Large-battle threshold (live hulls on a side; 0: never), brief §12: the battle controller keeps it in step with Settings. */
+  /** Large-battle threshold (active ships and flights, both sides; 0: never), brief §12: the battle controller keeps it in step with Settings. */
   largeBattleHulls = 0;
   /** The labels drawn last frame (screen boxes, CSS px): the e2e test hook, empty while the overlay is hidden. */
   lastLabels: PlacedLabel[] = [];
   /** The bars drawn last frame (CSS px, by hull id) and the hulls whose markers were left out: e2e test hooks. */
   lastBars: (LabelBox & { id: string })[] = [];
   lastHidden: string[] = [];
+  /** Markers drawn last frame: brackets, and the dots a large battle's far hulls become (e2e test hook). */
+  lastMarkers = { brackets: 0, dots: 0 };
   /** Aggregates folded last frame (the layout's hysteresis) and each label's slot last frame. */
   private collapsed = new Set<string>();
   private slots = new Map<string, LabelSlot>();
@@ -107,13 +128,15 @@ export class TacticalOverlay {
     this.lastLabels = [];
     this.lastBars = [];
     this.lastHidden = [];
+    this.lastMarkers = { brackets: 0, dots: 0 };
     if (!this.visible) return;
     const sim = view.sim;
     const command = mode === 'command';
     ctx.font = FONT.ship;
     ctx.textBaseline = 'middle';
     // Target lines for selected ships.
-    for (const id of view.selectedIds) {
+    // Selecting an entire fleet must not draw thousands of target lines.
+    for (const id of view.selectedIds.size <= 12 ? view.selectedIds : []) {
       const s = sim.getShip(id);
       if (!s || !s.alive) continue;
       const t = s.targetId ? sim.getShip(s.targetId) : undefined;
@@ -129,19 +152,22 @@ export class TacticalOverlay {
       ctx.stroke();
       ctx.setLineDash([]);
     }
-    const marks: Mark[] = [];
-    for (const s of sim.ships) {
-      if (!s.alive || s.escaped) continue;
-      const p = view.project(s.pos, w, h);
-      if (!p) continue;
-      if (p.x < -40 || p.y < -40 || p.x > w + 40 || p.y > h + 40) continue;
-      marks.push({ s, x: p.x, y: p.y, depth: p.depth, size: bracketSize(s) });
-    }
-    marks.sort((a, b) => b.depth - a.depth);
 
-    // Labels: every hull on screen is a candidate; labelLayout decides which names fit.
-    const bg = battlegroups(sim.ships);
+    // Large battles (brief §12): the scale policy shared with the HUD lists counts every active ship and flight on
+    // both sides against the Settings threshold. Display only: no ship leaves the simulation, picking or commands.
+    let active = 0;
+    for (const s of sim.ships) if (inFight(s)) active++;
+    const fleetMode = useFleetSummary(active, this.largeBattleHulls);
+    // Inspected hulls keep their identity whatever the battle's size: a selection of up to 12 (a whole selected fleet is
+    // not inspected hull by hull), the hovered hull, the hull the camera follows and, in fleet mode, the hull the follow
+    // camera would take (`followId`, the owner's pinned rule: the lead of the last fleet or battlegroup row clicked).
+    const focusedIds = view.selectedIds.size <= 12 ? view.selectedIds : new Set<string>();
     const followed = view.followedId;
+    const pinned = fleetMode ? view.followId : undefined;
+    const inspected = (s: ShipState): boolean => focusedIds.has(s.id) || this.hoverId === s.id || s.id === followed || s.id === pinned;
+
+    // Battlegroups and fleets, for the aggregate labels: counts from every live hull and craft, on screen or not.
+    const bg = battlegroups(sim.ships);
     const groups = new Map<string, LabelGroupInfo>();
     const strength = new Map<string, number>();
     const colours = new Map<string, string>();
@@ -152,47 +178,108 @@ export class TacticalOverlay {
       colours.set(`group:${g.id}`, FACTIONS[g.leader.faction].colour);
     }
     const fleetMembers = new Map<string, ShipState[]>();
+    const fleetCraft = new Map<string, number>();
     for (const s of sim.ships) {
-      if (s.role === 'fighter') continue;
+      if (s.role === 'fighter') {
+        // A flight stands for several craft; the ones still in the fight count in their fleet's label.
+        if (inFight(s)) fleetCraft.set(s.fleetId, (fleetCraft.get(s.fleetId) ?? 0) + (s.flight?.craft ?? 1));
+        continue;
+      }
       let list = fleetMembers.get(s.fleetId);
       if (!list) fleetMembers.set(s.fleetId, (list = []));
       list.push(s);
     }
     const fleets = new Map<string, LabelFleetInfo>();
+    // Fleet map: a fleet down to its fighter flights still appears (the owner's rule), its flights standing for it under its label.
+    const standIn = new Set<string>();
     for (const [id, f] of sim.fleets) {
       const members = fleetMembers.get(id);
       if (!members) continue;
-      fleets.set(id, { name: f.spec.name, live: members.filter(inFight).length, deployed: members.length });
+      const live = members.filter(inFight).length;
+      const craft = fleetCraft.get(id) ?? 0;
+      fleets.set(id, { name: f.spec.name, live, deployed: members.length, craft });
       strength.set(`fleet:${id}`, hullFraction(members));
       colours.set(`fleet:${id}`, FACTIONS[f.spec.faction].colour);
+      if (fleetMode && live === 0 && craft > 0) standIn.add(id);
     }
-    // Live hulls a side, for the large-battle rule (as the HUD counts them: fighters aside).
-    const liveOnSide = new Map<string, number>();
-    for (const s of sim.ships) if (s.role !== 'fighter' && inFight(s)) liveOnSide.set(s.side, (liveOnSide.get(s.side) ?? 0) + 1);
-    const large = (side: string): boolean => this.largeBattleHulls > 0 && (liveOnSide.get(side) ?? 0) > this.largeBattleHulls;
-    const hulls: LabelHull[] = [];
-    for (const { s, x, y, depth, size } of marks) {
-      const selected = view.selectedIds.has(s.id);
-      const hovered = this.hoverId === s.id;
-      if (s.role === 'fighter' && !selected && !hovered) {
-        // Craft and Oculi stay unlabelled; the command view brackets the near ones, with bars no label may cover.
-        if (command && depth <= CRAFT_BRACKET_DEPTH) hulls.push({ id: s.id, x, y, size, name: '', priority: LABEL_PRIORITY.other, bars: true, unnamed: true });
-        continue;
-      }
-      const named = s.flagship || NAMED.has(s.name);
-      const isFollowed = s.id === followed;
-      const priority = selected || hovered
+
+    const marks: Mark[] = [];
+    for (const s of sim.ships) {
+      if (!inFight(s)) continue;
+      // Fleet map: craft are counted in their fleet's label, not drawn, unless inspected or standing for a fleet with no hull left.
+      if (fleetMode && s.role === 'fighter' && !inspected(s) && !standIn.has(s.fleetId)) continue;
+      const p = view.project(s.pos, w, h);
+      if (!p) continue;
+      if (p.x < -40 || p.y < -40 || p.x > w + 40 || p.y > h + 40) continue;
+      marks.push({ s, x: p.x, y: p.y, depth: p.depth, size: bracketSize(s) });
+    }
+    marks.sort((a, b) => b.depth - a.depth);
+    const maxLabels = Math.max(16, Math.min(LABELS_AT_1080P, Math.round((LABELS_AT_1080P * w * h) / (1920 * 1080))));
+    const tier = (s: ShipState, focus: boolean, named: boolean): number =>
+      focus
         ? LABEL_PRIORITY.focus
         : named
           ? LABEL_PRIORITY.named
-          : isFollowed
+          : s.id === followed
             ? LABEL_PRIORITY.followed
             : isCapitalRole(s.role)
               ? LABEL_PRIORITY.capital
               : s.hull < DAMAGED_HULL * s.maxHull
                 ? LABEL_PRIORITY.damaged
                 : LABEL_PRIORITY.other;
-      const radius = Math.min(MAX_MODEL_RADIUS, MODEL_CLEARANCE * view.screenRadius(s.id, depth, h));
+
+    // Fleet mode: the bounded set of hulls that may carry their own name, and the hulls drawn as dots.
+    const nameable = new Set<string>();
+    const dotted = new Set<string>();
+    if (fleetMode) {
+      const near: { id: string; depth: number }[] = [];
+      const rest: { id: string; priority: number; depth: number }[] = [];
+      for (const m of marks) {
+        const s = m.s;
+        if (s.role === 'fighter') continue;
+        if (inspected(s) || s.flagship || NAMED.has(s.name)) {
+          nameable.add(s.id);
+          continue;
+        }
+        if (m.depth <= NEAR_IDENTITY_DEPTH) near.push({ id: s.id, depth: m.depth });
+        else rest.push({ id: s.id, priority: tier(s, false, false), depth: m.depth });
+      }
+      // The nearest hulls keep their identity (the owner's rule) ...
+      near.sort((a, b) => a.depth - b.depth || byId(a, b));
+      for (const n of near.slice(0, NEARBY_NAME_CAP)) nameable.add(n.id);
+      for (const n of near.slice(NEARBY_NAME_CAP)) rest.push({ id: n.id, priority: tier(sim.getShip(n.id)!, false, false), depth: n.depth });
+      // ... and of the rest, as many as the viewport could label: the best tiers first, nearer first within a tier.
+      rest.sort((a, b) => a.priority - b.priority || a.depth - b.depth || byId(a, b));
+      for (const r of rest.slice(0, maxLabels)) nameable.add(r.id);
+      // Brackets for the hulls with an identity and the nearest others, dots beyond the budget.
+      let budget = BRACKET_BUDGET - nameable.size;
+      for (let i = marks.length - 1; i >= 0; i--) {
+        const s = marks[i].s;
+        if (s.role === 'fighter' || nameable.has(s.id)) continue;
+        if (budget > 0) budget--;
+        else dotted.add(s.id);
+      }
+    }
+
+    // Labels: every bracketed hull on screen is a candidate (in fleet mode, the nameable ones); labelLayout decides which names fit.
+    const hulls: LabelHull[] = [];
+    for (const { s, x, y, depth, size } of marks) {
+      const focus = focusedIds.has(s.id) || this.hoverId === s.id;
+      if (s.role === 'fighter' && !focus) {
+        const bracketed = command && depth <= CRAFT_BRACKET_DEPTH;
+        if (standIn.has(s.fleetId)) {
+          // A flight standing for a fleet with no hull left folds into the fleet's label like a hull and is never named on
+          // its own; for the layout's crowd test (hulls nearer than their names are wide) its name is the fleet's.
+          hulls.push({ id: s.id, x, y, size, name: fleets.get(s.fleetId)!.name, priority: LABEL_PRIORITY.other, fleetId: s.fleetId, bars: bracketed, hideFolded: true, nameless: true });
+        } else if (bracketed) {
+          // Craft and Oculi stay unlabelled; the command view brackets the near ones, with bars no label may cover.
+          hulls.push({ id: s.id, x, y, size, name: '', priority: LABEL_PRIORITY.other, bars: true, unnamed: true });
+        }
+        continue;
+      }
+      const named = s.flagship || NAMED.has(s.name);
+      const dot = dotted.has(s.id);
+      const radius = dot ? 0 : Math.min(MAX_MODEL_RADIUS, MODEL_CLEARANCE * view.screenRadius(s.id, depth, h));
       hulls.push({
         id: s.id,
         x,
@@ -200,16 +287,16 @@ export class TacticalOverlay {
         size,
         radius,
         name: s.name,
-        priority,
+        priority: tier(s, focus, named),
         groupId: bg.groupOf.get(s.id),
         fleetId: s.fleetId,
-        solo: selected || hovered || named || isFollowed,
-        // The command view draws bars under every hull, and a selected or hovered hull always shows its own.
-        bars: command || selected || hovered,
-        hideFolded: large(s.side) && depth > NEAR_BRACKET_DEPTH,
+        solo: inspected(s) || named,
+        // The command view draws bars under every bracketed hull, and an inspected hull always shows its own.
+        bars: focus || (command && !dot),
+        hideFolded: fleetMode && depth > NEAR_IDENTITY_DEPTH,
+        nameless: fleetMode && !nameable.has(s.id),
       });
     }
-    const maxLabels = Math.max(16, Math.min(LABELS_AT_1080P, Math.round((LABELS_AT_1080P * w * h) / (1920 * 1080))));
     const layout = layoutLabels(hulls, { width: w, height: h, groups, fleets, measure: this.measure, blocked: this.blocked, previous: this.collapsed, previousSlots: this.slots, maxLabels });
     this.collapsed = layout.collapsed;
     this.slots = new Map(layout.placed.map((l) => [l.id, l.slot]));
@@ -218,28 +305,42 @@ export class TacticalOverlay {
     const withBars = new Set<string>();
     for (const l of layout.placed) if (l.bars) withBars.add(l.id);
 
-    // Brackets far to near, but for the hulls a large battle's aggregate label stands for; bars under every hull in the
-    // command view and under selected and hovered hulls, else with a hull's name where the layout left them room.
+    // Markers far to near, but for the hulls a large battle's aggregate label stands for: brackets, or dots beyond the
+    // fleet map's budget; bars under every bracketed hull in the command view and under inspected hulls, else with a
+    // hull's name where the layout left them room.
+    let brackets = 0;
+    let dots = 0;
     for (const { s, x, y, depth, size } of marks) {
       if (layout.hidden.has(s.id)) continue;
-      const friendly = s.side === sim.config.perspectiveSide;
       const colour = FACTIONS[s.faction].colour;
+      if (dotted.has(s.id)) {
+        ctx.fillStyle = colour;
+        ctx.globalAlpha = 0.7;
+        ctx.fillRect(x - 1.5, y - 1.5, 3, 3);
+        ctx.globalAlpha = 1;
+        dots++;
+        continue;
+      }
+      const friendly = s.side === sim.config.perspectiveSide;
       const selected = view.selectedIds.has(s.id);
+      const focus = focusedIds.has(s.id);
       const hovered = this.hoverId === s.id;
       const isFighter = s.role === 'fighter';
       const far = depth > CRAFT_BRACKET_DEPTH;
-      if (isFighter && (far || !command) && !selected && !hovered) {
+      if (isFighter && (far || !command) && !focus && !hovered) {
         if (command || depth < 3000) {
           ctx.fillStyle = colour;
           ctx.globalAlpha = 0.5;
           ctx.fillRect(x - 1, y - 1, 2, 2);
           ctx.globalAlpha = 1;
+          dots++;
         }
         continue;
       }
+      brackets++;
       ctx.strokeStyle = colour;
-      ctx.lineWidth = selected || hovered ? 2 : 1;
-      ctx.globalAlpha = selected || hovered ? 1 : 0.75;
+      ctx.lineWidth = focus || hovered ? 2 : 1;
+      ctx.globalAlpha = focus || hovered ? 1 : 0.75;
       ctx.beginPath();
       if (friendly) {
         // Diamond for friendlies.
@@ -257,10 +358,11 @@ export class TacticalOverlay {
       }
       ctx.stroke();
       if (selected) {
+        // Every selected hull drawn gets its box, a whole selected fleet included; the bars and names are for the inspected ones.
         ctx.strokeStyle = '#ff8a1f';
         ctx.strokeRect(x - size - 6, y - size - 6, size * 2 + 12, size * 2 + 12);
       }
-      if (command || selected || hovered || withBars.has(s.id)) {
+      if (command || focus || hovered || withBars.has(s.id)) {
         const bw = 36;
         const bx = x - bw / 2;
         const by = y + size + 5;
@@ -275,6 +377,7 @@ export class TacticalOverlay {
       }
       ctx.globalAlpha = 1;
     }
+    this.lastMarkers = { brackets, dots };
 
     // Text: hull names with a dark outline (legible over the planet), aggregates on a dark plate with a strength bar.
     ctx.textAlign = 'center';

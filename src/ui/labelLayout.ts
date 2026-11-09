@@ -30,9 +30,12 @@
  *    (`LabelHull.bars`: the command view's, a selected or hovered hull's) and those that come with a hull's name,
  *    which are kept only where they clear the labels and bars already placed. A label with no slot is skipped, and
  *    placing stops at `maxLabels`.
- * 3. Large battles (brief §12). A hull the overlay marks `hideFolded` (its side is over the large-battle threshold and
- *    it is neither solo nor near the camera) loses its bracket and bars while a placed group or fleet label stands for
- *    it (`LabelLayout.hidden`); the overlay still draws every other hull's bracket.
+ * 3. Large battles (brief §12; the scale policy shared with the HUD lists, scalePolicy.ts). A hull the overlay marks
+ *    `hideFolded` (fleet mode: it is neither solo nor near the camera) loses its bracket and bars while a placed group or
+ *    fleet label stands for it (`LabelLayout.hidden`); the overlay still draws every other hull's marker. A hull marked
+ *    `nameless` (fleet mode: outside the overlay's bounded set of name candidates) folds into its group's or fleet's
+ *    label like any other but is never named on its own, so a frame's placement work is bounded by the candidates the
+ *    overlay offers, not by the number of hulls in the battle.
  */
 
 /** Label priority tiers, best first (brief §12). */
@@ -123,6 +126,8 @@ export interface LabelHull {
   bars?: boolean;
   /** Large battle (brief §12): its bracket and bars are left out while a placed group or fleet label stands for it. */
   hideFolded?: boolean;
+  /** Large battle: folded into its group's or fleet's label when crowded like any other hull, but never named on its own. */
+  nameless?: boolean;
   /** Bracketed but never named (craft in the command view): only its bracket and bars count. */
   unnamed?: boolean;
 }
@@ -138,6 +143,8 @@ export interface LabelFleetInfo {
   name: string;
   live: number;
   deployed: number;
+  /** Fighter craft of the fleet in the fight (a flight stands for several craft): named after the hull counts when any. */
+  craft?: number;
 }
 
 export interface PlacedLabel extends LabelBox {
@@ -189,7 +196,7 @@ export interface LabelLayout {
 }
 
 export const groupLabelText = (leaderName: string, count: number): string => `${leaderName} group · ${count}`;
-export const fleetLabelText = (name: string, live: number, deployed: number): string => `${name} · ${live}/${deployed}`;
+export const fleetLabelText = (name: string, live: number, deployed: number, craft = 0): string => `${name} · ${live}/${deployed}${craft > 0 ? ` · ${craft} craft` : ''}`;
 
 /** Monospace estimate: 6 px a character at 10 px, 6.6 px at the fleet label's 11 px. */
 export const estimateTextWidth = (text: string, kind: LabelKind): number => text.length * (kind === 'fleet' ? 6.6 : 6);
@@ -436,7 +443,7 @@ export function layoutLabels(hulls: readonly LabelHull[], opts: LabelLayoutOptio
           ay: c.cy,
           anchor: c,
           members: members.map((m) => m.id),
-          fallback: () => (kind === 'fleet' ? stand(members, false) : members.map(shipCandidate)),
+          fallback: () => (kind === 'fleet' ? stand(members, false) : members.filter((m) => !m.nameless).map(shipCandidate)),
         });
       }
     };
@@ -444,7 +451,7 @@ export function layoutLabels(hulls: readonly LabelHull[], opts: LabelLayoutOptio
     if (fleets && fleetInfo) {
       fold('fleet', (h) => h.fleetId, (id) => {
         const f = fleetInfo.get(id);
-        return f && fleetLabelText(f.name, f.live, f.deployed);
+        return f && fleetLabelText(f.name, f.live, f.deployed, f.craft);
       });
     }
     if (groupInfo) {
@@ -453,7 +460,7 @@ export function layoutLabels(hulls: readonly LabelHull[], opts: LabelLayoutOptio
         return g && groupLabelText(g.name, g.count);
       });
     }
-    for (const h of pool) if (!h.unnamed && !taken.has(h.id)) out.push(shipCandidate(h));
+    for (const h of pool) if (!h.unnamed && !h.nameless && !taken.has(h.id)) out.push(shipCandidate(h));
     return out;
   };
   // Crowded fleets, crowded battlegroups among the rest and every other hull, placed best first.

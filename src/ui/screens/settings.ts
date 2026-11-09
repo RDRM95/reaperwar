@@ -1,12 +1,17 @@
 import type { App } from '../app';
-import { largeBattleHulls } from '../app';
+import { largeBattleHulls } from '../scalePolicy';
 import { el } from '../dom';
 import { storage } from '@/core/storage';
+import { UI_SCALE_LEVELS } from '../tvDisplay';
+import { FRAME_CAP_OPTIONS } from '@/core/frameLimiter';
 import { QUALITY_ORDER, QUALITY_PRESETS, withQuality, type GraphicsQuality } from '@/rendering/quality';
-import { gpuRenderer, isLocalEdition, localEditionDetails, localEditionStatus } from '@/rendering/localHardware';
+import { gpuRenderer, isLocalEdition, localEditionDetails, localEditionStatus, webglAvailable } from '@/rendering/localHardware';
 import { timelineTagById } from '@/timelines/alternates';
 
-/** Large-battle HUD thresholds offered in Settings (live hulls on a side; 0 = never collapse). Brief §12 default: 48. */
+/**
+ * Large-battle thresholds offered in Settings: active ships and fighter flights on both sides together, above which the
+ * fleet lists and the tactical overlay summarise by fleet (0 = never). The default is the scale policy's 64 (scalePolicy.ts).
+ */
 const LARGE_BATTLE_CHOICES = [24, 32, 48, 64, 96, 128, 0];
 /** The choices, with a stored value that is not among them (an imported save) kept in order. */
 const largeBattleChoices = (current: number): number[] =>
@@ -26,6 +31,19 @@ export function renderSettings(app: App): HTMLElement {
     el('div', { class: 'grid3' }, [
       el('div', { class: 'panel' }, [
         el('div', { class: 'panel-title' }, 'GRAPHICS'),
+        el('label', { class: 'field' }, ['TV / 4K interface scale', el('select', {
+          'data-setting': 'ui-scale',
+          onchange: (e: Event) => {
+            p.uiScale = Number((e.target as HTMLSelectElement).value);
+            void app.savePrefs();
+          },
+        }, UI_SCALE_LEVELS.map((scale) => el('option', {
+          value: scale,
+          selected: p.uiScale === scale,
+        }, Math.round(scale * 100) + '%')))]),
+        el('p', { class: 'dim', style: { fontSize: '12px' } },
+          'Enlarges menus, labels and the HUD without reducing 3D render resolution. Ctrl+Alt+Up / Down adjusts the scale anywhere; Ctrl+Alt+0 resets to 100%.'),
+
         el('label', { class: 'field' }, ['Quality', el('select', { 'data-setting': 'quality', onchange: (e: Event) => {
           const glowBefore = p.graphics.showEngineGlow;
           // Any graphics change is the player's choice: the Local Edition stops defaulting to Ultra.
@@ -33,6 +51,12 @@ export function renderSettings(app: App): HTMLElement {
           void app.savePrefs();
           if (p.graphics.showEngineGlow !== glowBefore) app.show('settings'); // Ultra switched engine glow on
         } }, QUALITY_ORDER.map((q) => el('option', { value: q, selected: p.graphics.quality === q }, QUALITY_PRESETS[q].label)))]),
+        el('label', { class: 'field' }, ['Frame rate limit', el('select', { 'data-setting': 'frame-cap', onchange: (e: Event) => {
+          p.graphics.frameCap = Number((e.target as HTMLSelectElement).value);
+          void app.savePrefs();
+        } }, FRAME_CAP_OPTIONS.map((cap) => el('option', {
+          value: cap, selected: (p.graphics.frameCap ?? 0) === cap,
+        }, cap === 0 ? 'Unlimited' : cap + ' FPS')))]),
         el('label', { class: 'field' }, ['Engine glow sprites', el('select', { 'data-setting': 'engine-glow', onchange: (e: Event) => {
           p.graphics.showEngineGlow = (e.target as HTMLSelectElement).value === 'on';
           p.graphics.chosen = true;
@@ -51,11 +75,11 @@ export function renderSettings(app: App): HTMLElement {
         el('label', { class: 'field' }, ['Large-battle fleet lists', el('select', { 'data-setting': 'large-battle-hulls', onchange: (e: Event) => {
           p.largeBattleHulls = Number((e.target as HTMLSelectElement).value);
           void app.savePrefs();
-        } }, largeBattleChoices(largeBattleHulls(p)).map((n) => el('option', { value: n, selected: largeBattleHulls(p) === n }, n === 0 ? 'Never: one row per ship' : `One row per fleet above ${n} live hulls a side`)))]),
-        el('p', { class: 'dim', style: { fontSize: '12px' } }, 'Changes apply to the next battle. Low quality disables antialiasing and caps the render resolution. Ultra renders at your display’s native resolution, keeps full detail 2.5× farther out and doubles the effect budgets: it is meant for a dedicated GPU, and the battle HUD shows its frame rate.'),
+        } }, largeBattleChoices(largeBattleHulls(p)).map((n) => el('option', { value: n, selected: largeBattleHulls(p) === n }, n === 0 ? 'Never: one row per ship' : `One row per fleet above ${n} active ships and flights`)))]),
+        el('p', { class: 'dim', style: { fontSize: '12px' } }, 'Graphics and frame cap changes apply to the next battle. For a 144 Hz display choose 144 FPS: this prevents wasted rendering above what the screen can show, but it cannot raise performance if a large simulation is CPU-limited. Low quality disables antialiasing and caps the render resolution. Ultra renders at your display’s native resolution, keeps full detail 2.5× farther out and doubles the effect budgets: it is meant for a dedicated GPU, and the battle HUD shows its frame rate. Large-battle fleet lists: while more ships and fighter flights than the chosen number are active on both sides together, the fleet panels show one row per fleet (expandable to battlegroups and ships) and the tactical overlay labels a crowded fleet or battlegroup as one, keeping the names of your selection, flagships and named ships and the hulls near the camera; ship rows and names return as the engagement shrinks.'),
         local
           ? el('div', { class: 'local-edition', 'data-local-edition': '' }, [
-              el('p', { style: { fontSize: '12px', color: 'var(--cyan)', marginBottom: '2px' } }, localEditionStatus(gpuRenderer())),
+              el('p', { style: { fontSize: '12px', color: 'var(--cyan)', marginBottom: '2px' } }, localEditionStatus(gpuRenderer(), webglAvailable())),
               el('p', { class: 'dim', style: { fontSize: '11px', marginTop: '0' } }, localEditionDetails()),
             ])
           : null,

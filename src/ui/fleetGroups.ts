@@ -43,6 +43,8 @@ export interface FleetSummary {
   live: ShipState[];
   /** Hulls deployed so far (`members.length`). */
   deployed: number;
+  /** Fighter craft of the fleet still in the fight (a flight stands for several craft; the HUD and the labels count them). */
+  craft: number;
   /** Remaining hull and barrier points as a fraction of the deployed hulls' maxima. */
   hull: number;
   barriers: number;
@@ -100,8 +102,12 @@ export function battlegroups(ships: readonly ShipState[]): FleetGroups {
 /** Every deployed fleet of the battle, in deployment order, with its battlegroups and remaining strength. */
 export function fleetSummaries(ships: readonly ShipState[], fleets: ReadonlyMap<string, FleetState>, bg: FleetGroups = battlegroups(ships)): FleetSummary[] {
   const byFleet = new Map<string, ShipState[]>();
+  const craftOf = new Map<string, number>();
   for (const s of ships) {
-    if (s.role === 'fighter') continue;
+    if (s.role === 'fighter') {
+      if (inFight(s)) craftOf.set(s.fleetId, (craftOf.get(s.fleetId) ?? 0) + (s.flight?.craft ?? 1));
+      continue;
+    }
     let list = byFleet.get(s.fleetId);
     if (!list) byFleet.set(s.fleetId, (list = []));
     list.push(s);
@@ -137,6 +143,7 @@ export function fleetSummaries(ships: readonly ShipState[], fleets: ReadonlyMap<
       members,
       live,
       deployed: members.length,
+      craft: craftOf.get(id) ?? 0,
       hull: maxHull > 0 ? hull / maxHull : 0,
       barriers: maxBarriers > 0 ? barriers / maxBarriers : 0,
       groups,

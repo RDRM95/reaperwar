@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import type { BattleSimulation } from '@/simulation/battle';
-import { SIM_DT } from '@/simulation/battle';
-import type { BattleEvent, ShipState } from '@/simulation/types';
+import { SIM_DT, mountWorldPosition } from '@/simulation/battle';
+import type { BattleEvent, ShipState, WeaponState } from '@/simulation/types';
 import { getFaction } from '@/data/factions';
 import { CameraRig, type CameraSubject } from './cameras';
 import type { CameraDriver, SubjectPose, SubjectRef } from './cameraDriver';
@@ -10,8 +10,10 @@ import type { ShipRef } from '@/simulation/types';
 import { EffectsSystem } from './effects';
 import { buildEnvironment, type EnvironmentBuild } from './environment';
 import { KM } from './geometry';
-import { instantiateShip, type BuiltShip } from './ships';
-import { DETAIL_MESH_NAMES, lodLevel, type LodLevel } from './lod';
+import { getShipTemplate, instantiateShip, type BuiltShip } from './ships';
+import { ShipBatches } from './shipBatches';
+import { DETAIL_MESH_NAMES, detailedHullBudget, farPointCapacity, lodLevelSquared, type LodLevel } from './lod';
+import { nearestDetailedShipIds } from './nearestDetailed';
 import { FpsMeter, pixelRatioFor, presetFor, type QualityPreset } from './quality';
 
 /**
@@ -41,6 +43,8 @@ export interface GraphicsSettings {
   lod?: boolean;
   /** True once the player has changed a graphics setting; until then the Local Edition starts at Ultra. Read with a default of false. */
   chosen?: boolean;
+  /** Render limit; 0 means unlimited. Local Edition defaults to 144 FPS. */
+  frameCap?: number;
 }
 
 /** Anisotropic filtering on every texture map below `root`. */
@@ -54,7 +58,8 @@ function applyAnisotropy(root: THREE.Object3D, anisotropy: number): void {
   });
 }
 
-const MAX_FAR_POINTS = 2048;
+// Start with a small GPU buffer and grow only when a battle requires it.
+const INITIAL_FAR_POINTS = 2048;
 
 export class BattleView {
   readonly renderer: THREE.WebGLRenderer;
@@ -88,11 +93,20 @@ export class BattleView {
   private readonly fwd = new THREE.Vector3(0, 0, 1);
   settings: GraphicsSettings;
   private eventQueue: BattleEvent[] = [];
+  /** Beam mounts are indexed once per fixed simulation tick, not at every render frame. */
+  private activeBeamTick = -1;
+  private readonly activeBeamMounts: { ship: ShipState; weapon: WeaponState }[] = [];
   /** Shared point cloud for ships beyond mesh range (one draw call). */
   private readonly farPoints: THREE.Points;
-  private readonly farPositions = new Float32Array(MAX_FAR_POINTS * 3);
-  private readonly farColours = new Float32Array(MAX_FAR_POINTS * 3);
+  /** GPU instancing: many identical ships rendered with one draw per mesh part. */
+  private shipBatches: ShipBatches;
+  private farPositions = new Float32Array(INITIAL_FAR_POINTS * 3);
+  private farColours = new Float32Array(INITIAL_FAR_POINTS * 3);
   private readonly tmpColour = new THREE.Color();
+  private readonly farColourCache = new Map<string, readonly [number, number, number]>();
+  /** The closest detailed hulls in a large battle; others stay in the GPU point cloud. */
+  private detailedShips?: Set<string>;
+  private detailBudgetFrame = 0;
   /** Draw calls of the last rendered frame. */
   drawCalls = 0;
   lodCounts = { full: 0, reduced: 0, point: 0 };
@@ -151,14 +165,21 @@ export class BattleView {
     this.farPoints.frustumCulled = false;
     this.farPoints.name = 'far-points';
     this.scene.add(this.farPoints);
+    this.shipBatches = new ShipBatches(this.scene, sim.ships);
     this.bind(sim);
   }
 
   /** Attach to a (new) simulation, rebuilding the scene content. */
   bind(sim: BattleSimulation): void {
     this.sim = sim;
+    this.activeBeamTick = -1;
+    this.activeBeamMounts.length = 0;
     for (const v of this.visuals.values()) this.scene.remove(v.built.group);
     this.visuals.clear();
+    this.shipBatches.clear();
+    this.shipBatches = new ShipBatches(this.scene, sim.ships);
+    this.detailedShips = undefined;
+    this.detailBudgetFrame = 0;
     this.effects.clear();
     if (this.env) this.scene.remove(this.env.group);
     this.env = buildEnvironment(sim.config.environment);
@@ -167,7 +188,10 @@ export class BattleView {
     this.sunLight.position.copy(this.env.sunDirection).multiplyScalar(10_000);
     this.sunLight.target.position.set(0, 0, 0);
     this.scene.add(this.sunLight.target);
-    for (const s of sim.ships) this.ensureVisual(s);
+    this.ensureFarCapacity(sim.ships.length);
+    // Large engagements use GPU instances and lazy hero models. Do not create
+    // thousands of cloned Three.js objects just to hide most of them as points.
+    if (sim.ships.length < 500) for (const s of sim.ships) this.ensureVisual(s);
     sim.onEvent = (e) => this.eventQueue.push(e);
     this.selectedIds.clear();
     this.followId = undefined;
@@ -178,6 +202,16 @@ export class BattleView {
     this.rig.distance = 320;
     this.rig.yaw = Math.PI + 0.6;
     this.rig.pitch = 0.42;
+  }
+
+  /** Grow the one-draw-call far-ship cloud; never silently drop ships beyond 2,048. */
+  private ensureFarCapacity(required: number): void {
+    if (required <= this.farPositions.length / 3) return;
+    const capacity = farPointCapacity(this.farPositions.length / 3, required);
+    this.farPositions = new Float32Array(capacity * 3);
+    this.farColours = new Float32Array(capacity * 3);
+    this.farPoints.geometry.setAttribute('position', new THREE.BufferAttribute(this.farPositions, 3));
+    this.farPoints.geometry.setAttribute('color', new THREE.BufferAttribute(this.farColours, 3));
   }
 
   private ensureVisual(ship: ShipState): ShipVisual {
@@ -250,44 +284,92 @@ export class BattleView {
     const sim = this.sim;
     const cam = this.rig.camera.position;
     const lodOn = this.settings.lod !== false;
+    const useBatches = sim.ships.length >= 500;
+    this.shipBatches.beginFrame();
+    // Ultra quality must not hold thousands of distant individual hull meshes
+    // on screen. The camera still preserves full detail for close subjects.
+    const lodScale = sim.ships.length >= 1500
+      ? Math.min(this.preset.lodDistanceScale, 1.5)
+      : sim.ships.length >= 500
+        ? Math.min(this.preset.lodDistanceScale, 2)
+        : this.preset.lodDistanceScale;
+    this.ensureFarCapacity(sim.ships.length);
+    // A finite draw-call budget matters more than raw GPU throughput when
+    // thousands of hulls each have multiple meshes. Keep nearest models at
+    // full fidelity; draw the rest as one GPU point cloud. Reassess 8 times
+    // per eight frames rather than sorting every animation frame.
+    const meshBudget = useBatches ? 24 : detailedHullBudget(sim.ships.length);
+    if (!Number.isFinite(meshBudget)) this.detailedShips = undefined;
+    else if (!this.detailedShips || ++this.detailBudgetFrame % 8 === 0) {
+      this.detailedShips = nearestDetailedShipIds(sim.ships, cam, KM, meshBudget, useBatches);
+    }
     let far = 0;
     this.lodCounts = { full: 0, reduced: 0, point: 0 };
     for (const ship of sim.ships) {
-      const v = this.ensureVisual(ship);
-      if (v.removed) continue;
+      let v = this.visuals.get(ship.id);
+      if (v?.removed) continue;
       if (!ship.alive) {
-        this.updateDying(v, dt);
+        if (v) this.updateDying(v, dt);
         continue;
       }
       if (ship.escaped) {
-        v.built.group.visible = false;
+        if (v) v.built.group.visible = false;
         continue;
       }
-      this.placeVisual(v, alpha);
-      // Level of detail by distance; far ships collapse into the shared point cloud.
-      const dist = cam.distanceTo(v.built.group.position);
-      const level = lodLevel(dist, v.built.lengthUnits, ship.role, lodOn, this.preset.lodDistanceScale);
-      this.applyLod(v, level);
+      // Do not recompute heading/quaternion for distant point-only ships.
+      const point = this.tmpA.set(
+        (ship.prevPos.x + (ship.pos.x - ship.prevPos.x) * alpha) * KM,
+        (ship.prevPos.y + (ship.pos.y - ship.prevPos.y) * alpha) * KM,
+        (ship.prevPos.z + (ship.pos.z - ship.prevPos.z) * alpha) * KM,
+      );
+      const dx = point.x - cam.x, dy = point.y - cam.y, dz = point.z - cam.z;
+      const distanceSquared = dx * dx + dy * dy + dz * dz;
+      const selected = this.selectedIds.size <= 12 && this.selectedIds.has(ship.id);
+      const hero = selected || this.followId === ship.id || (useBatches && distanceSquared < 700 * 700 && this.detailedShips?.has(ship.id));
+      const lengthUnits = v?.built.lengthUnits ?? getShipTemplate(ship.classId).lengthUnits;
+      const level = hero ? 'full' : useBatches
+        ? lodLevelSquared(distanceSquared, lengthUnits, ship.role, lodOn, lodScale)
+        : (!this.detailedShips || this.detailedShips.has(ship.id)) ? lodLevelSquared(distanceSquared, lengthUnits, ship.role, lodOn, lodScale) : 'point';
+      if (useBatches && !hero) {
+        if (v) { this.applyLod(v, 'point'); v.built.group.visible = false; }
+        if (level !== 'point') {
+          this.shipBatches.submit(ship, level, point.x, point.y, point.z);
+          this.lodCounts[level]++;
+          continue;
+        }
+      }
+      if (level === 'point') {
+        if (v) { this.applyLod(v, 'point'); v.built.group.visible = false; }
+      } else {
+        v = v ?? this.ensureVisual(ship);
+        this.placeVisual(v, alpha);
+        this.applyLod(v, level);
+        v.built.group.visible = true;
+      }
       this.lodCounts[level]++;
-      if (level === 'point' && far < MAX_FAR_POINTS) {
-        const p = v.built.group.position;
-        this.farPositions[far * 3] = p.x;
-        this.farPositions[far * 3 + 1] = p.y;
-        this.farPositions[far * 3 + 2] = p.z;
-        this.tmpColour.setHex(getFaction(ship.faction).engineColourHex);
-        this.farColours[far * 3] = this.tmpColour.r;
-        this.farColours[far * 3 + 1] = this.tmpColour.g;
-        this.farColours[far * 3 + 2] = this.tmpColour.b;
+      if (level === 'point') {
+        this.farPositions[far * 3] = point.x;
+        this.farPositions[far * 3 + 1] = point.y;
+        this.farPositions[far * 3 + 2] = point.z;
+        let colour = this.farColourCache.get(ship.faction);
+        if (!colour) {
+          this.tmpColour.setHex(getFaction(ship.faction).engineColourHex);
+          colour = [this.tmpColour.r, this.tmpColour.g, this.tmpColour.b];
+          this.farColourCache.set(ship.faction, colour);
+        }
+        this.farColours[far * 3] = colour[0];
+        this.farColours[far * 3 + 1] = colour[1];
+        this.farColours[far * 3 + 2] = colour[2];
         far++;
         continue;
       }
       // Engine glow intensity follows throttle.
       const speedFrac = Math.min(1, Math.hypot(ship.vel.x, ship.vel.y, ship.vel.z) / Math.max(0.01, ship.maxSpeed));
-      if (level === 'full') for (const gl of v.glows) (gl.material as THREE.SpriteMaterial).opacity = 0.35 + 0.6 * speedFrac * ship.subsystems.engines;
+      if (level === 'full' && v) for (const gl of v.glows) (gl.material as THREE.SpriteMaterial).opacity = 0.35 + 0.6 * speedFrac * ship.subsystems.engines;
       // Damage tint.
       const hullFrac = ship.hull / ship.maxHull;
-      if (hullFrac < 0.6 && !v.tinted) this.tintDamage(v);
-      if (v.tinted) {
+      if (v && hullFrac < 0.6 && !v.tinted) this.tintDamage(v);
+      if (v?.tinted) {
         const t = 1 - hullFrac;
         v.built.group.traverse((o) => {
           const m = (o as THREE.Mesh).material as THREE.MeshStandardMaterial | undefined;
@@ -298,20 +380,29 @@ export class BattleView {
         });
       }
     }
+    this.shipBatches.endFrame();
     const farGeom = this.farPoints.geometry;
     farGeom.setDrawRange(0, far);
     (farGeom.attributes.position as THREE.BufferAttribute).needsUpdate = true;
     (farGeom.attributes.color as THREE.BufferAttribute).needsUpdate = true;
     this.farPoints.visible = far > 0;
     // Effects from sim state.
-    const tracers = sim.projectiles.map((p) => ({ pos: p.pos, vel: p.vel, big: p.weapon.damage >= 600 }));
-    this.effects.setTracers(tracers, alpha, SIM_DT);
-    this.effects.setMissiles(sim.missiles.filter((m) => m.alive).map((m) => ({ pos: m.pos, vel: m.vel })), alpha, SIM_DT);
+    this.effects.setTracers(sim.projectiles, alpha, SIM_DT);
+    this.effects.setMissiles(sim.missiles, alpha, SIM_DT);
+    if (this.activeBeamTick !== sim.tick) {
+      this.activeBeamTick = sim.tick;
+      this.activeBeamMounts.length = 0;
+      for (const ship of sim.ships) {
+        if (!ship.alive) continue;
+        for (const weapon of ship.weapons) {
+          if (weapon.beamRemaining > 0 && weapon.beamStart && weapon.beamEnd)
+            this.activeBeamMounts.push({ ship, weapon });
+        }
+      }
+    }
     const beams: { start: THREE.Vector3; end: THREE.Vector3; kind: 'thanix' | 'reaper_beam'; intensity: number }[] = [];
-    for (const ship of sim.ships) {
-      if (!ship.alive) continue;
-      for (const w of ship.weapons) {
-        if (w.beamRemaining > 0 && w.beamStart && w.beamEnd) {
+    for (const { ship, weapon: w } of this.activeBeamMounts) {
+      if (ship.alive && w.beamRemaining > 0 && w.beamStart && w.beamEnd) {
           const kind = w.def.kind === 'thanix' ? 'thanix' : 'reaper_beam';
           const v = this.visuals.get(ship.id);
           // Start the beam at the model muzzle for Reapers (the eye), else at the hardpoint.
@@ -322,7 +413,6 @@ export class BattleView {
           const end = w.beamHit && t ? new THREE.Vector3(t.pos.x * KM, t.pos.y * KM, t.pos.z * KM) : new THREE.Vector3(w.beamEnd.x * KM, w.beamEnd.y * KM, w.beamEnd.z * KM);
           const intensity = kind === 'reaper_beam' ? (ship.role === 'reaper_capital' ? 1.3 : 0.7) : 0.9;
           beams.push({ start, end, kind, intensity });
-        }
       }
     }
     this.effects.setBeams(beams);
@@ -405,14 +495,17 @@ export class BattleView {
         case 'weapon_fired': {
           if (e.kind !== 'mass_accelerator') break;
           const ship = this.sim.getShip(e.shipId);
-          const v = ship ? this.visuals.get(ship.id) : undefined;
-          if (!ship || !v) break;
+          if (!ship) break;
+          const v = this.visuals.get(ship.id);
           const w = ship.weapons[e.weaponIndex];
           if (!w) break;
           const big = w.def.damage >= 600;
           if (!big && Math.random() > 0.35) break; // thin out small-gun flashes
-          const local = big && v.built.muzzle ? v.built.muzzle.clone() : new THREE.Vector3(w.offset.x * KM, w.offset.y * KM, w.offset.z * KM);
-          const world = v.built.group.localToWorld(local);
+          const local = v && big && v.built.muzzle ? v.built.muzzle.clone() : undefined;
+          const mount = local ? undefined : mountWorldPosition(ship, e.weaponIndex);
+          const world = v && local ? v.built.group.localToWorld(local)
+            : mount ? new THREE.Vector3(mount.x * KM, mount.y * KM, mount.z * KM)
+            : new THREE.Vector3(ship.pos.x * KM, ship.pos.y * KM, ship.pos.z * KM);
           const dir = new THREE.Vector3(ship.heading.x, ship.heading.y, ship.heading.z);
           this.effects.muzzleFlash(world, dir, big ? 6 : 1.4, ship.faction === 'reaper');
           if (big && this.rig.mode === 'cinematic' && this.cine.age > 4 && Math.random() < 0.2) this.cine.hold = 0;
@@ -432,8 +525,14 @@ export class BattleView {
         }
         case 'ship_destroyed': {
           const v = this.visuals.get(e.shipId);
-          if (v && (e.role === 'dreadnought' || e.role === 'reaper_capital' || e.role === 'carrier')) {
-            // Cinematic director jumps to capital ship deaths.
+          const ship = this.sim.getShip(e.shipId);
+          // Instanced hulls have no individual death object to animate. Still
+          // emit the normal explosion, at the ship's real simulated position.
+          if (!v && ship) {
+            const pos = new THREE.Vector3(ship.pos.x * KM, ship.pos.y * KM, ship.pos.z * KM);
+            this.effects.explosion(pos, getShipTemplate(ship.classId).lengthUnits, ship.faction === 'reaper');
+          }
+          if ((v || ship) && (e.role === 'dreadnought' || e.role === 'reaper_capital' || e.role === 'carrier')) {
             this.cine = { fromId: e.shipId, toId: undefined, age: 0, hold: 7 };
           }
           break;
@@ -449,12 +548,11 @@ export class BattleView {
   private subjectFor(ship: ShipState | undefined): CameraSubject | undefined {
     if (!ship) return undefined;
     const v = this.visuals.get(ship.id);
-    if (!v) return undefined;
     return {
-      position: v.built.group.position.clone(),
+      position: v ? v.built.group.position.clone() : new THREE.Vector3(ship.pos.x * KM, ship.pos.y * KM, ship.pos.z * KM),
       velocity: new THREE.Vector3(ship.vel.x, ship.vel.y, ship.vel.z).multiplyScalar(KM),
       heading: new THREE.Vector3(ship.heading.x, ship.heading.y, ship.heading.z),
-      size: v.built.lengthUnits,
+      size: v?.built.lengthUnits ?? getShipTemplate(ship.classId).lengthUnits,
     };
   }
 
@@ -602,18 +700,26 @@ export class BattleView {
     const cam = this.rig.camera;
     let best: ShipState | undefined;
     let bestD = Infinity;
-    for (const v of this.visuals.values()) {
-      if (!v.ship.alive || v.ship.escaped || v.removed) continue;
-      const p = this.tmpA.copy(v.built.group.position).project(cam);
+    for (const ship of this.sim.ships) {
+      if (!ship.alive || ship.escaped) continue;
+      const v = this.visuals.get(ship.id);
+      if (v?.removed) continue;
+      const origin = this.tmpB.set(
+        (ship.prevPos.x + (ship.pos.x - ship.prevPos.x) * this.alpha) * KM,
+        (ship.prevPos.y + (ship.pos.y - ship.prevPos.y) * this.alpha) * KM,
+        (ship.prevPos.z + (ship.pos.z - ship.prevPos.z) * this.alpha) * KM,
+      );
+      const p = this.tmpA.copy(origin).project(cam);
       if (p.z > 1) continue;
       const sx = (p.x * 0.5 + 0.5) * width;
       const sy = (-p.y * 0.5 + 0.5) * height;
-      const dist = cam.position.distanceTo(v.built.group.position);
-      const radiusPx = Math.max(14, ((v.built.lengthUnits * 0.5) / Math.max(1, dist)) * (height / (2 * Math.tan((cam.fov * Math.PI) / 360))));
+      const dist = cam.position.distanceTo(origin);
+      const lengthUnits = v?.built.lengthUnits ?? getShipTemplate(ship.classId).lengthUnits;
+      const radiusPx = Math.max(14, ((lengthUnits * 0.5) / Math.max(1, dist)) * (height / (2 * Math.tan((cam.fov * Math.PI) / 360))));
       const d = Math.hypot(sx - x, sy - y);
       if (d < radiusPx + 6 && d < bestD) {
         bestD = d;
-        best = v.ship;
+        best = ship;
       }
     }
     return best;
@@ -659,6 +765,7 @@ export class BattleView {
   }
 
   dispose(): void {
+    this.shipBatches.clear();
     this.renderer.dispose();
   }
 }

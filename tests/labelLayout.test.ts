@@ -11,6 +11,7 @@ import {
   barBox,
   boxesOverlap,
   estimateTextWidth,
+  fleetLabelText,
   layoutLabels,
   type LabelFleetInfo,
   type LabelGroupInfo,
@@ -349,6 +350,32 @@ describe('label layout (brief §12, stage L2)', () => {
     expect(walled.collapsed.has('group:g-0')).toBe(true);
     expect(walled.placed.some((l) => l.kind === 'group')).toBe(false);
     expect(walled.hidden.size).toBe(0);
+  });
+
+  it('in fleet mode, a nameless hull folds into its group or fleet like any other but is never named on its own', () => {
+    const groups = new Map<string, LabelGroupInfo>([['g-0', { name: 'SSV Everest', count: 6 }]]);
+    // Crowded: the nameless hulls fold into their group label as any other, and the far ones are left out.
+    const crowded = group('g', 6, 960, 540, 12).map((h) => ({ ...h, nameless: true, hideFolded: true }));
+    const folded = layoutLabels(crowded, opts({ groups }));
+    expect(folded.placed.map((l) => l.text)).toEqual(['SSV Everest group · 6']);
+    expect(folded.hidden.size).toBe(6);
+    // Spread out: a nameless hull gets no name, however much room there is; the one hull that may be named is.
+    const spread = group('g', 6, 960, 540, 140).map((h, i) => ({ ...h, nameless: i !== 2 }));
+    const open = layoutLabels(spread, opts({ groups }));
+    expect(open.collapsed.size).toBe(0);
+    expect(open.placed.map((l) => l.id)).toEqual(['g-2']);
+    // A folded group whose label finds no room names only the hulls that may be named, and hides none.
+    const noAggregate = (text: string, kind: LabelKind): number => (kind === 'ship' ? estimateTextWidth(text, kind) : 5000);
+    const byHulls = layoutLabels(crowded.map((h, i) => (i === 0 ? { ...h, nameless: false } : h)), opts({ groups, measure: noAggregate }));
+    expect(byHulls.collapsed.has('group:g-0')).toBe(true);
+    expect(byHulls.placed.map((l) => l.id)).toEqual(['g-0']);
+    expect(byHulls.hidden.size).toBe(0);
+    // A fleet label counts the fleet's fighter craft after its hulls, when it has any.
+    expect(fleetLabelText('Geth fleet', 21, 21)).toBe('Geth fleet · 21/21');
+    expect(fleetLabelText('Sword Fleet (Alliance)', 41, 49, 96)).toBe('Sword Fleet (Alliance) · 41/49 · 96 craft');
+    const fleets = new Map<string, LabelFleetInfo>([['fleet-a', { name: 'Sword Fleet (Alliance)', live: 9, deployed: 12, craft: 48 }]]);
+    const withCraft = layoutLabels([...group('a', 5, 900, 500, 10), ...group('b', 4, 960, 520, 10)].map((h) => ({ ...h, nameless: true })), opts({ fleets }));
+    expect(withCraft.placed.map((l) => l.text)).toEqual(['Sword Fleet (Alliance) · 9/12 · 48 craft']);
   });
 
   it("names the battlegroups 0.12.3's formations give the Final Battle's hulls, Reapers by their capital's designation", () => {

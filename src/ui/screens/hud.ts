@@ -1,5 +1,6 @@
 import type { App, BattleController } from '../app';
-import { SPEEDS, largeBattleHulls } from '../app';
+import { SPEEDS } from '../app';
+import { largeBattleHulls, useFleetSummary } from '../scalePolicy';
 import { el, fmtNum, fmtTime, setChildren } from '../dom';
 import { battlegroups, fleetSummaries, inFight, type Battlegroup, type FleetSummary } from '../fleetGroups';
 import { FACTIONS } from '@/data/factions';
@@ -197,16 +198,23 @@ export function createHud(app: App, ctrl: BattleController): Hud {
     return r;
   };
 
-  // Large-battle HUD (brief §12): above the Settings threshold of live hulls on a side, that side's list shows one row
-  // per fleet with live/deployed counts and strength bars; a fleet expands into its battlegroups and a battlegroup into
-  // its hulls. A row selects its hulls (shift adds), a double-click points the camera at its lead hull, and a
-  // right-click on a hostile row sends the selection against that lead hull.
-  interface GroupRowRefs { row: HTMLElement; toggle: HTMLElement; name: HTMLElement; count: HTMLElement; barrier: HTMLElement; hull: HTMLElement; ids: string[]; lead?: string; side: string }
+  // Large-battle HUD (brief §12): while the scale policy shared with the overlay (scalePolicy.ts) counts more active
+  // ships and flights on both sides than the Settings threshold, both lists show one row per fleet with live/deployed
+  // hull counts, the fleet's fighter craft and strength bars; a fleet expands into its battlegroups and a battlegroup
+  // into its hulls. A row selects its hulls (shift adds), a double-click points the camera at its lead hull, and a
+  // right-click on a hostile row sends the selection against it: a fleet's first active hull (a fighter only if
+  // nothing else is left), a battlegroup's lead hull. Ship rows return as the engagement shrinks below the threshold.
+  interface GroupRowRefs { row: HTMLElement; toggle: HTMLElement; name: HTMLElement; count: HTMLElement; craft: HTMLElement; barrier: HTMLElement; hull: HTMLElement; ids: string[]; lead?: string; side: string }
   const expanded = new Set<string>();
   const groupRowCache = new Map<string, GroupRowRefs>();
+  // A fleet's first active hull (a fighter only if nothing else is left): what a right-click on its row attacks.
+  const activeShipOf = (id: string): ShipState | undefined =>
+    sim().ships.find((s) => s.fleetId === id && s.alive && !s.escaped && s.role !== 'fighter')
+    ?? sim().ships.find((s) => s.fleetId === id && s.alive && !s.escaped);
   const aggregateRow = (key: string, kind: 'fleet' | 'group', depth: number): GroupRowRefs => {
     let r = groupRowCache.get(key);
     if (!r) {
+      const id = key.slice(key.indexOf(':') + 1);
       const toggle = el('span', { class: 'agg-toggle', title: kind === 'fleet' ? 'Show battlegroups' : 'Show hulls', onclick: (e: MouseEvent) => {
         e.stopPropagation();
         if (expanded.has(key)) expanded.delete(key);
@@ -216,25 +224,28 @@ export function createHud(app: App, ctrl: BattleController): Hud {
       } }, '▸');
       const name = el('span', { class: 'agg-name' });
       const count = el('span', { class: 'agg-count mono' });
+      const craft = el('span', { class: 'agg-craft mono' });
       const barrier = el('i');
       const hull = el('i');
-      const refs: GroupRowRefs = { row: el('div'), toggle, name, count, barrier, hull, ids: [], side: '' };
-      refs.row = el('div', { class: `ship-row agg-row ${kind}-row`, [`data-${kind}`]: key.slice(key.indexOf(':') + 1), onclick: (e: MouseEvent) => {
+      const refs: GroupRowRefs = { row: el('div'), toggle, name, count, craft, barrier, hull, ids: [], side: '' };
+      refs.row = el('div', { class: `ship-row agg-row ${kind}-row`, [`data-${kind}`]: id, onclick: (e: MouseEvent) => {
         ctrl.selectMany(refs.ids, e.shiftKey);
         app.playUi('ui_click');
       }, ondblclick: () => {
         if (refs.lead) ctrl.focusOn(refs.lead);
       }, oncontextmenu: (e: MouseEvent) => {
+        // As with a ship row: right-clicking a hostile fleet or battlegroup orders the selection to attack it.
         e.preventDefault();
-        if (refs.lead && refs.side !== ctrl.config.perspectiveSide) ctrl.attackWithSelection(refs.lead);
-      } }, [el('div', { class: 'name' }, [toggle, name]), el('div', { class: 'bars' }, [count, el('div', { class: 'bar barrier' }, [barrier]), el('div', { class: 'bar hull' }, [hull])])]);
+        const target = kind === 'fleet' ? activeShipOf(id)?.id : refs.lead;
+        if (target && refs.side !== ctrl.config.perspectiveSide) ctrl.attackWithSelection(target);
+      } }, [el('div', { class: 'name' }, [toggle, name]), el('div', { class: 'bars' }, [count, craft, el('div', { class: 'bar barrier' }, [barrier]), el('div', { class: 'bar hull' }, [hull])])]);
       refs.row.style.paddingLeft = `${6 + depth * 12}px`;
       r = refs;
       groupRowCache.set(key, r);
     }
     return r;
   };
-  const fillAggregate = (r: GroupRowRefs, key: string, label: string, live: readonly ShipState[], deployed: number, hull: number, barriers: number, side: string): HTMLElement => {
+  const fillAggregate = (r: GroupRowRefs, key: string, label: string, live: readonly ShipState[], deployed: number, craft: number, hull: number, barriers: number, side: string): HTMLElement => {
     r.ids = live.map((s) => s.id);
     r.lead = live[0]?.id;
     r.side = side;
@@ -242,6 +253,9 @@ export function createHud(app: App, ctrl: BattleController): Hud {
     r.name.textContent = label;
     r.name.title = label;
     r.count.textContent = `${live.length}/${deployed}`;
+    r.count.title = `${live.length} of ${deployed} hulls in the fight`;
+    // A flight stands for several craft: the fleet's fighters in the fight, counted as the owner's fleet rows did.
+    r.craft.textContent = craft > 0 ? `${craft.toLocaleString('en-GB')} craft` : '';
     r.barrier.style.width = `${100 * barriers}%`;
     r.hull.style.width = `${100 * hull}%`;
     const sel = ctrl.view.selectedIds;
@@ -269,7 +283,7 @@ export function createHud(app: App, ctrl: BattleController): Hud {
     const rows: Node[] = [];
     for (const f of fleets) {
       const key = `fleet:${f.id}`;
-      rows.push(fillAggregate(aggregateRow(key, 'fleet', 0), key, f.name, f.live, f.deployed, f.hull, f.barriers, f.side));
+      rows.push(fillAggregate(aggregateRow(key, 'fleet', 0), key, f.name, f.live, f.deployed, f.craft, f.hull, f.barriers, f.side));
       if (!expanded.has(key)) continue;
       for (const g of f.groups) {
         if (g.live.length === 0) continue;
@@ -281,7 +295,7 @@ export function createHud(app: App, ctrl: BattleController): Hud {
   const groupRows = (g: Battlegroup, side: string): Node[] => {
     const key = `group:${g.id}`;
     const st = strength(g.members);
-    const rows: Node[] = [fillAggregate(aggregateRow(key, 'group', 1), key, `${g.leader.name} group`, g.live, g.members.length, st.hull, st.barriers, side)];
+    const rows: Node[] = [fillAggregate(aggregateRow(key, 'group', 1), key, `${g.leader.name} group`, g.live, g.members.length, 0, st.hull, st.barriers, side)];
     if (expanded.has(key)) {
       for (const s of g.members) {
         const r = shipRow(s);
@@ -295,7 +309,8 @@ export function createHud(app: App, ctrl: BattleController): Hud {
   const fighterLine = el('div', { class: 'dim mono', style: { padding: '4px 6px', fontSize: '10px' } });
   const syncRows = (container: HTMLElement, rows: Node[], extra?: HTMLElement) => {
     const wanted: Node[] = extra ? [...rows, extra] : rows;
-    // Only touch the DOM when the order/membership changed.
+    // Do not recreate rows every refresh: only membership/order should touch
+    // the container DOM; names, counts and individual bars update in place.
     let same = container.childNodes.length === wanted.length;
     if (same) for (let i = 0; i < wanted.length; i++) if (container.childNodes[i] !== wanted[i]) { same = false; break; }
     if (!same) container.replaceChildren(...wanted);
@@ -312,17 +327,23 @@ export function createHud(app: App, ctrl: BattleController): Hud {
     const own = ctrl.config.perspectiveSide;
     const mine = s.ships.filter((x) => x.side === own && x.role !== 'fighter' && !x.escaped).sort((a, b) => b.pointValue - a.pointValue);
     const theirs = s.ships.filter((x) => x.side !== own && x.role !== 'fighter' && !x.escaped).sort((a, b) => b.pointValue - a.pointValue);
-    const fighters = s.ships.filter((x) => x.side === own && x.role === 'fighter' && x.alive && !x.escaped).length;
-    fighterLine.textContent = `${fighters} fighters deployed`;
-    const threshold = largeBattleHulls(app.prefs);
-    const large = (list: ShipState[]) => threshold > 0 && list.filter(inFight).length > threshold;
-    const largeMine = large(mine);
-    const largeTheirs = large(theirs);
-    const summaries = largeMine || largeTheirs ? fleetSummaries(s.ships, s.fleets, battlegroups(s.ships)) : [];
-    shipList.classList.toggle('fleet-mode', largeMine);
-    enemyList.classList.toggle('fleet-mode', largeTheirs);
-    syncRows(shipList, largeMine ? fleetRows(summaries.filter((f) => f.side === own)) : shipRows(mine.slice(0, 80)), fighters > 0 ? fighterLine : undefined);
-    syncRows(enemyList, largeTheirs ? fleetRows(summaries.filter((f) => f.side !== own)) : shipRows(theirs.slice(0, 80)));
+    // Every active ship and flight on both sides counts for the scale policy; our craft (a flight stands for several) for the fighter line.
+    let active = 0;
+    let fighters = 0;
+    for (const x of s.ships) {
+      if (!x.alive || x.escaped) continue;
+      active++;
+      if (x.role === 'fighter' && x.side === own) fighters += x.flight?.craft ?? 1;
+    }
+    fighterLine.textContent = `${fighters.toLocaleString('en-GB')} fighters deployed`;
+    // Large battles (brief §12): one row per fleet on both sides while the engagement is over the Settings threshold;
+    // ship rows return as attrition brings it back under.
+    const fleetMode = useFleetSummary(active, largeBattleHulls(app.prefs));
+    const summaries = fleetMode ? fleetSummaries(s.ships, s.fleets, battlegroups(s.ships)) : [];
+    shipList.classList.toggle('fleet-mode', fleetMode);
+    enemyList.classList.toggle('fleet-mode', fleetMode);
+    syncRows(shipList, fleetMode ? fleetRows(summaries.filter((f) => f.side === own)) : shipRows(mine.slice(0, 80)), fighters > 0 ? fighterLine : undefined);
+    syncRows(enemyList, fleetMode ? fleetRows(summaries.filter((f) => f.side !== own)) : shipRows(theirs.slice(0, 80)));
   };
 
   const renderTarget = () => {
@@ -424,7 +445,7 @@ export function createHud(app: App, ctrl: BattleController): Hud {
     clock.replaceChildren(...(fps ? [fps] : []), fmtTime(s.time), el('small', {}, `${ctrl.paused ? 'PAUSED' : `${ctrl.speed}× SPEED`} · ${ctrl.isReplay ? 'REPLAY · ' : ''}SEED ${s.config.seed} · ${ctrl.view.drawCalls} DRAWS`));
     const a = s.ships.filter((x) => x.side === 'A' && x.alive && !x.escaped && x.role !== 'fighter').length;
     const b = s.ships.filter((x) => x.side === 'B' && x.alive && !x.escaped && x.role !== 'fighter').length;
-    statusLine.textContent = `ALLIED ${a} · HOSTILE ${b} · ${CAMERA_MODE_LABELS[ctrl.view.rig.mode].toUpperCase()} CAM`;
+    statusLine.textContent = `ALLIED ${a} · HOSTILE ${b} · ${CAMERA_MODE_LABELS[ctrl.view.rig.mode].toUpperCase()} CAM · CPU SIM ${ctrl.simStepMs.toFixed(0)}ms · CPU VIEW ${ctrl.renderCpuMs.toFixed(0)}ms`;
     renderControls();
     renderLists();
     renderTarget();

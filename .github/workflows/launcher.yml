@@ -1,0 +1,155 @@
+name: Launcher package
+
+# Builds the stand-alone launcher package (the whole game in one file plus Play launchers for
+# Windows, macOS and Linux), tests it on all three systems, and publishes it as a GitHub Release
+# once per version:
+#   build    typecheck, unit tests, the end-to-end suite, the package, the smoke test (the game
+#            opened from disk runs a battle) and the launcher check on Linux
+#   windows  the release zip unzipped with Expand-Archive and the real .cmd started like a double-click
+#   macos    the release zip unzipped with ditto and the real .command started
+#            (both then let the launcher start the runner's real Edge or Chrome: informational)
+#   publish  main only, after every check passed, when launcher-v<version> does not exist yet
+#            (a published zip is never replaced; bump the version to publish a new build)
+on:
+  push:
+    # Branches only: path filters do not apply to tag pushes.
+    branches: ['**']
+    paths:
+      - 'src/**'
+      - 'public/**'
+      - 'index.html'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'vite.launcher.config.ts'
+      - 'scripts/launcher/**'
+      - '.github/workflows/launcher.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: launcher-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    # Pinned: Playwright 1.56 cannot install Chromium on Ubuntu 26.04, which ubuntu-latest is moving to.
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
+      - run: npm run package:launcher
+      - run: npm run test:launcher
+      - run: npm run check:launcher
+      - id: version
+        run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: reaperwar-launcher
+          path: release/*.zip
+          if-no-files-found: error
+
+  windows:
+    needs: build
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - uses: actions/download-artifact@v4
+        with:
+          name: reaperwar-launcher
+          path: dl
+      # Edge is part of the runner image; the check opens the game in it.
+      - run: node scripts/launcher/check-launchers.mjs "dl/ReaperWar-v${{ needs.build.outputs.version }}.zip"
+      - name: The launcher's own browser lookup starts the real Edge (informational)
+        continue-on-error: true
+        env:
+          RW_REAL_BROWSER: '1'
+        run: node scripts/launcher/check-launchers.mjs "dl/ReaperWar-v${{ needs.build.outputs.version }}.zip"
+
+  macos:
+    needs: build
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install chromium
+      - uses: actions/download-artifact@v4
+        with:
+          name: reaperwar-launcher
+          path: dl
+      - run: node scripts/launcher/check-launchers.mjs "dl/ReaperWar-v${{ needs.build.outputs.version }}.zip"
+      - name: The launcher's own browser lookup starts the real Chrome (informational)
+        continue-on-error: true
+        env:
+          RW_REAL_BROWSER: '1'
+        run: node scripts/launcher/check-launchers.mjs "dl/ReaperWar-v${{ needs.build.outputs.version }}.zip"
+
+  publish:
+    needs: [build, windows, macos]
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    concurrency:
+      group: launcher-release
+      cancel-in-progress: false
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: reaperwar-launcher
+          path: dl
+      - name: Publish the release (once per version)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          V: ${{ needs.build.outputs.version }}
+          CHANGELOG_URL: ${{ github.server_url }}/${{ github.repository }}/blob/${{ github.sha }}/CHANGELOG.md
+        run: |
+          TAG="launcher-v$V"
+          # Published releases only (a leftover draft does not count).
+          if gh api "repos/$GH_REPO/releases/tags/$TAG" --silent 2>/dev/null; then
+            echo "::notice title=Launcher not published::$TAG is already published and is never replaced; bump the version in package.json to publish this build."
+            exit 0
+          fi
+          if gh api "repos/$GH_REPO/git/ref/tags/$TAG" --silent 2>/dev/null; then
+            echo "::error title=Launcher not published::the tag $TAG exists without a published release; delete the tag or bump the version."
+            exit 1
+          fi
+          cat > notes.md <<EOF
+          Download **ReaperWar-v$V.zip** below (not "Source code"), unzip it anywhere and start the Play launcher for your system:
+
+          - **Windows:** double-click "Play Reaper War (Windows).cmd". If Smart App Control or S mode blocks it, open game\index.html in Microsoft Edge instead.
+          - **macOS:** double-click "Play Reaper War (macOS).command". The first time, allow it in System Settings > Privacy & Security > Open Anyway (macOS 14 and earlier: right-click > Open).
+          - **Linux:** run ./play-reaper-war-linux.sh in a terminal (Google Chrome, Chromium or Microsoft Edge; Snap Store and Flathub installs work).
+
+          The game opens in Microsoft Edge, Google Chrome or Chromium as its own window on your graphics card, on the Ultra graphics quality at up to 144 FPS (both adjustable in Settings > Graphics): no install, no server, no internet. README.txt inside covers saves, --vsync and troubleshooting.
+
+          What's new: [CHANGELOG]($CHANGELOG_URL). Built from commit $GITHUB_SHA and checked on Windows, macOS and Linux before publishing.
+          EOF
+          gh release create "$TAG" "dl/ReaperWar-v$V.zip" --target "$GITHUB_SHA" --title "Reaper War Simulator $V - play offline on your own GPU" --notes-file notes.md
