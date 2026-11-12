@@ -9,7 +9,7 @@
 - **Muzzle flashes, hits, explosions.** Light guns flash in proportion to their round (main guns' share of flash area 56 % to 98 %). Hits under 100 damage flash over 17 % of the area they did and throw 48 sparks where they threw 5,658. A fighter dies in an explosion its own size with one cloud of smoke instead of a frigate's. Heavy hits and hull explosions are unchanged.
 - **Point defence and distant fighters.** Point-defence laser lines are drawn at about a third of their former brightness, and a fighter too far away to be a model is a faint mote instead of a glow as bright as a frigate's.
 - Drawing only: nothing under `src/simulation` changed, so battle results are unchanged.
-- Checked: typecheck clean; 550 unit tests in 52 files (15 new in `tests/fighterModels.test.ts` and `tests/visualWeight.test.ts`); build clean; one browser run of the Battle of Earth in software rendering with no page errors and fighters drawn. Not run: the end-to-end suite and the launcher checks. Not judged: how it looks in motion or on a real graphics card.
+- Checked: typecheck clean; 550 unit tests in 52 files (15 new in `tests/fighterModels.test.ts` and `tests/visualWeight.test.ts`); build clean; 14/14 end-to-end tests (run with the container's own browser in software rendering); one more browser run of the Battle of Earth with no page errors and fighters drawn. Not run: the launcher checks. Not judged: how it looks in motion or on a real graphics card.
 - Tried and not kept: the Codex build's fire-spreading target choice. Here it spread targets but did not raise the share of hulls firing (45 % before and after under `prime_apex`; 87 % to 82 % under canon rules, two seeds), so it was left out.
 
 ## 0.12.5 — Readable battles: labels that never pile up
