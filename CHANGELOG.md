@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased — on the integration branch, not on `main` and not in a release
+
+### Fighters are craft, and gunfire no longer buries the main batteries
+- **Fighter models.** The six fighters (Alliance, turian, salarian, Cerberus, geth, quarian) were four to six boxes each, with a canopy drawn as a lit white cube. Each is now built from one kit (pointed fuselage, swept wing panels, dark canopy, nacelles, fins) with its own proportions, 220 to 380 triangles. Lengths, muzzles and engine positions are as before. Original procedural geometry.
+- **Engine glow.** A fighter's glow was 30 m on a 36 m craft at each engine; it is now a fifth of the craft's length. Larger hulls are unchanged.
+- **Tracers.** Every round below main calibre was drawn 45 m wide against 110 m for a dreadnought's slug. Lighter rounds are now finer the lighter they are; main rounds are unchanged. Measured in the Battle of Earth (canon rules, seed 1, 17 looks between 20 and 180 s): main guns' share of the area tracers cover goes from 19 % to 69 %, and all tracers together cover 28 % of what they did.
+- **Muzzle flashes, hits, explosions.** Light guns flash in proportion to their round (main guns' share of flash area 56 % to 98 %). Hits under 100 damage flash over 17 % of the area they did and throw 48 sparks where they threw 5,658. A fighter dies in an explosion its own size with one cloud of smoke instead of a frigate's. Heavy hits and hull explosions are unchanged.
+- **Point defence and distant fighters.** Point-defence laser lines are drawn at about a third of their former brightness, and a fighter too far away to be a model is a faint mote instead of a glow as bright as a frigate's.
+- Drawing only: nothing under `src/simulation` changed, so battle results are unchanged.
+- Checked: typecheck clean; 550 unit tests in 52 files (15 new in `tests/fighterModels.test.ts` and `tests/visualWeight.test.ts`); build clean; one browser run of the Battle of Earth in software rendering with no page errors and fighters drawn. Not run: the end-to-end suite and the launcher checks. Not judged: how it looks in motion or on a real graphics card.
+- Tried and not kept: the Codex build's fire-spreading target choice. Here it spread targets but did not raise the share of hulls firing (45 % before and after under `prime_apex`; 87 % to 82 % under canon rules, two seeds), so it was left out.
+
 ## 0.12.5 — Readable battles: labels that never pile up
 
 - **No overlapping labels.** Ship names are placed in priority order — your selection and the ship under the cursor, flagships and named ships, the followed ship, capitals, damaged hulls, then the rest — and a name that would overlap another, cover a HUD panel or a health bar, or leave the screen is skipped. Every ship keeps its marker; names hold their place between frames instead of jumping.

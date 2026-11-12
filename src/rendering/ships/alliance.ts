@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { at, merge, plateStrip, rot, taperedBox, wedge, zCylinder } from '../geometry';
 import { paletteFor } from '../materials';
+import { buildFighter, type FighterSpec } from './fighterKit';
 import type { BuiltShip } from './types';
 
 /**
@@ -211,18 +212,16 @@ export function buildAllianceFrigate(normandy = false): BuiltShip {
   return assemble(parts, 'alliance', engineNodes, L, new THREE.Vector3(0, -0.02, L * 0.5));
 }
 
-/** F-61 Trident fighter (rendered ×2 for visibility; see KNOWN_ISSUES). */
+/** F-61 Trident fighter (rendered ×2 for visibility; see KNOWN_ISSUES): needle fuselage, cranked wings carrying
+ * two forward gun booms, twin drives under canted fins. */
+export const ALLIANCE_FIGHTER: FighterSpec = {
+  faction: 'alliance', length: 0.36,
+  body: { width: 0.15, height: 0.105, sides: 8 },
+  wing: { span: 0.33, root: 0.38, tip: 0.12, sweep: 0.2, z: 0.08, rise: -0.015, stripe: true },
+  prongs: { x: 0.3, from: -0.12, to: 0.24, radius: 0.016 },
+  engines: { count: 2, x: 0.085, radius: 0.05, length: 0.22 },
+  fins: { count: 2, height: 0.13, root: 0.16, tip: 0.07, sweep: 0.09, x: 0.085, z: -0.26, cant: 0.3 },
+};
 export function buildAllianceFighter(): BuiltShip {
-  const scale = 2;
-  const L = 0.18 * scale;
-  const parts = newParts();
-  parts.hull.push(taperedBox(0.05 * scale, 0.035 * scale, L, 0.3, 0.9));
-  const wing = taperedBox(0.2 * scale, 0.01 * scale, 0.08 * scale, 0.4, 1);
-  parts.hull.push(at(wing, 0, 0, -0.02 * scale));
-  parts.hullDark.push(at(new THREE.BoxGeometry(0.03 * scale, 0.02 * scale, 0.06 * scale), 0.03 * scale, 0, -0.07 * scale));
-  parts.hullDark.push(at(new THREE.BoxGeometry(0.03 * scale, 0.02 * scale, 0.06 * scale), -0.03 * scale, 0, -0.07 * scale));
-  parts.engine.push(at(zCylinder(0.012 * scale, 0.01 * scale, 0.01 * scale, 6), 0.03 * scale, 0, -0.1 * scale));
-  parts.engine.push(at(zCylinder(0.012 * scale, 0.01 * scale, 0.01 * scale, 6), -0.03 * scale, 0, -0.1 * scale));
-  parts.windows.push(at(new THREE.BoxGeometry(0.02 * scale, 0.012 * scale, 0.03 * scale), 0, 0.02 * scale, 0.02 * scale));
-  return assemble(parts, 'alliance', [new THREE.Vector3(0.03 * scale, 0, -0.1 * scale), new THREE.Vector3(-0.03 * scale, 0, -0.1 * scale)], L);
+  return buildFighter(ALLIANCE_FIGHTER);
 }

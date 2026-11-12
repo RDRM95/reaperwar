@@ -1,3 +1,4 @@
+import { explosionSize, explosionSmoke, impactSize, impactSparks, MAIN_CALIBRE, pointDefenceBrightness, tracerSize } from './visualWeight';
 import * as THREE from 'three';
 import { Rng } from '@/core/rng';
 import { KM } from './geometry';
@@ -208,7 +209,7 @@ export class EffectsSystem {
   /** Impact: barrier hit shimmer or hull hit sparks. */
   impact(pos: THREE.Vector3, barrierDamage: number, hullDamage: number, targetRadiusUnits: number, targetPos: () => THREE.Vector3 | undefined, damageType: string): void {
     const total = barrierDamage + hullDamage;
-    const size = Math.min(8, 0.4 + Math.sqrt(total) * 0.09);
+    const size = impactSize(total);
     if (barrierDamage > hullDamage && barrierDamage > 3) {
       // Barrier shimmer around the ship (fresnel shell).
       if (this.shields.length < this.budgets.shields) {
@@ -225,7 +226,7 @@ export class EffectsSystem {
     } else if (total > 0) {
       const tex = damageType === 'reaper_beam' ? this.redTex : this.fireTex;
       this.spark(pos, new THREE.Vector3(), 0.25, size * 0.7, size * 1.6, tex, 0xffffff);
-      const n = Math.min(this.budgets.impactSparks, 2 + Math.floor(hullDamage / 120));
+      const n = Math.min(this.budgets.impactSparks, impactSparks(hullDamage));
       for (let i = 0; i < n; i++) {
         const v = new THREE.Vector3(this.rng.gaussian(0, 1), this.rng.gaussian(0, 1), this.rng.gaussian(0, 1)).multiplyScalar(size * 2.5);
         this.spark(pos, v, 0.5 + this.rng.next() * 0.5, size * 0.25, size * 0.04, this.fireTex, 0xffb060);
@@ -236,7 +237,7 @@ export class EffectsSystem {
 
   /** Explosion scaled to the ship. Returns duration in seconds. */
   explosion(pos: THREE.Vector3, lengthUnits: number, reaper: boolean, pieces: THREE.Object3D[] = [], velocity = new THREE.Vector3()): number {
-    const size = Math.max(1.5, lengthUnits * 0.6);
+    const size = explosionSize(lengthUnits);
     const big = size > 4;
     const n = big ? 30 : size > 1.5 ? 14 : 6;
     for (let i = 0; i < n; i++) {
@@ -249,7 +250,7 @@ export class EffectsSystem {
     // Core flash.
     this.spark(pos, velocity.clone(), 0.35, size * 0.8, size * 2.2, this.flashTex, 0xffffff);
     // Smoke / debris cloud.
-    for (let i = 0; i < (big ? 10 : 4); i++) {
+    for (let i = 0; i < explosionSmoke(size); i++) {
       const v = new THREE.Vector3(this.rng.gaussian(0, 1), this.rng.gaussian(0, 1), this.rng.gaussian(0, 1)).multiplyScalar(size * 0.5).add(velocity);
       this.spark(pos, v, 4 + this.rng.next() * 4, size * 0.4, size * 2.2, this.smokeTex, 0x9a9a9a);
     }
@@ -314,10 +315,10 @@ export class EffectsSystem {
       dir.normalize();
       this.tracerDummy.position.set(px, py, pz);
       this.tracerDummy.lookAt(px + dir.x, py + dir.y, pz + dir.z);
-      const big = it.big ?? ((it.weapon?.damage ?? 0) >= 600);
-      const len = Math.max(1.5, speed * 0.06) * (big ? 1.3 : 0.7);
-      const w = big ? 1.1 : 0.45;
-      this.tracerDummy.scale.set(w, w, len);
+      // Secondary guns are fine streaks, so the main batteries read first (see visualWeight.ts).
+      const calibre = it.weapon?.damage ?? 0;
+      const size = tracerSize(it.big === undefined ? calibre : it.big ? MAIN_CALIBRE : Math.min(calibre, MAIN_CALIBRE - 1));
+      this.tracerDummy.scale.set(size.width, size.width, Math.max(1.5, speed * 0.06) * size.length);
       this.tracerDummy.updateMatrix();
       this.tracerMesh.setMatrixAt(n++, this.tracerDummy.matrix);
     }
@@ -392,7 +393,8 @@ export class EffectsSystem {
       this.pdPositions[i + 3] = l.to.x;
       this.pdPositions[i + 4] = l.to.y;
       this.pdPositions[i + 5] = l.to.z;
-      const c = l.reaper ? [1, 0.25, 0.15] : [0.5, 0.95, 1];
+      const glow = pointDefenceBrightness(l.reaper);
+      const c = l.reaper ? [glow, 0.25 * glow, 0.15 * glow] : [0.5 * glow, 0.95 * glow, glow];
       this.pdColors.set(c, i);
       this.pdColors.set(c, i + 3);
       n++;
