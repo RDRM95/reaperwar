@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { engineGlowSize, farPointBrightness, muzzleFlashSize } from './visualWeight';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import type { BattleSimulation } from '@/simulation/battle';
 import { SIM_DT, mountWorldPosition } from '@/simulation/battle';
@@ -224,7 +225,7 @@ export class BattleView {
       built.engineNodes.forEach((node, i) => {
         const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.glowTex, color, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.85 }));
         sp.position.copy(node);
-        const s = Math.max(0.3, built.lengthUnits * (ship.faction === 'reaper' ? 0.12 : 0.11)) * (built.glowScales?.[i] ?? 1);
+        const s = engineGlowSize(built.lengthUnits, ship.role, ship.faction === 'reaper') * (built.glowScales?.[i] ?? 1);
         sp.scale.set(s, s, 1);
         built.group.add(sp);
         glows.push(sp);
@@ -357,9 +358,11 @@ export class BattleView {
           colour = [this.tmpColour.r, this.tmpColour.g, this.tmpColour.b];
           this.farColourCache.set(ship.faction, colour);
         }
-        this.farColours[far * 3] = colour[0];
-        this.farColours[far * 3 + 1] = colour[1];
-        this.farColours[far * 3 + 2] = colour[2];
+        // A distant fighter is a faint mote, not a glow as bright as a frigate's.
+        const glow = farPointBrightness(ship.role);
+        this.farColours[far * 3] = colour[0] * glow;
+        this.farColours[far * 3 + 1] = colour[1] * glow;
+        this.farColours[far * 3 + 2] = colour[2] * glow;
         far++;
         continue;
       }
@@ -507,7 +510,7 @@ export class BattleView {
             : mount ? new THREE.Vector3(mount.x * KM, mount.y * KM, mount.z * KM)
             : new THREE.Vector3(ship.pos.x * KM, ship.pos.y * KM, ship.pos.z * KM);
           const dir = new THREE.Vector3(ship.heading.x, ship.heading.y, ship.heading.z);
-          this.effects.muzzleFlash(world, dir, big ? 6 : 1.4, ship.faction === 'reaper');
+          this.effects.muzzleFlash(world, dir, muzzleFlashSize(w.def.damage), ship.faction === 'reaper');
           if (big && this.rig.mode === 'cinematic' && this.cine.age > 4 && Math.random() < 0.2) this.cine.hold = 0;
           if (big && this.rig.mode === 'projectile') this.projectileTrack = { id: this.sim.projectiles[this.sim.projectiles.length - 1]?.id ?? 0 };
           break;
