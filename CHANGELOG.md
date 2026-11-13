@@ -2,6 +2,10 @@
 
 ## Unreleased — on the integration branch, not on `main` and not in a release
 
+### The Reaper assessment agrees with the result
+- **After-action report.** The threat score added 0.4 for every Reaper capital lost, whatever the number committed, and the conclusion was read off that score alone. A harvest fleet of 1,500 Sovereigns that lost 15 and destroyed every allied ship was assessed CRITICAL: "Organic fleets capable of defeating harvest forces in open engagement … Harvest of this system: cannot be completed with committed forces." Capital losses now count as a share of the capitals committed (unchanged where a tenth or more are lost, so small engagements read as before), and a finished engagement is reported as it ended: "Organic fleet destroyed. No resistance remains in this engagement. Harvest of this system: proceeding." A costly Reaper victory says it was costly and is still a victory; an organic victory says so. `tests/reaperAssessment.test.ts`.
+- **Checked and not changed.** The same report on the Codex build led to two combat fixes there (dreadnoughts fighting Reapers with broadsides, and fire spread too thin). This engine has neither fault: dreadnoughts fight a Sovereign bow-on with the main gun and fire no broadsides at it. Measured, canon rules, seed 45: one or two dreadnoughts never break a passive Sovereign's barriers, four destroy it in 102 s, six in 67 s, eight in 63 s; eight destroy one that fights back in 61 s for one lost, and six are all lost.
+
 ### Fighters are craft, and gunfire no longer buries the main batteries
 - **Fighter models.** The six fighters (Alliance, turian, salarian, Cerberus, geth, quarian) were four to six boxes each, with a canopy drawn as a lit white cube. Each is now built from one kit (pointed fuselage, swept wing panels, dark canopy, nacelles, fins) with its own proportions, 220 to 380 triangles. Lengths, muzzles and engine positions are as before. Original procedural geometry.
 - **Engine glow.** A fighter's glow was 30 m on a 36 m craft at each engine; it is now a fifth of the craft's length. Larger hulls are unchanged.
